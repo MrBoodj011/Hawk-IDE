@@ -1,18 +1,14 @@
 name: release
 
-# Cut a versioned release by pushing a version tag (e.g. `v0.1.0`).
-# Every push to main also creates the next patch release (e.g. `v0.1.1`)
-# with generated release notes, so installers and `/update latest` pick up
-# a numbered release with a changelog.
-# Can also be run from the Actions tab (workflow_dispatch) for a dry-run rebuild.
+# Cut a versioned Hawk release by pushing a version tag (e.g. `v0.1.0`).
+# Main is deliberately excluded: every release is an intentional tag or a
+# manual dry run, never an accidental deployment from a normal feature push.
 #
 # Pipeline: verify (full CI) -> cross-platform standalone binaries (Bun) ->
 # GitHub Release with SHA256SUMS + auto-generated notes -> npm publish
 # (tag pushes only, when an NPM_TOKEN secret is configured).
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -60,7 +56,7 @@ jobs:
             fi
             IFS=. read -r major minor patch <<< "${latest#v}"
             release_tag="v${major}.${minor}.$((patch + 1))"
-            should_publish_release="true"
+            should_publish_release="false"
           elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             release_tag="${GITHUB_REF_NAME}"
             should_publish_release="true"
@@ -71,7 +67,7 @@ jobs:
 
           {
             echo "release_tag=${release_tag}"
-            echo "release_name=PentesterFlow ${release_tag}"
+            echo "release_name=Hawk Security IDE ${release_tag}"
             echo "should_publish_release=${should_publish_release}"
           } >> "$GITHUB_OUTPUT"
 
@@ -99,13 +95,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: bun-darwin-arm64, name: pentesterflow-darwin-arm64 }
+          - { target: bun-darwin-arm64, name: hawk-darwin-arm64 }
           # Keep x64 asset names stable, but use Bun's baseline runtime so
           # older x86_64 CPUs do not crash with SIGILL before startup.
-          - { target: bun-darwin-x64-baseline, name: pentesterflow-darwin-x64 }
-          - { target: bun-linux-x64-baseline, name: pentesterflow-linux-x64 }
-          - { target: bun-linux-arm64, name: pentesterflow-linux-arm64 }
-          - { target: bun-windows-x64-baseline, name: pentesterflow-windows-x64.exe }
+          - { target: bun-darwin-x64-baseline, name: hawk-darwin-x64 }
+          - { target: bun-linux-x64-baseline, name: hawk-linux-x64 }
+          - { target: bun-linux-arm64, name: hawk-linux-arm64 }
+          - { target: bun-windows-x64-baseline, name: hawk-windows-x64.exe }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -159,7 +155,7 @@ jobs:
       - run: npm run package:extension
       - uses: actions/upload-artifact@v4
         with:
-          name: pentesterflow-ide-vsix
+          name: hawk-security-ide-vsix
           path: extensions/pentesterflow-ide/*.vsix
           if-no-files-found: error
 
@@ -184,7 +180,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: pentesterflow-ide-vsix
+          name: hawk-security-ide-vsix
           path: dist-extension
       - name: Aggregate checksums
         run: |
@@ -204,11 +200,11 @@ jobs:
           set -euo pipefail
           cd dist-bin
           expected=(
-            pentesterflow-darwin-arm64
-            pentesterflow-darwin-x64
-            pentesterflow-linux-x64
-            pentesterflow-linux-arm64
-            pentesterflow-windows-x64.exe
+            hawk-darwin-arm64
+            hawk-darwin-x64
+            hawk-linux-x64
+            hawk-linux-arm64
+            hawk-windows-x64.exe
           )
           test -s SHA256SUMS || { echo "::error::SHA256SUMS is missing or empty"; exit 1; }
           fail=0
@@ -222,7 +218,7 @@ jobs:
           done
           extension_count=$(find ../dist-extension -maxdepth 1 -name '*.vsix' -type f -size +0c | wc -l)
           if [[ "$extension_count" != "1" ]]; then
-            echo "::error::expected exactly one non-empty PentesterFlow IDE VSIX asset"; fail=1
+            echo "::error::expected exactly one non-empty Hawk Security IDE VSIX asset"; fail=1
           fi
           exit "$fail"
       - uses: softprops/action-gh-release@v2
@@ -250,7 +246,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: pentesterflow-ide-vsix
+          name: hawk-security-ide-vsix
           path: dist-extension
       - name: Aggregate checksums
         run: |
