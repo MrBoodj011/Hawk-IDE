@@ -18,7 +18,9 @@ local-first Code-OSS-compatible Hawk security workspace.
   approved passive workspace scans, Hawk health intelligence, findings retest,
   MCP setup, and a native AI task composer.
 - A local daemon that binds only to loopback and requires a random,
-  process-scoped token held by the extension host.
+  process-scoped token held by the extension host. The desktop extension ships
+  this daemon bundle, so the portable IDE does not require a separate daemon
+  binary on `PATH`.
 - Passive route indexing for Express, Fastify, and common Next.js API layouts.
 - Passive code audit signals for embedded credentials, disabled TLS checking,
   `eval`, interpolated SQL-looking calls, and risky CORS combinations.

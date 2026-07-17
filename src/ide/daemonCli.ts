@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { resolve } from 'node:path';
 import { startIdeDaemon } from './daemon.js';
 import { IDE_PROTOCOL_VERSION } from './protocol.js';
