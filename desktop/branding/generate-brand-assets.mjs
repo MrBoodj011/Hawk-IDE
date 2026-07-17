@@ -61,47 +61,55 @@ function createPng(size) {
         pixels[index + 3] = alpha;
       };
 
-      if (insideRoundedRect(px, py, point(18), point(18), point(220), point(220), point(52))) {
-        const depth = Math.min(1, Math.hypot(px - point(196), py - point(36)) / point(230));
-        set(Math.round(10 + depth * 7), Math.round(16 + depth * 9), Math.round(29 + depth * 14));
+      if (insideRoundedRect(px, py, point(10), point(10), point(236), point(236), point(58))) {
+        const depth = Math.min(1, Math.hypot(px - point(58), py - point(42)) / point(270));
+        set(Math.round(17 - depth * 12), Math.round(22 - depth * 15), Math.round(29 - depth * 19));
       }
 
-      const shield = [
-        [128, 31], [204, 61], [192, 157], [128, 223], [64, 157], [52, 61],
+      const raptor = [
+        [40, 54], [106, 83], [128, 105], [150, 83], [216, 54], [195, 134],
+        [154, 154], [128, 220], [102, 154], [61, 134],
       ].map(([sx, sy]) => [point(sx), point(sy)]);
-      if (insidePolygon(px, py, shield)) {
-        const ratio = (px + py) / (size * 2);
-        set(Math.round(255 - ratio * 12), Math.round(203 - ratio * 102), Math.round(104 - ratio * 48));
-      }
-
-      const innerShield = [
-        [128, 52], [183, 74], [174, 147], [128, 196], [82, 147], [73, 74],
-      ].map(([sx, sy]) => [point(sx), point(sy)]);
-      if (insidePolygon(px, py, innerShield)) {
-        set(10, 19, 33);
-      }
-
-      const sky = [85, 220, 255];
-      const amber = [255, 184, 77];
-      const lineWidth = Math.max(1, point(13));
-      const p = (vx, vy) => [point(vx), point(vy)];
-      const wingSegments = [
-        [p(70, 94), p(119, 114)], [p(70, 94), p(105, 137)], [p(73, 138), p(128, 183)],
-        [p(186, 94), p(137, 114)], [p(186, 94), p(151, 137)], [p(183, 138), p(128, 183)],
-      ];
-      const wing = wingSegments.some(([from, to]) => distanceToSegment(px, py, ...from, ...to) < lineWidth / 2);
-      if (wing) {
-        const hue = Math.min(1, Math.max(0, (px - point(70)) / point(116)));
+      if (insidePolygon(px, py, raptor)) {
+        const ratio = Math.min(1, Math.max(0, (py - point(54)) / point(166)));
         set(
-          Math.round(sky[0] * (1 - hue) + amber[0] * hue),
-          Math.round(sky[1] * (1 - hue) + amber[1] * hue),
-          Math.round(sky[2] * (1 - hue) + amber[2] * hue),
+          Math.round(244 + ratio * 11),
+          Math.round(255 - ratio * 156),
+          Math.round(106 - ratio * 43),
         );
       }
-      const beak = [[128, 99], [151, 128], [128, 177], [105, 128]].map(([sx, sy]) => [point(sx), point(sy)]);
-      if (insidePolygon(px, py, beak)) set(...amber);
-      const eyeRadius = Math.max(1, point(6));
-      if (Math.hypot(px - point(105), py - point(111)) < eyeRadius || Math.hypot(px - point(151), py - point(111)) < eyeRadius) set(...sky);
+
+      const faceCutout = [
+        [75, 89], [104, 105], [128, 131], [152, 105], [181, 89],
+        [169, 120], [142, 135], [128, 175], [114, 135], [87, 120],
+      ].map(([sx, sy]) => [point(sx), point(sy)]);
+      if (insidePolygon(px, py, faceCutout)) set(7, 10, 14);
+
+      const sky = [104, 232, 255];
+      const eyeWidth = Math.max(1, point(7));
+      const leftEye = distanceToSegment(
+        px,
+        py,
+        point(88),
+        point(113),
+        point(115),
+        point(126),
+      ) < eyeWidth / 2;
+      const rightEye = distanceToSegment(
+        px,
+        py,
+        point(168),
+        point(113),
+        point(141),
+        point(126),
+      ) < eyeWidth / 2;
+      if (leftEye || rightEye) set(...sky);
+
+      const beak = [[128, 139], [144, 157], [128, 188], [112, 157]].map(([sx, sy]) => [
+        point(sx),
+        point(sy),
+      ]);
+      if (insidePolygon(px, py, beak)) set(255, 79, 66);
     }
   }
 

@@ -31,7 +31,7 @@ Module._load = function load(request, parent, isMain) {
 const { renderAgentPanelHtml } = require(rendererPath);
 const webview = {
   cspSource: 'http://127.0.0.1:4175',
-  asWebviewUri: () => 'http://127.0.0.1:4175/hawk-mark.svg',
+  asWebviewUri: () => 'http://127.0.0.1:4175/hawk-agent-preview/hawk-mark.svg',
 };
 let html = renderAgentPanelHtml(webview, {}, '');
 const nonce = html.match(/script nonce="([^"]+)"/)?.[1];
@@ -41,6 +41,7 @@ html = html.replace(
   `<script nonce="${nonce}">`,
   `<script nonce="${nonce}">window.acquireVsCodeApi=()=>({postMessage:(message)=>window.__hawkMessages=(window.__hawkMessages||[]).concat(message)});</script><script nonce="${nonce}">`,
 );
+const welcomeHtml = html;
 
 const session = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -147,5 +148,6 @@ fs.copyFileSync(
   path.join(root, 'extensions', 'pentesterflow-ide', 'resources', 'hawk-mark.svg'),
   path.join(previewDirectory, 'hawk-mark.svg'),
 );
+fs.writeFileSync(path.join(previewDirectory, 'welcome.html'), welcomeHtml);
 fs.writeFileSync(path.join(previewDirectory, 'index.html'), html);
 console.log(path.join(previewDirectory, 'index.html'));

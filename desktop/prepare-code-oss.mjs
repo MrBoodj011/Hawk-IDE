@@ -50,10 +50,68 @@ const [productText, overridesText] = await Promise.all([
 ]);
 const product = JSON.parse(productText);
 const overrides = JSON.parse(overridesText);
-await writeFile(resolve(out, 'product.json'), `${JSON.stringify({ ...product, ...overrides }, null, 2)}\n`);
+const brandedProduct = filterUpstreamAiDownloads({ ...product, ...overrides });
+await writeFile(resolve(out, 'product.json'), `${JSON.stringify(brandedProduct, null, 2)}\n`);
 await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
+const gettingStartedConfiguration = resolve(
+  out,
+  'src',
+  'vs',
+  'workbench',
+  'contrib',
+  'welcomeGettingStarted',
+  'browser',
+  'gettingStarted.contribution.ts',
+);
+await patchSettingDefault(
+  gettingStartedConfiguration,
+  "'workbench.welcomePage.experimentalOnboarding':",
+  'default: true,',
+  'default: false,',
+);
+await patchSettingDefault(
+  gettingStartedConfiguration,
+  "'workbench.welcomePage.walkthroughs.openOnInstall':",
+  'default: true,',
+  'default: false,',
+);
+await patchSettingDefault(
+  gettingStartedConfiguration,
+  "'workbench.startupEditor':",
+  "'default': 'welcomePage',",
+  "'default': 'none',",
+);
+await patchSettingDefault(
+  resolve(out, 'src', 'vs', 'workbench', 'browser', 'workbench.contribution.ts'),
+  "'workbench.secondarySideBar.defaultVisibility':",
+  "'default': 'visibleInWorkspace',",
+  "'default': 'hidden',",
+);
+const chatConfiguration = resolve(
+  out,
+  'src',
+  'vs',
+  'workbench',
+  'contrib',
+  'chat',
+  'browser',
+  'chat.shared.contribution.ts',
+);
+await patchSettingDefault(
+  chatConfiguration,
+  '[ChatConfiguration.AIDisabled]:',
+  'default: false,',
+  'default: true,',
+);
+await patchSettingDefault(
+  chatConfiguration,
+  '[ChatConfiguration.TitleBarSignInEnabled]:',
+  'default: true,',
+  'default: false,',
+);
 await patchDevLaunchers(out);
 await writeBrandAssets(out);
+await removeUpstreamAiExtensions(out);
 
 const builtinExtension = resolve(out, 'extensions', 'hawk-security-ide');
 await cp(extension, builtinExtension, {
@@ -63,6 +121,24 @@ await cp(extension, builtinExtension, {
 
 process.stdout.write(`Prepared Hawk Security IDE source at ${out}\n`);
 process.stdout.write('Next: npm install, npm run watch, then start the platform script for your OS.\n');
+
+function filterUpstreamAiDownloads(product) {
+  const branded = { ...product };
+  if (Array.isArray(branded.builtInExtensions)) {
+    branded.builtInExtensions = branded.builtInExtensions.filter(
+      (extension) => !String(extension?.name ?? '').toLowerCase().includes('copilot'),
+    );
+  }
+  return branded;
+}
+
+async function removeUpstreamAiExtensions(root) {
+  await Promise.all(
+    ['copilot', 'copilot-chat'].map((name) =>
+      rm(resolve(root, 'extensions', name), { recursive: true, force: true }),
+    ),
+  );
+}
 
 async function patchWindowsPackagingTask(gulpfilePath) {
   const original = await readFile(gulpfilePath, 'utf8');
@@ -82,6 +158,30 @@ async function patchWindowsPackagingTask(gulpfilePath) {
   }
 
   await writeFile(gulpfilePath, original.replace(target, replacement));
+}
+
+async function patchSettingDefault(configurationPath, setting, currentDefault, hawkDefault) {
+  const original = await readFile(configurationPath, 'utf8');
+  const settingIndex = original.indexOf(setting);
+  if (settingIndex < 0) {
+    fail(`could not find the upstream setting ${setting}: ${configurationPath}`);
+  }
+
+  const blockEnd = original.indexOf('\n\t\t}', settingIndex);
+  if (blockEnd < 0) {
+    fail(`could not identify the upstream setting block ${setting}: ${configurationPath}`);
+  }
+
+  const block = original.slice(settingIndex, blockEnd);
+  const patchedBlock = block.replace(currentDefault, hawkDefault);
+  if (block === patchedBlock && !block.includes(hawkDefault)) {
+    fail(`could not apply the Hawk default for ${setting}: ${configurationPath}`);
+  }
+
+  await writeFile(
+    configurationPath,
+    `${original.slice(0, settingIndex)}${patchedBlock}${original.slice(blockEnd)}`,
+  );
 }
 
 async function patchDevLaunchers(root) {

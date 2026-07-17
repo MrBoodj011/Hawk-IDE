@@ -28,8 +28,8 @@ Module._load = function load(request, parent, isMain) {
 
 const { renderMissionControlHtml } = require(rendererPath);
 const webview = {
-  cspSource: 'http://127.0.0.1:4173',
-  asWebviewUri: () => 'http://127.0.0.1:4173/hawk-mark.svg',
+  cspSource: 'http://127.0.0.1:4175',
+  asWebviewUri: () => 'http://127.0.0.1:4175/hawk-ui-preview/hawk-mark.svg',
 };
 let html = renderMissionControlHtml(webview, {}, 'panel');
 const nonce = html.match(/script nonce="([^"]+)"/)?.[1];

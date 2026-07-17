@@ -27,18 +27,64 @@ describe('prepare-code-oss', () => {
     const overrides = join(root, 'overrides.json');
     await mkdir(join(source, 'node_modules'), { recursive: true });
     await mkdir(join(source, 'build'), { recursive: true });
+    await mkdir(join(source, 'extensions', 'copilot'), { recursive: true });
+    await mkdir(join(source, 'src', 'vs', 'workbench', 'browser'), { recursive: true });
+    await mkdir(join(source, 'src', 'vs', 'workbench', 'contrib', 'chat', 'browser'), {
+      recursive: true,
+    });
+    await mkdir(
+      join(source, 'src', 'vs', 'workbench', 'contrib', 'welcomeGettingStarted', 'browser'),
+      { recursive: true },
+    );
     await mkdir(join(extension, 'dist'), { recursive: true });
     await writeFile(
       join(source, 'product.json'),
-      '{"nameShort":"Code - OSS","applicationName":"code-oss"}\n',
+      JSON.stringify({
+        nameShort: 'Code - OSS',
+        applicationName: 'code-oss',
+        defaultChatAgent: { extensionId: 'GitHub.copilot' },
+        trustedExtensionAuthAccess: { github: ['GitHub.copilot-chat'] },
+        builtInExtensions: [{ name: 'GitHub.copilot-chat' }, { name: 'ms-vscode.js-debug' }],
+      }),
     );
     await writeFile(
       join(source, 'build', 'gulpfile.vscode.ts'),
       "const deps = [\n  glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),\n];\n",
     );
+    await writeFile(
+      join(
+        source,
+        'src',
+        'vs',
+        'workbench',
+        'contrib',
+        'welcomeGettingStarted',
+        'browser',
+        'gettingStarted.contribution.ts',
+      ),
+      "const settings = {\n\t\t'workbench.welcomePage.walkthroughs.openOnInstall': {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,\n\t\t\tdescription: 'Upstream walkthroughs'\n\t\t},\n\t\t'workbench.startupEditor': {\n\t\t\t'type': 'string',\n\t\t\t'default': 'welcomePage',\n\t\t\tdescription: 'Upstream startup editor'\n\t\t},\n\t\t'workbench.welcomePage.experimentalOnboarding': {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,\n\t\t\tdescription: 'Upstream AI onboarding'\n\t\t}\n};\n",
+    );
+    await writeFile(
+      join(source, 'src', 'vs', 'workbench', 'browser', 'workbench.contribution.ts'),
+      "const settings = {\n\t\t'workbench.secondarySideBar.defaultVisibility': {\n\t\t\t'type': 'string',\n\t\t\t'default': 'visibleInWorkspace',\n\t\t\tdescription: 'Upstream sidebar default'\n\t\t}\n};\n",
+    );
+    await writeFile(
+      join(
+        source,
+        'src',
+        'vs',
+        'workbench',
+        'contrib',
+        'chat',
+        'browser',
+        'chat.shared.contribution.ts',
+      ),
+      "const settings = {\n\t\t[ChatConfiguration.AIDisabled]: {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: false,\n\t\t\tdescription: 'Upstream AI surfaces'\n\t\t},\n\t\t[ChatConfiguration.TitleBarSignInEnabled]: {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,\n\t\t\tdescription: 'Upstream AI sign in'\n\t\t}\n};\n",
+    );
     await mkdir(join(source, 'scripts'), { recursive: true });
     await writeFile(join(source, 'scripts', 'code.bat'), '@echo off\ntitle VSCode Dev\n');
     await writeFile(join(source, 'node_modules', 'ignored.txt'), 'ignored');
+    await writeFile(join(source, 'extensions', 'copilot', 'package.json'), '{"name":"copilot"}\n');
     await writeFile(join(extension, 'package.json'), '{"name":"hawk-security-ide"}\n');
     await writeFile(join(extension, 'dist', 'extension.js'), 'module.exports = {};\n');
     await writeFile(overrides, '{"nameShort":"Hawk","applicationName":"hawk"}\n');
@@ -55,7 +101,16 @@ describe('prepare-code-oss', () => {
       overrides,
     ]);
 
-    await expect(readFile(join(out, 'product.json'), 'utf8')).resolves.toContain('Hawk');
+    const product = JSON.parse(await readFile(join(out, 'product.json'), 'utf8')) as {
+      nameShort: string;
+      defaultChatAgent: { extensionId: string };
+      trustedExtensionAuthAccess: { github: string[] };
+      builtInExtensions: Array<{ name: string }>;
+    };
+    expect(product.nameShort).toBe('Hawk');
+    expect(product.defaultChatAgent).toEqual({ extensionId: 'GitHub.copilot' });
+    expect(product.trustedExtensionAuthAccess).toEqual({ github: ['GitHub.copilot-chat'] });
+    expect(product.builtInExtensions).toEqual([{ name: 'ms-vscode.js-debug' }]);
     await expect(readFile(join(out, 'scripts', 'code.bat'), 'utf8')).resolves.toContain(
       'title Hawk Security IDE',
     );
@@ -63,6 +118,47 @@ describe('prepare-code-oss', () => {
       readFile(join(out, 'extensions', 'hawk-security-ide', 'dist', 'extension.js'), 'utf8'),
     ).resolves.toContain('module.exports');
     await expect(access(join(out, 'node_modules', 'ignored.txt'))).rejects.toThrow();
+    await expect(access(join(out, 'extensions', 'copilot', 'package.json'))).rejects.toThrow();
+    const gettingStartedSource = await readFile(
+      join(
+        out,
+        'src',
+        'vs',
+        'workbench',
+        'contrib',
+        'welcomeGettingStarted',
+        'browser',
+        'gettingStarted.contribution.ts',
+      ),
+      'utf8',
+    );
+    expect(gettingStartedSource).toContain('default: false,');
+    expect(gettingStartedSource).toContain(
+      "'workbench.welcomePage.walkthroughs.openOnInstall': {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: false,",
+    );
+    expect(gettingStartedSource).toContain("'default': 'none',");
+    await expect(
+      readFile(join(out, 'src', 'vs', 'workbench', 'browser', 'workbench.contribution.ts'), 'utf8'),
+    ).resolves.toContain("'default': 'hidden',");
+    const chatConfigurationSource = await readFile(
+      join(
+        out,
+        'src',
+        'vs',
+        'workbench',
+        'contrib',
+        'chat',
+        'browser',
+        'chat.shared.contribution.ts',
+      ),
+      'utf8',
+    );
+    expect(chatConfigurationSource).toContain(
+      "[ChatConfiguration.AIDisabled]: {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,",
+    );
+    expect(chatConfigurationSource).toContain(
+      "[ChatConfiguration.TitleBarSignInEnabled]: {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: false,",
+    );
     await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(
       "'**/vendor/audio-capture/*-linux/**'",
     );
