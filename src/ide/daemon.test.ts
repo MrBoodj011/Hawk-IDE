@@ -25,7 +25,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 3 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 4 });
 
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);
@@ -74,6 +74,37 @@ describe('startIdeDaemon', () => {
         requests: [
           expect.objectContaining({ url: 'https://api.example.test/orders?token=REDACTED' }),
         ],
+      });
+
+      const captured = await fetch(`${daemon.captureUrl}/ingest`, {
+        method: 'POST',
+        headers: {
+          'X-Hawk-Token': daemon.captureToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          kind: 'burp',
+          id: 44,
+          method: 'POST',
+          url: 'https://api.example.test/orders?authorization=private',
+          status: 201,
+          timeStart: Date.now() - 25,
+          timeEnd: Date.now(),
+          elapsedMs: 25,
+        }),
+      });
+      expect(captured.status).toBe(202);
+      const liveTraffic = await fetch(`${daemon.url}/v1/traffic`, { headers });
+      expect(liveTraffic.status).toBe(200);
+      await expect(liveTraffic.json()).resolves.toMatchObject({
+        source: 'mixed',
+        live: true,
+        requests: expect.arrayContaining([
+          expect.objectContaining({
+            source: 'burp',
+            url: 'https://api.example.test/orders?authorization=REDACTED',
+          }),
+        ]),
       });
 
       const hawk = await fetch(`${daemon.url}/v1/hawk/health/import`, {

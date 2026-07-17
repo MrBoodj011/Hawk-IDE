@@ -69,7 +69,10 @@ function handle(
   // processes can still send requests, but without ACAO they cannot read
   // JSON responses cross-origin.
   const origin = req.headers.origin;
-  if (typeof origin === 'string' && origin.startsWith('chrome-extension://')) {
+  if (
+    typeof origin === 'string' &&
+    (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))
+  ) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');

@@ -50,9 +50,16 @@ const [productText, overridesText] = await Promise.all([
 ]);
 const product = JSON.parse(productText);
 const overrides = JSON.parse(overridesText);
-const brandedProduct = filterUpstreamAiDownloads({ ...product, ...overrides });
+const brandedProduct = filterUpstreamAiDownloads({
+  ...product,
+  ...overrides,
+  ...(args.quality ? { quality: args.quality } : {}),
+  ...(args.updateUrl ? { updateUrl: args.updateUrl } : {}),
+});
 await writeFile(resolve(out, 'product.json'), `${JSON.stringify(brandedProduct, null, 2)}\n`);
+if (args.version) await stampProductVersion(out, args.version);
 await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
+await patchWindowsSetupContextMenu(resolve(out, 'build', 'gulpfile.vscode.win32.ts'));
 const gettingStartedConfiguration = resolve(
   out,
   'src',
@@ -160,6 +167,34 @@ async function patchWindowsPackagingTask(gulpfilePath) {
   await writeFile(gulpfilePath, original.replace(target, replacement));
 }
 
+async function patchWindowsSetupContextMenu(gulpfilePath) {
+  if (!(await exists(gulpfilePath))) return;
+  const original = await readFile(gulpfilePath, 'utf8');
+  const condition = "if (quality === 'stable' || quality === 'insider') {";
+  const contextMenu =
+    "const ctxMenu = (product as { win32ContextMenu?: Record<string, { clsid: string }> }).win32ContextMenu;";
+  const guarded =
+    "if ((quality === 'stable' || quality === 'insider') && ctxMenu?.[arch]) {";
+  if (original.includes(guarded)) return;
+  if (!original.includes(condition) || !original.includes(contextMenu)) {
+    fail(`could not apply the Windows setup context-menu guard: ${gulpfilePath}`);
+  }
+  const withDeclaration = original.replace(
+    condition,
+    `${contextMenu}\n\t\t${guarded}`,
+  );
+  const declarationAfterCondition = withDeclaration.indexOf(contextMenu, withDeclaration.indexOf(guarded));
+  if (declarationAfterCondition < 0) {
+    fail(`could not remove the duplicate Windows context-menu declaration: ${gulpfilePath}`);
+  }
+  await writeFile(
+    gulpfilePath,
+    `${withDeclaration.slice(0, declarationAfterCondition)}${withDeclaration.slice(
+      declarationAfterCondition + contextMenu.length,
+    )}`,
+  );
+}
+
 async function patchSettingDefault(configurationPath, setting, currentDefault, hawkDefault) {
   const original = await readFile(configurationPath, 'utf8');
   const settingIndex = original.indexOf(setting);
@@ -201,6 +236,19 @@ function ensureBuildGitRepository(root) {
     if (error?.code === 'ENOENT') fail('Git is required to prepare a Code-OSS build source');
     execFileSync('git', ['init', '--quiet'], { cwd: root, stdio: 'ignore' });
   }
+  try {
+    execFileSync('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root, stdio: 'ignore' });
+  } catch {
+    execFileSync('git', ['config', 'user.name', 'Hawk Build'], { cwd: root, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'build@hawk.local'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+    execFileSync('git', ['commit', '--allow-empty', '--quiet', '-m', 'Hawk build source'], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+  }
 }
 
 function parseArgs(argv) {
@@ -212,6 +260,9 @@ function parseArgs(argv) {
     else if (flag === '--out') output.out = value();
     else if (flag === '--extension') output.extension = value();
     else if (flag === '--overrides') output.overrides = value();
+    else if (flag === '--version') output.version = value();
+    else if (flag === '--quality') output.quality = value();
+    else if (flag === '--update-url') output.updateUrl = value();
     else if (flag === '--force') output.force = true;
     else if (flag === '--help' || flag === '-h') output.help = true;
     else fail(`unknown flag: ${flag}`);
@@ -220,7 +271,17 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`Prepare a branded Code-OSS checkout with Hawk Security IDE built in.\n\nUsage:\n  node desktop/prepare-code-oss.mjs --source <code-oss-checkout> --out <new-directory> [--force]\n`);
+  process.stdout.write(`Prepare a branded Code-OSS checkout with Hawk Security IDE built in.\n\nUsage:\n  node desktop/prepare-code-oss.mjs --source <code-oss-checkout> --out <new-directory> [--version <semver>] [--quality stable] [--update-url <url>] [--force]\n`);
+}
+
+async function stampProductVersion(root, version) {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    fail(`--version must be a semantic version: ${version}`);
+  }
+  const packagePath = resolve(root, 'package.json');
+  const packageJSON = JSON.parse(await readFile(packagePath, 'utf8'));
+  packageJSON.version = version;
+  await writeFile(packagePath, `${JSON.stringify(packageJSON, null, 2)}\n`);
 }
 
 function requiredPath(value, flag) {

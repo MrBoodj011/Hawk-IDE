@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Hawk Live Capture",
+  "short_name": "Hawk Capture",
+  "version": "0.1.0",
+  "description": "Streams explicitly scoped browser traffic to the local Hawk Security IDE evidence plane.",
+  "permissions": ["storage", "webRequest"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Hawk Live Capture",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-hook.js"],
+      "matches": ["http://*/*", "https://*/*"]
+    }
+  ]
+}

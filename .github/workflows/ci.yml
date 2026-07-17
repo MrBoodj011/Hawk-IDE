@@ -30,3 +30,27 @@ jobs:
           name: hawk-security-ide-vsix
           path: extensions/pentesterflow-ide/*.vsix
           if-no-files-found: error
+
+  integrations:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - run: npm ci
+      - run: npm run check:integrations
+      - run: gradle --no-daemon -p integrations/burp clean jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hawk-burp-companion
+          path: integrations/burp/build/libs/*.jar
+          if-no-files-found: error

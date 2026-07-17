@@ -2,6 +2,8 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 import { join, resolve } from 'node:path';
+import { startIngestServer } from '../browser/server.js';
+import { CaptureStore } from '../browser/store.js';
 import type { AiApplyRequest, AiCreateSessionRequest, AiRunTestsRequest } from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
 import { importHawkHealthReport } from './hawkReport.js';
@@ -18,7 +20,7 @@ import {
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
-import { importHarTraffic } from './traffic.js';
+import { importHarTraffic, importLiveTraffic, mergeTrafficInventories } from './traffic.js';
 import { createWorkspaceScanPlan, runApprovedWorkspaceScan } from './workspaceScan.js';
 
 const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
@@ -36,6 +38,8 @@ export interface IdeDaemonHandle {
   port: number;
   url: string;
   token: string;
+  captureUrl: string;
+  captureToken: string;
   close(): Promise<void>;
   inventory(): WorkspaceInventory | null;
 }
@@ -53,10 +57,15 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   const now = opts.now ?? (() => new Date());
   let latestInventory: WorkspaceInventory | null = null;
   let findings: SecurityFinding[] = [];
-  let traffic: TrafficInventory | null = null;
+  let importedTraffic: TrafficInventory | null = null;
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const aiSessions = new AiSessionManager({ workspaceRoot, now });
   await aiSessions.initialize();
+  const captureStore = new CaptureStore({ maxEntries: 5_000 });
+  const captureServer = await startIngestServer({
+    store: captureStore,
+    port: 0,
+  });
 
   const server = createServer((req, res) => {
     void handleRequest(req, res, {
@@ -71,9 +80,14 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       setFindings: (value) => {
         findings = value;
       },
-      traffic: () => traffic,
+      traffic: () =>
+        mergeTrafficInventories(
+          importedTraffic,
+          importLiveTraffic(captureStore.listRequests({ limit: 1_500 }), now()),
+          now(),
+        ),
       setTraffic: (value) => {
-        traffic = value;
+        importedTraffic = value;
       },
       hawkHealth: () => hawkHealth,
       setHawkHealth: async (value) => {
@@ -85,7 +99,10 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   });
 
   return await new Promise<IdeDaemonHandle>((resolveHandle, reject) => {
-    server.once('error', reject);
+    server.once('error', (err) => {
+      void captureServer.close();
+      reject(err);
+    });
     server.listen(opts.port ?? 0, host, () => {
       const address = server.address();
       const port = address && typeof address === 'object' ? address.port : (opts.port ?? 0);
@@ -95,10 +112,12 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         port,
         url,
         token,
+        captureUrl: captureServer.url,
+        captureToken: captureServer.token,
         inventory: () => latestInventory,
         close: async () => {
           await aiSessions.dispose();
-          await closeServer(server);
+          await Promise.all([closeServer(server), captureServer.close()]);
         },
       });
     });

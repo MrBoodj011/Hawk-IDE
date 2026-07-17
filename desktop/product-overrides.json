@@ -24,6 +24,7 @@
   "darwinProfilePayloadUUID": "E5D9BE2B-E5F4-4BB5-953A-29BEBE28D579",
   "linuxIconName": "hawk",
   "urlProtocol": "hawk",
+  "quality": "stable",
   "reportIssueUrl": "https://github.com/MrBoodj011/hawk/issues/new",
   "licenseName": "Apache-2.0",
   "licenseUrl": "https://github.com/MrBoodj011/hawk/blob/main/LICENSE",

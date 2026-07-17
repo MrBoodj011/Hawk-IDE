@@ -1,0 +1,418 @@
+name: Hawk Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Artifact version (for example v0.2.0)'
+        required: true
+        default: 'v0.2.0'
+      publish:
+        description: 'Attach the verified artifacts to a GitHub Release'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: hawk-desktop-${{ github.ref_name }}-${{ inputs.tag || '' }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      upstream_repository: ${{ steps.upstream.outputs.repository }}
+      upstream_ref: ${{ steps.upstream.outputs.ref }}
+      node: ${{ steps.upstream.outputs.node }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+            publish=true
+          else
+            tag="${{ inputs.tag }}"
+            publish="${{ inputs.publish }}"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::release tag must look like v0.2.0"
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - id: upstream
+        shell: bash
+        run: |
+          node - <<'NODE' >> "$GITHUB_OUTPUT"
+          const value = require('./desktop/upstream.json');
+          for (const key of ['repository', 'ref', 'node']) {
+            if (!value[key]) throw new Error(`desktop/upstream.json is missing ${key}`);
+            console.log(`${key}=${value[key]}`);
+          }
+          NODE
+
+  verify:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run ci
+
+  integrations:
+    needs: [prepare, verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - run: npm ci
+      - run: npm run check:integrations
+      - name: Package browser companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          (
+            cd integrations/browser
+            zip -9 -r "../../artifacts/Hawk-Browser-Companion-${{ needs.prepare.outputs.version }}.zip" .
+          )
+      - name: Build Burp companion
+        run: gradle --no-daemon -p integrations/burp clean jar
+      - name: Collect Burp companion
+        shell: bash
+        run: |
+          cp integrations/burp/build/libs/hawk-burp-companion-*.jar \
+            "artifacts/Hawk-Burp-Companion-${{ needs.prepare.outputs.version }}.jar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hawk-capture-companions
+          path: artifacts/*
+          if-no-files-found: error
+
+  desktop:
+    needs: [prepare, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: win32
+            arch: x64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      HAWK_VERSION: ${{ needs.prepare.outputs.version }}
+      HAWK_TAG: ${{ needs.prepare.outputs.tag }}
+      HAWK_UPDATE_URL: ${{ secrets.HAWK_UPDATE_URL }}
+      BUILD_SOURCEVERSION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.prepare.outputs.upstream_repository }}
+          ref: ${{ needs.prepare.outputs.upstream_ref }}
+          fetch-depth: 1
+          path: upstream
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.prepare.outputs.node }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build Hawk built-in extension
+        shell: bash
+        run: |
+          npm ci
+          npm run build:extension
+      - name: Prepare branded Code-OSS source
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --source "$GITHUB_WORKSPACE/upstream"
+            --out "$RUNNER_TEMP/hawk-codeoss"
+            --extension "$GITHUB_WORKSPACE/extensions/pentesterflow-ide"
+            --version "$HAWK_VERSION"
+            --quality stable
+            --force
+          )
+          if [[ -n "${HAWK_UPDATE_URL:-}" ]]; then
+            args+=(--update-url "$HAWK_UPDATE_URL")
+          fi
+          node desktop/prepare-code-oss.mjs "${args[@]}"
+          node -e "require('fs').rmSync(process.argv[1], { recursive: true, force: true })" \
+            "$GITHUB_WORKSPACE/upstream"
+
+      - name: Install Linux build prerequisites
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential fakeroot rpm pkg-config libx11-dev libxkbfile-dev \
+            libsecret-1-dev libkrb5-dev libgtk-3-dev libnss3-dev libasound2-dev
+
+      - name: Install Code-OSS dependencies
+        working-directory: ${{ runner.temp }}/hawk-codeoss
+        shell: bash
+        run: npm install --no-audit --no-fund
+
+      - name: Build Windows desktop
+        if: matrix.platform == 'win32'
+        working-directory: ${{ runner.temp }}/hawk-codeoss
+        shell: pwsh
+        run: |
+          npm run gulp "vscode-win32-${{ matrix.arch }}-min"
+          $portable = Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}"
+          if (!(Test-Path (Join-Path $portable 'Hawk.exe'))) {
+            throw 'Hawk.exe was not produced by the Code-OSS package task.'
+          }
+
+      - name: Sign Windows application
+        if: matrix.platform == 'win32'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          if (!$env:WINDOWS_CERTIFICATE_BASE64) {
+            'Windows signing secret is not configured; producing an unsigned verification artifact.'
+            exit 0
+          }
+          $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
+          [IO.File]::WriteAllBytes(
+            $certificate,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+          )
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (!$signtool) { throw 'signtool.exe was not found.' }
+          & $signtool.FullName sign /fd SHA256 /td SHA256 `
+            /tr http://timestamp.digicert.com `
+            /f $certificate /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+            (Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}\Hawk.exe")
+          if ($LASTEXITCODE -ne 0) { throw 'Signing Hawk.exe failed.' }
+
+      - name: Build Windows installers
+        if: matrix.platform == 'win32'
+        working-directory: ${{ runner.temp }}/hawk-codeoss
+        shell: pwsh
+        run: |
+          npm run gulp "vscode-win32-${{ matrix.arch }}-system-setup"
+          choco install wixtoolset --yes --no-progress
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          New-Item -ItemType Directory -Force $artifacts | Out-Null
+          $portable = Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}"
+          Compress-Archive -Path "$portable\*" `
+            -DestinationPath "$artifacts\Hawk-windows-${{ matrix.arch }}-$env:HAWK_VERSION-portable.zip" `
+            -CompressionLevel Optimal
+          $setup = Get-ChildItem '.build\win32-${{ matrix.arch }}\system-setup' `
+            -Filter *.exe | Sort-Object Length -Descending | Select-Object -First 1
+          if (!$setup) { throw 'The Hawk EXE installer was not produced.' }
+          Copy-Item -LiteralPath $setup.FullName `
+            -Destination "$artifacts\HawkSetup-windows-${{ matrix.arch }}-$env:HAWK_VERSION.exe"
+          & "$env:GITHUB_WORKSPACE\desktop\windows\package-msi.ps1" `
+            -SourceDir $portable `
+            -Version $env:HAWK_VERSION `
+            -Output "$artifacts\Hawk-windows-${{ matrix.arch }}-$env:HAWK_VERSION.msi"
+
+      - name: Sign Windows installers
+        if: matrix.platform == 'win32'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          if (!$env:WINDOWS_CERTIFICATE_BASE64) { exit 0 }
+          $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          Get-ChildItem artifacts -Include *.exe,*.msi -File | ForEach-Object {
+            & $signtool.FullName sign /fd SHA256 /td SHA256 `
+              /tr http://timestamp.digicert.com `
+              /f $certificate /p $env:WINDOWS_CERTIFICATE_PASSWORD $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signing $($_.Name) failed." }
+          }
+
+      - name: Build Linux desktop and packages
+        if: matrix.platform == 'linux'
+        working-directory: ${{ runner.temp }}/hawk-codeoss
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run gulp "vscode-linux-${{ matrix.arch }}-min"
+          portable="$RUNNER_TEMP/VSCode-linux-${{ matrix.arch }}"
+          test -x "$portable/hawk"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          tar -C "$RUNNER_TEMP" -czf \
+            "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.tar.gz" \
+            "VSCode-linux-${{ matrix.arch }}"
+          npm run gulp \
+            "vscode-linux-${{ matrix.arch }}-prepare-deb" \
+            "vscode-linux-${{ matrix.arch }}-build-deb"
+          deb="$(find ".build/linux/deb" -type f -name '*.deb' -size +0c | head -n 1)"
+          test -n "$deb"
+          cp "$deb" "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.deb"
+          bash "$GITHUB_WORKSPACE/desktop/linux/package-appimage.sh" \
+            "$portable" "$HAWK_VERSION" \
+            "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.AppImage"
+
+      - name: Build macOS desktop
+        if: matrix.platform == 'darwin'
+        working-directory: ${{ runner.temp }}/hawk-codeoss
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run gulp "vscode-darwin-${{ matrix.arch }}-min"
+          app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
+          test -d "$app"
+
+      - name: Sign macOS application
+        if: matrix.platform == 'darwin'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" ]]; then
+            echo "Apple signing secret is not configured; producing an unsigned verification artifact."
+            exit 0
+          fi
+          certificate="$RUNNER_TEMP/hawk-signing.p12"
+          keychain="$RUNNER_TEMP/hawk-signing.keychain-db"
+          password="$(openssl rand -hex 20)"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security list-keychain -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+      - name: Package and notarize macOS
+        if: matrix.platform == 'darwin'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
+          zip="$GITHUB_WORKSPACE/artifacts/Hawk-macos-${{ matrix.arch }}-$HAWK_VERSION.zip"
+          dmg="$GITHUB_WORKSPACE/artifacts/Hawk-macos-${{ matrix.arch }}-$HAWK_VERSION.dmg"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+          hdiutil create -volname "Hawk Security IDE" -srcfolder "$app" \
+            -ov -format UDZO "$dmg"
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            xcrun stapler staple "$dmg"
+          else
+            echo "Apple notarization secrets are not configured; skipping notarization."
+          fi
+
+      - name: Verify desktop artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifacts -maxdepth 1 -type f -size +0c -print
+          count="$(find artifacts -maxdepth 1 -type f -size +0c | wc -l | tr -d ' ')"
+          [[ "$count" -ge 2 ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hawk-desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  release:
+    needs: [prepare, integrations, desktop]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate update manifest and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/generate-release-manifest.mjs \
+            dist "${{ needs.prepare.outputs.tag }}" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+          (
+            cd dist
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 |
+              sort -z |
+              xargs -0 sha256sum > SHA256SUMS
+            test -s update.json
+            test -s SHA256SUMS
+          )
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Hawk Security IDE ${{ needs.prepare.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: true
+          files: dist/*

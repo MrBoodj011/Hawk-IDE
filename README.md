@@ -33,10 +33,15 @@ local-first Code-OSS-compatible Hawk security workspace.
   `eval`, interpolated SQL-looking calls, and risky CORS combinations.
   Signals are explicitly not confirmed vulnerabilities: they require manual
   validation.
-- HAR import that stays on-device and redacts sensitive query values. Imported
-  paths are correlated with indexed source routes and marked live in Mission
-  Control. Hawk never replays imported requests or stores request/response
-  bodies.
+- HAR import that stays on-device, redacts sensitive query values, never
+  replays requests, and never retains request or response bodies. Imported
+  traffic can be combined with a live, redacted Browser/Burp timeline.
+- Installable Browser and Burp companions with explicit pairing, URL scope,
+  request-rate limits, bounded queues, sensitive-header redaction, and capture
+  disabled by default. Mission Control polls the local evidence plane and
+  correlates observed requests to mapped source routes. The live companions
+  retain sensitive request bodies only when an operator separately enables
+  that option.
 - Hawk `health.json` import and optional GitHub raw/Contents API sync that
   correlate local SBOM, governance, dependency maintenance, and security-SLA
   signals. Optional GitHub tokens remain in VS Code SecretStorage.
@@ -64,8 +69,12 @@ local-first Code-OSS-compatible Hawk security workspace.
   timeouts, cancellation, capped logs, per-task artifacts, restart history,
   live-container reattachment, and optional explicitly approved
   network/credential access.
-- Existing PentesterFlow CLI, permissions, sessions, browser/Burp bridge, and
+- Existing Hawk CLI, permissions, sessions, browser/Burp bridge, and
   evidence-backed findings workflow.
+- A pinned cross-platform desktop release pipeline for Windows EXE/MSI and
+  portable ZIP, Linux deb/AppImage/tar, and macOS x64/arm64 ZIP/DMG. Signing,
+  notarization, SHA-256 manifests, and the private-repository update gateway are
+  activated through deployment secrets rather than credentials in source.
 
 ## Use the Code-OSS extension
 
@@ -84,6 +93,8 @@ extension development host, then open the Hawk activity-bar icon. Use
 It can index local routes, run its passive audit, import a HAR file, run an
 approved passive workspace scan, sync a health report, and compose a
 workspace-aware native AI task without opening a separate agent terminal.
+Run **Hawk: Pair Browser / Burp Capture** to copy the short-lived loopback URL
+and token used by either capture companion.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -154,16 +165,13 @@ is written to `.hawk/reports/` and every signal still needs manual validation.
 
 ## Roadmap
 
-1. Burp live-traffic streaming, browser trace capture, authenticated
-   multi-identity replay, and deeper source-to-data-flow correlation.
+1. Authenticated multi-identity replay and deeper source-to-data-flow
+   correlation beyond framework route declarations.
 2. A restricted egress proxy that enforces the declared host allowlist for
    active containers. Docker bridge mode currently requires an additional
    warning acknowledgement because Docker itself does not enforce host-level
    destinations.
-3. Signed Windows installers and auto-update, plus signed macOS and Linux
-   desktop releases. CI currently validates the extension and source bundles;
-   production signing credentials are intentionally not stored in this repo.
-4. Team RBAC/SSO, shared evidence workspaces, cloud-scale durable execution,
+3. Team RBAC/SSO, shared evidence workspaces, cloud-scale durable execution,
    and a network A2A endpoint. Current Smart MCP, A2A bridge, and persistence
    are local-first.
 

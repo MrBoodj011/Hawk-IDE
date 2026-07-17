@@ -11,7 +11,7 @@ export interface CapturedHeader {
 export interface CapturedRequest {
   /** Stable id (extension request id, prefixed with source for uniqueness). */
   id: string;
-  source: 'webRequest' | 'fetch' | 'xhr' | 'ws' | 'unknown';
+  source: 'webRequest' | 'fetch' | 'xhr' | 'ws' | 'burp' | 'unknown';
   tabId?: number;
   method: string;
   url: string;
@@ -140,9 +140,11 @@ export class CaptureStore {
       source:
         kind === 'fetch' || kind === 'xhr' || kind === 'ws'
           ? (kind as CapturedRequest['source'])
-          : kind
-            ? 'unknown'
-            : 'webRequest',
+          : kind === 'burp'
+            ? 'burp'
+            : kind
+              ? 'unknown'
+              : 'webRequest',
       tabId: typeof obj.tabId === 'number' ? obj.tabId : undefined,
       method,
       url,

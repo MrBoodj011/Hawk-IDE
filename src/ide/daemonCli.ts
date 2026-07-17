@@ -71,6 +71,8 @@ async function main(): Promise<void> {
       protocolVersion: IDE_PROTOCOL_VERSION,
       url: daemon.url,
       token: daemon.token,
+      captureUrl: daemon.captureUrl,
+      captureToken: daemon.captureToken,
       workspaceRoot: flags.workspaceRoot,
     })}\n`,
   );

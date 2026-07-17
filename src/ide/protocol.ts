@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 3;
+export const IDE_PROTOCOL_VERSION = 4;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -66,15 +66,21 @@ export interface TrafficRequest {
   host: string;
   status?: number;
   startedAt: string;
+  completedAt?: string;
+  elapsedMs?: number;
+  source?: 'har' | 'browser' | 'burp';
+  initiator?: string;
+  type?: string;
 }
 
 export interface TrafficInventory {
   protocolVersion: number;
   importedAt: string;
-  source: 'har';
+  source: 'har' | 'live' | 'mixed';
   hosts: string[];
   requests: TrafficRequest[];
   truncated: boolean;
+  live: boolean;
 }
 
 export interface HawkHealthSummary {

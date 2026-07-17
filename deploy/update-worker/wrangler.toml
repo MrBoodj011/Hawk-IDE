@@ -1,0 +1,7 @@
+name = "hawk-update-service"
+main = "worker.mjs"
+compatibility_date = "2026-07-18"
+
+[vars]
+GITHUB_REPOSITORY = "MrBoodj011/hawk"
+UPDATE_CHANNEL = "stable"

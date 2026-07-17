@@ -1,0 +1,55 @@
+:root {
+  color-scheme: dark;
+  font: 13px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: #080d14;
+  --panel: #0f1722;
+  --line: #243244;
+  --text: #f4f8fc;
+  --muted: #8fa1b6;
+  --orange: #ff8b42;
+  --cyan: #52e6dc;
+  --red: #ff647c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--text); background: radial-gradient(circle at 100% 0, #182638 0, var(--bg) 45%); }
+body.popup { width: 330px; min-height: 370px; }
+header { display: flex; align-items: center; gap: 10px; padding: 18px; border-bottom: 1px solid var(--line); }
+header strong, header span { display: block; letter-spacing: .12em; }
+header strong { font-size: 14px; }
+header span { color: var(--muted); font-size: 9px; }
+.mark { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #ffb16f; border-radius: 10px; color: #071018; font-weight: 950; background: linear-gradient(140deg, #ffd073, var(--orange)); box-shadow: 0 8px 30px #ff7f392c; }
+header i { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--muted); box-shadow: 0 0 12px currentColor; }
+header i.online { color: var(--cyan); background: var(--cyan); }
+header i.offline { color: var(--red); background: var(--red); }
+.popup main { padding: 16px; }
+.switch-row, .check { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.switch-row small, .check small { display: block; margin-top: 2px; color: var(--muted); }
+input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--orange); }
+.status { margin: 16px 0; padding: 11px 12px; border: 1px solid var(--line); border-left: 3px solid var(--muted); border-radius: 7px; color: var(--muted); background: #0b121c; }
+.status.online { border-left-color: var(--cyan); color: var(--cyan); }
+.status.offline { border-left-color: var(--red); color: #ff9bab; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
+.metrics div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.metrics b, .metrics span { display: block; }
+.metrics b { font-size: 20px; }
+.metrics span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+button { width: 100%; margin-top: 8px; padding: 10px 14px; border: 1px solid transparent; border-radius: 7px; font: inherit; font-weight: 750; cursor: pointer; }
+button.primary { color: #101216; background: linear-gradient(135deg, #ffcf75, var(--orange)); }
+button.secondary { color: var(--text); border-color: var(--line); background: var(--panel); }
+.options { min-height: 100vh; padding: 40px 20px 80px; }
+.settings { width: min(880px, 100%); margin: auto; }
+.settings > header { padding-inline: 0; }
+.hero { padding: 54px 0 30px; }
+.eyebrow, h2 { color: var(--orange); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+h1 { margin: 5px 0 10px; font-size: clamp(34px, 6vw, 64px); line-height: .95; letter-spacing: -.05em; }
+.hero p:last-child { max-width: 620px; color: var(--muted); font-size: 15px; }
+.card { margin: 14px 0; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(145deg, #111b28, #0b121b); box-shadow: 0 25px 70px #0005; }
+.card h2 { margin: 0 0 20px; }
+label { display: block; color: #ced8e4; font-weight: 650; }
+input[type="text"], input[type="url"], input[type="password"], input[type="number"], textarea { width: 100%; margin-top: 7px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: #070c13; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; outline: none; }
+input:focus, textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 3px #ff8b421d; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.check { justify-content: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #090f17; }
+.check.warning { margin-top: 12px; border-color: #47352e; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 650px) { .grid, .actions { grid-template-columns: 1fr; } }

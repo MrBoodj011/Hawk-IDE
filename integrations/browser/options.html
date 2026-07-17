@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hawk Live Capture Settings</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="options">
+    <main class="settings">
+      <header>
+        <div class="mark">H</div>
+        <div><strong>HAWK</strong><span>BROWSER COMPANION</span></div>
+      </header>
+      <section class="hero">
+        <p class="eyebrow">LOCAL EVIDENCE PLANE</p>
+        <h1>Pair. Scope. Observe.</h1>
+        <p>Traffic is sent only to a token-protected Hawk bridge on this machine. Capture stays off until you enable it.</p>
+      </section>
+      <section class="card">
+        <h2>01 / Pair with Hawk</h2>
+        <label>Pairing JSON<textarea id="pairing" rows="6" placeholder='Paste the JSON copied from “Hawk: Pair Browser / Burp Capture”'></textarea></label>
+        <div class="grid">
+          <label>Bridge URL<input id="bridge-url" type="url" spellcheck="false"></label>
+          <label>Pairing token<input id="token" type="password" autocomplete="off" spellcheck="false"></label>
+        </div>
+      </section>
+      <section class="card">
+        <h2>02 / Govern capture</h2>
+        <label>Scope regular expression<input id="scope" type="text" spellcheck="false"></label>
+        <div class="grid">
+          <label>Maximum requests / second<input id="rate" type="number" min="1" max="500"></label>
+          <label class="check"><input id="enabled" type="checkbox"><span><b>Enable capture</b><small>Start after save</small></span></label>
+        </div>
+        <label class="check warning"><input id="bodies" type="checkbox"><span><b>Capture request bodies</b><small>Off by default because bodies may contain secrets.</small></span></label>
+        <label class="check warning"><input id="session" type="checkbox"><span><b>Capture cookies and browser storage</b><small>Highly sensitive. Enable only for an explicitly authorized test profile.</small></span></label>
+      </section>
+      <div class="actions">
+        <button id="save" class="primary">Save & test pairing</button>
+        <button id="test" class="secondary">Test only</button>
+      </div>
+      <div id="result" class="status">Configuration has not been tested yet.</div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

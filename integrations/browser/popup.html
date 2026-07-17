@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hawk Live Capture</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="popup">
+    <header>
+      <div class="mark">H</div>
+      <div><strong>HAWK</strong><span>LIVE CAPTURE</span></div>
+      <i id="dot"></i>
+    </header>
+    <main>
+      <label class="switch-row">
+        <span><b>Capture traffic</b><small>Only URLs matching your scope</small></span>
+        <input id="enabled" type="checkbox">
+      </label>
+      <div class="status" id="status">Checking the local bridge…</div>
+      <div class="metrics">
+        <div><b id="forwarded">0</b><span>Forwarded</span></div>
+        <div><b id="dropped">0</b><span>Rate limited</span></div>
+      </div>
+      <button id="open-options" class="primary">Configure pairing & scope</button>
+      <button id="test" class="secondary">Test connection</button>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
