@@ -25,7 +25,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 2 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 3 });
 
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);
@@ -100,6 +100,27 @@ describe('startIdeDaemon', () => {
       });
       await expect(fetch(`${daemon.url}/v1/hawk/health`, { headers })).resolves.toMatchObject({
         status: 200,
+      });
+
+      const scanPlan = await fetch(`${daemon.url}/v1/scans/plan`, { headers });
+      expect(scanPlan.status).toBe(200);
+      const plan = (await scanPlan.json()) as { scope: string; requiresApproval: boolean };
+      expect(plan).toMatchObject({ scope: 'passive-workspace', requiresApproval: true });
+      const rejectedScan = await fetch(`${daemon.url}/v1/scans/run`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: false, scope: plan.scope }),
+      });
+      expect(rejectedScan.status).toBe(400);
+      const completedScan = await fetch(`${daemon.url}/v1/scans/run`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: true, scope: plan.scope }),
+      });
+      expect(completedScan.status).toBe(200);
+      await expect(completedScan.json()).resolves.toMatchObject({
+        scope: 'passive-workspace',
+        reportPath: expect.stringMatching(/^\.hawk\/reports\//),
       });
     } finally {
       await daemon.close();

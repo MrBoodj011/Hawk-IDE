@@ -15,7 +15,8 @@ local-first Code-OSS-compatible Hawk security workspace.
 ## What works now
 
 - Hawk activity-bar control plane for routes, local audit signals, HAR traffic,
-  Hawk health intelligence, findings retest, MCP setup, and an AI-agent terminal.
+  approved passive workspace scans, Hawk health intelligence, findings retest,
+  MCP setup, and a native AI task composer.
 - A local daemon that binds only to loopback and requires a random,
   process-scoped token held by the extension host.
 - Passive route indexing for Express, Fastify, and common Next.js API layouts.
@@ -25,8 +26,9 @@ local-first Code-OSS-compatible Hawk security workspace.
   validation.
 - HAR import that stays on-device and redacts sensitive query values. It never
   replays imported requests or stores request/response bodies.
-- Hawk `health.json` import that safely correlates local SBOM, governance,
-  dependency maintenance, and security-SLA signals without GitHub credentials.
+- Hawk `health.json` import and optional GitHub raw/Contents API sync that
+  correlate local SBOM, governance, dependency maintenance, and security-SLA
+  signals. Optional GitHub tokens remain in VS Code SecretStorage.
 - `hawk-ide-mcp`, a read-only MCP server exposing route inventory, redacted
   static-audit results, and a sanitized Hawk health summary to an assistant.
 - Existing PentesterFlow CLI, permissions, sessions, browser/Burp bridge, and
@@ -46,7 +48,8 @@ npm run build:extension
 Open the repository's `extensions/pentesterflow-ide` folder in the Code-OSS
 extension development host, then open the Hawk activity-bar icon.
 The dashboard can index local routes, run its passive audit, import a HAR file,
-and launch the existing `hawk` AI agent in the integrated terminal.
+run an approved passive workspace scan, sync a health report, and compose an
+AI task for the existing `hawk` agent in the integrated terminal.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -88,11 +91,22 @@ security boundary and longer-term security graph.
 ## Hawk health report liaison
 
 The separate [Cybrense Hawk](https://github.com/Cybrense-IT-Services/Hawk)
-GitHub App publishes `health.json`. Use **Import Hawk health** in the activity
-bar to load that report locally. Hawk IDE persists only a sanitized summary in
-`.hawk/health.json`; it never accepts a GitHub App private key, installation
-token, raw alert payload, source code, or pull-request body. This is a
-file-contract integration only: no GPL-3.0 Hawk code is included here.
+GitHub App publishes `health.json`. Use **Import Hawk health** to load a local
+file, or **Configure sync** to connect a `raw.githubusercontent.com` or
+GitHub Contents API URL. A private-report token, when needed, is held only in
+VS Code SecretStorage; it is never sent to the dashboard webview or daemon.
+Hawk IDE persists only a sanitized summary in `.hawk/health.json`; it never
+accepts a GitHub App private key, installation token, raw alert payload,
+source code, or pull-request body. This is a file-contract integration only:
+no GPL-3.0 Hawk code is included here.
+
+## Approved passive workspace scan
+
+**Run approved workspace scan** displays its exact plan and requires a modal
+approval. Its scope is deliberately limited to local source text, the local
+route index, and already-imported metadata. It never starts project code,
+contacts a target, replays HAR traffic, or attempts exploitation. The result
+is written to `.hawk/reports/` and every signal still needs manual validation.
 
 ## Roadmap
 

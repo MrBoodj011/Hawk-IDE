@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 2;
+export const IDE_PROTOCOL_VERSION = 3;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -119,6 +119,34 @@ export interface HawkHealthReport {
   outcome?: string;
   summary: HawkHealthSummary;
   priorityQueue: HawkRepositoryRisk[];
+}
+
+/** A transparent, non-networked scan plan that always requires operator approval. */
+export interface WorkspaceScanPlan {
+  protocolVersion: number;
+  createdAt: string;
+  scope: 'passive-workspace';
+  workspaceRoot: string;
+  requiresApproval: true;
+  statement: string;
+  checks: string[];
+}
+
+/** Result of an approved passive workspace scan. It is not a vulnerability verdict. */
+export interface WorkspaceScanReport {
+  protocolVersion: number;
+  id: string;
+  status: 'completed';
+  scope: 'passive-workspace';
+  createdAt: string;
+  completedAt: string;
+  reportPath: string;
+  sourceFiles: number;
+  routes: number;
+  findings: SecurityFinding[];
+  trafficRequests: number;
+  hawkOrganization?: string;
+  statement: string;
 }
 
 export interface DaemonHealth {

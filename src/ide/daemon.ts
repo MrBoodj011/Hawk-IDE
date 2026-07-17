@@ -11,10 +11,13 @@ import {
   type SecurityFinding,
   type TrafficInventory,
   type WorkspaceInventory,
+  type WorkspaceScanPlan,
+  type WorkspaceScanReport,
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import { importHarTraffic } from './traffic.js';
+import { createWorkspaceScanPlan, runApprovedWorkspaceScan } from './workspaceScan.js';
 
 const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
 
@@ -225,6 +228,31 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/scans/plan') {
+    const plan: WorkspaceScanPlan = createWorkspaceScanPlan(context.workspaceRoot, context.now());
+    sendJSON(res, 200, plan);
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/scans/run') {
+    try {
+      const input = parseScanRequest(await readBody(req));
+      const report: WorkspaceScanReport = await runApprovedWorkspaceScan({
+        workspaceRoot: context.workspaceRoot,
+        scope: input.scope,
+        approved: input.approved,
+        traffic: context.traffic(),
+        hawkHealth: context.hawkHealth(),
+        now: context.now(),
+      });
+      context.setFindings(report.findings);
+      sendJSON(res, 200, report);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   const retestMatch = pathname.match(/^\/v1\/findings\/([^/]+)\/retest$/);
   if (req.method === 'POST' && retestMatch?.[1]) {
     try {
@@ -335,4 +363,19 @@ function closeServer(server: Server): Promise<void> {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function parseScanRequest(body: Buffer): { approved: boolean; scope: string } {
+  let value: unknown;
+  try {
+    value = JSON.parse(body.toString('utf8'));
+  } catch {
+    throw new Error('scan request must be valid JSON');
+  }
+  if (!value || typeof value !== 'object') throw new Error('scan request must be an object');
+  const request = value as Record<string, unknown>;
+  if (request.approved !== true)
+    throw new Error('operator approval is required for a workspace scan');
+  if (request.scope !== 'passive-workspace') throw new Error('unsupported scan scope');
+  return { approved: true, scope: request.scope };
 }

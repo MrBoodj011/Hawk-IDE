@@ -17,7 +17,11 @@ The current local-first slice provides:
    to the webview.
 5. Import a separate Hawk GitHub App `health.json` into a sanitized local
    supply-chain summary: SBOM, governance, dependency, and security-SLA risk.
-6. Offer a read-only local MCP server for route, audit, and Hawk health context.
+6. Offer an approved passive workspace scan with an explicit plan, modal
+   confirmation, and a local Markdown report.
+7. Offer a native Hawk AI task composer that sends approved workspace-context
+   prompts to the local terminal agent.
+8. Offer a read-only local MCP server for route, audit, and Hawk health context.
 
 ## Runtime layout
 
@@ -38,7 +42,9 @@ Hawk IDE daemon
 The daemon binds only to a loopback host. Every endpoint requires a
 process-scoped token; webview UI code never receives this token. Hawk report
 import contains no GitHub credential and persists only a sanitized summary
-under `.hawk/health.json`. HAR import
+under `.hawk/health.json`. Optional GitHub sync is restricted to GitHub raw
+and Contents API URLs; its optional token is held in VS Code SecretStorage,
+never in settings, the webview, or the daemon. HAR import
 has a bounded body size and stores only a redacted request inventory, not
 cookies, authorization headers, or request/response bodies.
 
@@ -57,7 +63,8 @@ HTTP request -> route -> source code -> patch -> regression test
 The desktop client owns editor UX, diffs, panels, and user approvals. The
 daemon owns route analysis, audit signals, redacted traffic, and local
 persistence. The extension launches the existing terminal agent only in a
-trusted workspace. MCP is read-only for the implemented IDE tools; editor
-internals stay native for performance and least privilege. Remote testing and
-active scanner actions remain subject to the existing agent permission and
-authorization workflow.
+trusted workspace. A passive workspace scan is local-text-only and requires
+an explicit UI approval before it writes a report. MCP is read-only for the
+implemented IDE tools; editor internals stay native for performance and least
+privilege. Remote testing and active scanner actions remain subject to the
+existing agent permission and authorization workflow.
