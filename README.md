@@ -46,6 +46,11 @@ extension development host, then open the PentesterFlow activity-bar icon.
 The dashboard can index local routes, run its passive audit, import a HAR file,
 and launch the existing `pentesterflow` AI agent in the integrated terminal.
 
+For a branded Code-OSS source tree with the extension built in, follow
+[desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
+Code-OSS checkout into a separate directory, applies only the documented
+product identity, and keeps the upstream checkout unchanged.
+
 The extension's **Copy MCP config** button places this local-only server
 configuration on the clipboard:
 

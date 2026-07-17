@@ -27,6 +27,7 @@
     "dev:ide-daemon": "tsx src/ide/daemonCli.ts",
     "build:extension": "npm --workspace pentesterflow-ide run build",
     "check:extension": "npm --workspace pentesterflow-ide run check",
+    "package:extension": "npm --workspace pentesterflow-ide run package",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

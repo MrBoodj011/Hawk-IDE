@@ -1,0 +1,9 @@
+{
+  "nameShort": "PentesterFlow IDE",
+  "nameLong": "PentesterFlow IDE",
+  "applicationName": "pentesterflow-ide",
+  "dataFolderName": ".pentesterflow-ide",
+  "win32AppUserModelId": "pentesterflow.ide",
+  "linuxIconName": "pentesterflow-ide",
+  "urlProtocol": "pentesterflow-ide"
+}
