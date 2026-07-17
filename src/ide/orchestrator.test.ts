@@ -89,6 +89,26 @@ describe('HawkDockerOrchestrator', () => {
       }),
     ).rejects.toThrow('Invalid task id');
   });
+
+  it('restores history and reattaches a running worker after an MCP restart', async () => {
+    const root = await temporaryWorkspace();
+    const first = new HawkDockerOrchestrator(root, new HangingRuntime());
+    const started = await first.start({
+      image: 'hawk-worker:test',
+      tasks: [{ id: 'long-task', title: 'Long task', command: ['scan', 'all'] }],
+    });
+    await waitForTaskStatus(first, started.id, 'running');
+
+    const recoveryRuntime = new RecoveryRuntime();
+    const restored = new HawkDockerOrchestrator(root, recoveryRuntime);
+    await restored.initialize();
+    const completed = await waitForTerminal(restored, started.id);
+
+    expect(completed.status).toBe('succeeded');
+    expect(completed.tasks[0]).toMatchObject({ id: 'long-task', status: 'succeeded' });
+    expect(recoveryRuntime.recovered).toEqual(['long-task']);
+    expect(recoveryRuntime.started).toEqual([]);
+  });
 });
 
 class FakeRuntime implements WorkerRuntime {
@@ -121,6 +141,33 @@ class FakeRuntime implements WorkerRuntime {
   async cancel(): Promise<void> {}
 }
 
+class HangingRuntime implements WorkerRuntime {
+  async availability(): Promise<{ available: boolean; version?: string }> {
+    return { available: true, version: 'test' };
+  }
+
+  async run(): Promise<WorkerTaskResult> {
+    return await new Promise<WorkerTaskResult>(() => undefined);
+  }
+
+  async cancel(): Promise<void> {}
+}
+
+class RecoveryRuntime extends FakeRuntime {
+  readonly recovered: string[] = [];
+
+  override async recover(context: WorkerTaskContext): Promise<WorkerTaskResult> {
+    this.recovered.push(context.task.id);
+    return {
+      exitCode: 0,
+      output: 'recovered worker output',
+      outputTruncated: false,
+      timedOut: false,
+      cancelled: false,
+    };
+  }
+}
+
 async function temporaryWorkspace(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'hawk-orchestrator-'));
   roots.push(root);
@@ -139,4 +186,16 @@ async function waitForTerminal(
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
   }
   throw new Error(`Run did not finish: ${runId}`);
+}
+
+async function waitForTaskStatus(
+  orchestrator: HawkDockerOrchestrator,
+  runId: string,
+  status: OrchestrationSnapshot['tasks'][number]['status'],
+): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (orchestrator.get(runId)?.tasks.some((task) => task.status === status)) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  }
+  throw new Error(`Task did not reach ${status}: ${runId}`);
 }

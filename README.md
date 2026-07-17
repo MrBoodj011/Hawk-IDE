@@ -36,12 +36,30 @@ local-first Code-OSS-compatible Hawk security workspace.
 - Hawk `health.json` import and optional GitHub raw/Contents API sync that
   correlate local SBOM, governance, dependency maintenance, and security-SLA
   signals. Optional GitHub tokens remain in VS Code SecretStorage.
-- `hawk-ide-mcp`, an MCP server exposing passive route inventory, redacted
-  static-audit results, and a sanitized Hawk health summary to an assistant.
+- Hawk Smart MCP Brain: typed goals and scope, semantic capability search,
+  goal-bound DAG plans, exact-hash approvals, execution-time policy rechecks,
+  local/hosted model routing,
+  durable runs, worker leases, pause/resume/cancel, crash recovery,
+  tamper-evident event chains, governed memory, and structured artifacts.
+- ProofGraph and independent evidence verification. Code, routes, imported
+  requests, signals, evidence, tools, runs, patches, and tests share one graph;
+  a signal cannot become verified until every baseline, reproduction,
+  identity, impact, scope, side-effect, redaction, and evidence gate passes.
+- MCP Security Sentinel fingerprints server manifests and detects tool
+  poisoning, prompt injection, secret-like results, allowlist violations, and
+  post-trust "rug pull" changes. Hawk Smart capability results and imported
+  A2A envelopes pass this guard before entering agent context.
+- A sandboxed, zero-egress Hawk Mission Control MCP App plus MCP resources,
+  prompts, structured tool output, risk annotations, live log/resource
+  notifications, and a durable native MCP Tasks implementation.
+- A local A2A-compatible task-envelope bridge and Eval Lab for same-model,
+  same-token-budget, same-cost-budget comparisons against a plain-agent
+  baseline.
 - Approval-aware Docker orchestration in `hawk-ide-mcp`: background task
   graphs, up to 32 bounded parallel workers, dependency scheduling, retries,
-  timeouts, cancellation, capped logs, per-task artifacts, and optional
-  explicitly approved network/credential access.
+  timeouts, cancellation, capped logs, per-task artifacts, restart history,
+  live-container reattachment, and optional explicitly approved
+  network/credential access.
 - Existing PentesterFlow CLI, permissions, sessions, browser/Burp bridge, and
   evidence-backed findings workflow.
 
@@ -103,6 +121,10 @@ security boundary and longer-term security graph.
 See [parallel Docker orchestration](docs/parallel-orchestration.md) for worker
 isolation, the MCP tools, image setup, and long-running task examples.
 
+See [Smart MCP Brain](docs/smart-mcp.md) for the goal, policy, planner,
+orchestration, ProofGraph, memory, Sentinel, MCP App, A2A bridge, and Eval Lab
+contracts.
+
 ## Hawk health report liaison
 
 The separate [Cybrense Hawk](https://github.com/Cybrense-IT-Services/Hawk)
@@ -125,13 +147,23 @@ is written to `.hawk/reports/` and every signal still needs manual validation.
 
 ## Roadmap
 
-1. Native captured-response streaming in the AI panel with structured tool
-   events and approval cards.
-2. Staged patch generation with Apply, Reject, and one-click Revert snapshots.
-3. Burp live-traffic streaming and richer request-to-data-flow correlation.
-4. Explicit scope/identity management for authorized IDOR/BOLA validation.
-5. Runtime digital twin, regression-test orchestration, and collaborative
-   evidence workspaces.
+1. Native token/tool streaming in the editor AI panel and first-class
+   plan/approval cards backed by the Smart MCP run engine.
+2. Isolated patch worktrees with visual diff preview, Apply, Reject, Revert,
+   and automatic security/regression retests. The current patch-tournament
+   tool deliberately produces a blueprint and never edits files.
+3. Burp live-traffic streaming, browser trace capture, authenticated
+   multi-identity replay, and deeper source-to-data-flow correlation.
+4. A restricted egress proxy that enforces the declared host allowlist for
+   active containers. Docker bridge mode currently requires an additional
+   warning acknowledgement because Docker itself does not enforce host-level
+   destinations.
+5. Signed Windows installers and auto-update, plus signed macOS and Linux
+   desktop releases. CI currently validates the extension and source bundles;
+   production signing credentials are intentionally not stored in this repo.
+6. Team RBAC/SSO, shared evidence workspaces, cloud-scale durable execution,
+   and a network A2A endpoint. Current Smart MCP, A2A bridge, and persistence
+   are local-first.
 
 ## License and attribution
 

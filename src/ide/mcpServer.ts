@@ -4,14 +4,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { DockerDesktopController } from './dockerDesktop.js';
+import { DurableMcpTaskStore } from './durableMcpTaskStore.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import { SmartMcpBrain } from './smartBrain.js';
+import { createCoreCapabilityExecutor } from './smartExecutor.js';
+import { registerSmartMcp } from './smartMcp.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
 const SERVER_NAME = 'hawk-ide';
-const SERVER_VERSION = '0.2.0';
+const SERVER_VERSION = '0.3.0';
 
 interface ParsedArgs {
   workspaceRoot: string;
@@ -60,9 +64,57 @@ async function main(): Promise<void> {
     return;
   }
 
-  const mcp = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   const orchestrator = new HawkDockerOrchestrator(args.workspaceRoot);
+  await orchestrator.initialize();
+  const brainReference: { current?: SmartMcpBrain } = {};
+  const executor = createCoreCapabilityExecutor(args.workspaceRoot, orchestrator, () => {
+    if (!brainReference.current) throw new Error('Hawk Smart MCP Brain is not initialized');
+    return brainReference.current;
+  });
+  const brain = new SmartMcpBrain(args.workspaceRoot, executor);
+  brainReference.current = brain;
+  await brain.initialize();
+  const durableTaskStore = new DurableMcpTaskStore(
+    brain.store,
+    () => new Date(),
+    async (taskId, status) => {
+      if (status !== 'cancelled') return;
+      const mapping = await brain.store.readJson<{ runId: string }>('mcp-task-runs', taskId);
+      if (mapping) await brain.runs.control(mapping.runId, 'cancel').catch(() => undefined);
+    },
+  );
+  const mcp = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    {
+      taskStore: durableTaskStore,
+      capabilities: {
+        tasks: {
+          list: {},
+          cancel: {},
+          requests: { tools: { call: {} } },
+        },
+      },
+      instructions:
+        'Hawk is an evidence-driven security IDE for authorized workspaces. Start with hawk_capabilities_search or hawk_context_snapshot. Compile work with hawk_plan_create, respect policy decisions, bind approvals to the exact plan hash, and never promote a static signal without hawk_evidence_verify.',
+    },
+  );
   const dockerDesktop = new DockerDesktopController();
+  brain.runs.onEvent(async (event) => {
+    await Promise.allSettled([
+      mcp.sendLoggingMessage({
+        level: 'info',
+        logger: 'hawk.smart-run',
+        data: {
+          runId: event.runId,
+          sequence: event.sequence,
+          type: event.type,
+          at: event.at,
+          hash: event.hash,
+        },
+      }),
+      mcp.server.sendResourceUpdated({ uri: `hawk://run/${event.runId}/events` }),
+    ]);
+  });
   mcp.registerTool(
     'ide_route_inventory',
     {
@@ -374,7 +426,7 @@ async function main(): Promise<void> {
     {
       title: 'List Hawk parallel runs',
       description:
-        'List the background orchestration runs held by this local MCP session. Worker output is omitted.',
+        'List restored and current background orchestration runs for this workspace. Worker output is omitted.',
       inputSchema: {},
     },
     async () => textResult(JSON.stringify({ runs: orchestrator.list() }, null, 2)),
@@ -396,9 +448,10 @@ async function main(): Promise<void> {
     },
   );
 
+  registerSmartMcp(mcp, brain, args.workspaceRoot, orchestrator, durableTaskStore);
   await mcp.connect(new StdioServerTransport());
   const shutdown = (): void => {
-    void orchestrator.shutdown().finally(() => process.exit(0));
+    void brain.runs.shutdown().finally(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

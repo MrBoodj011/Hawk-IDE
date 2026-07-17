@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import writeFileAtomic from 'write-file-atomic';
 
 const execFileAsync = promisify(execFile);
 const MAX_TASKS = 64;
@@ -107,6 +108,7 @@ export interface WorkerTaskResult {
 export interface WorkerRuntime {
   availability(): Promise<{ available: boolean; version?: string; error?: string }>;
   run(context: WorkerTaskContext): Promise<WorkerTaskResult>;
+  recover?(context: WorkerTaskContext): Promise<WorkerTaskResult | undefined>;
   cancel(runId: string, taskId: string): Promise<void>;
 }
 
@@ -119,6 +121,7 @@ interface InternalRun {
   tasks: Map<string, InternalTask>;
   active: Map<string, Promise<void>>;
   persisting: Promise<void>;
+  durableSnapshot?: OrchestrationSnapshot;
 }
 
 export class HawkDockerOrchestrator {
@@ -136,6 +139,58 @@ export class HawkDockerOrchestrator {
 
   availability(): Promise<{ available: boolean; version?: string; error?: string }> {
     return this.runtime.availability();
+  }
+
+  async initialize(): Promise<void> {
+    let directories: string[] = [];
+    try {
+      directories = (await readdir(this.outputBase, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith('run-'))
+        .map((entry) => entry.name);
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return;
+      throw error;
+    }
+    for (const directory of directories) {
+      try {
+        const outputRoot = join(this.outputBase, directory);
+        const [snapshot, persistedSpec] = await Promise.all([
+          readJsonFile<OrchestrationSnapshot>(join(outputRoot, 'run.json')),
+          readJsonFile<OrchestrationSpec>(join(outputRoot, 'spec.json')),
+        ]);
+        if (!snapshot || !persistedSpec || snapshot.id !== directory) continue;
+        if (resolve(snapshot.workspaceRoot) !== this.workspaceRoot) continue;
+        if (!isInside(resolve(snapshot.outputRoot), this.outputBase)) continue;
+        const normalized = normalizeSpec(persistedSpec);
+        const tasks = new Map<string, InternalTask>();
+        for (const taskSnapshot of snapshot.tasks) {
+          const spec = normalized.tasks.find((candidate) => candidate.id === taskSnapshot.id);
+          if (!spec)
+            throw new Error(`Persisted run ${snapshot.id} is missing task ${taskSnapshot.id}`);
+          tasks.set(taskSnapshot.id, { ...taskSnapshot, spec });
+        }
+        const { summary: _summary, tasks: _tasks, ...runSnapshot } = snapshot;
+        const run: InternalRun = {
+          snapshot: runSnapshot,
+          tasks,
+          active: new Map(),
+          persisting: Promise.resolve(),
+          durableSnapshot: snapshot,
+        };
+        this.runs.set(snapshot.id, run);
+        if (isTerminalRun(snapshot.status)) continue;
+        for (const task of tasks.values()) {
+          if (task.status !== 'running') continue;
+          const recovery = this.recoverTask(run, task).finally(() => {
+            run.active.delete(task.id);
+          });
+          run.active.set(task.id, recovery);
+        }
+        void this.execute(run);
+      } catch {
+        // A corrupt or obsolete run remains on disk for operator inspection but is never executed.
+      }
+    }
   }
 
   async start(spec: OrchestrationSpec): Promise<OrchestrationSnapshot> {
@@ -183,15 +238,25 @@ export class HawkDockerOrchestrator {
       persisting: Promise.resolve(),
     };
     this.runs.set(id, run);
+    await writeFileAtomic(
+      join(outputRoot, 'spec.json'),
+      `${JSON.stringify(normalized, null, 2)}\n`,
+      {
+        encoding: 'utf8',
+        mode: 0o600,
+        fsync: true,
+      },
+    );
+    await chmod(join(outputRoot, 'spec.json'), 0o600).catch(() => undefined);
     await this.persist(run);
     void this.execute(run);
-    return snapshotOf(run);
+    return this.get(id) as OrchestrationSnapshot;
   }
 
   get(runId: string, includeOutput = false): OrchestrationSnapshot | undefined {
     const run = this.runs.get(runId);
     if (!run) return undefined;
-    const snapshot = snapshotOf(run);
+    const snapshot = run.durableSnapshot ? structuredClone(run.durableSnapshot) : snapshotOf(run);
     if (!includeOutput) {
       snapshot.tasks = snapshot.tasks.map(({ output: _output, ...task }) => task);
     }
@@ -234,7 +299,7 @@ export class HawkDockerOrchestrator {
 
   private async execute(run: InternalRun): Promise<void> {
     run.snapshot.status = 'running';
-    run.snapshot.startedAt = this.now().toISOString();
+    run.snapshot.startedAt ??= this.now().toISOString();
     await this.persist(run);
 
     while (true) {
@@ -299,6 +364,55 @@ export class HawkDockerOrchestrator {
       inheritEnv: run.snapshot.inheritedEnv,
       task: task.spec,
     });
+    await this.applyTaskResult(run, task, result);
+  }
+
+  private async recoverTask(run: InternalRun, task: InternalTask): Promise<void> {
+    try {
+      const result = this.runtime.recover
+        ? await this.runtime.recover(this.taskContext(run, task))
+        : undefined;
+      if (result) {
+        await this.applyTaskResult(run, task, result);
+        return;
+      }
+      if (task.attempt <= (task.spec.retries ?? 0)) {
+        task.status = 'pending';
+        task.error = 'Worker container disappeared during restart; retry scheduled';
+      } else {
+        task.status = 'failed';
+        task.error =
+          'Worker container disappeared during restart and no idempotent retry was authorized';
+        task.completedAt = this.now().toISOString();
+      }
+      await this.persist(run);
+    } catch (error) {
+      task.status = 'failed';
+      task.error = `Worker recovery failed: ${errorMessage(error)}`;
+      task.completedAt = this.now().toISOString();
+      await this.persist(run);
+    }
+  }
+
+  private taskContext(run: InternalRun, task: InternalTask): WorkerTaskContext {
+    return {
+      runId: run.snapshot.id,
+      workspaceRoot: this.workspaceRoot,
+      outputDirectory: task.artifactDirectory,
+      image: run.snapshot.image,
+      cpu: run.snapshot.cpuPerWorker,
+      memoryMb: run.snapshot.memoryMbPerWorker,
+      networkMode: run.snapshot.networkMode,
+      inheritEnv: run.snapshot.inheritedEnv,
+      task: task.spec,
+    };
+  }
+
+  private async applyTaskResult(
+    run: InternalRun,
+    task: InternalTask,
+    result: WorkerTaskResult,
+  ): Promise<void> {
     task.output = result.output;
     task.outputTruncated = result.outputTruncated;
     task.exitCode = result.exitCode;
@@ -346,14 +460,19 @@ export class HawkDockerOrchestrator {
   }
 
   private async persist(run: InternalRun): Promise<void> {
-    run.persisting = run.persisting.then(async () => {
+    const durableSnapshot = snapshotOf(run);
+    const operation = async (): Promise<void> => {
       await mkdir(run.snapshot.outputRoot, { recursive: true });
-      await writeFile(
-        join(run.snapshot.outputRoot, 'run.json'),
-        `${JSON.stringify(snapshotOf(run), null, 2)}\n`,
-        'utf8',
-      );
-    });
+      const file = join(run.snapshot.outputRoot, 'run.json');
+      await writeFileAtomic(file, `${JSON.stringify(durableSnapshot, null, 2)}\n`, {
+        encoding: 'utf8',
+        mode: 0o600,
+        fsync: true,
+      });
+      await chmod(file, 0o600).catch(() => undefined);
+      run.durableSnapshot = durableSnapshot;
+    };
+    run.persisting = run.persisting.then(operation, operation);
     await run.persisting;
   }
 }
@@ -380,7 +499,6 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     const timeoutSeconds = context.task.timeoutSeconds ?? 3600;
     const args = [
       'run',
-      '--rm',
       '--pull=never',
       '--name',
       containerName,
@@ -470,15 +588,72 @@ export class DockerWorkerRuntime implements WorkerRuntime {
         });
       });
       child.once('close', (code) => {
-        finish({
-          exitCode: code ?? -1,
-          output: '',
-          outputTruncated,
-          timedOut,
-          cancelled: false,
+        void this.removeContainer(containerName).finally(() => {
+          finish({
+            exitCode: code ?? -1,
+            output: '',
+            outputTruncated,
+            timedOut,
+            cancelled: false,
+          });
         });
       });
     });
+  }
+
+  async recover(context: WorkerTaskContext): Promise<WorkerTaskResult | undefined> {
+    const containerName = containerNameFor(context.runId, context.task.id);
+    try {
+      await execFileAsync('docker', ['inspect', containerName], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsHide: true,
+      });
+    } catch {
+      return undefined;
+    }
+    const timeoutSeconds = context.task.timeoutSeconds ?? 3600;
+    let timedOut = false;
+    let exitCode = -1;
+    try {
+      const result = await execFileAsync('docker', ['wait', containerName], {
+        encoding: 'utf8',
+        timeout: timeoutSeconds * 1_000,
+        windowsHide: true,
+      });
+      exitCode = Number.parseInt(result.stdout.trim(), 10);
+      if (!Number.isFinite(exitCode)) exitCode = -1;
+    } catch (error) {
+      timedOut = errorCode(error) === 'ETIMEDOUT';
+      if (timedOut) await this.cancel(context.runId, context.task.id);
+    }
+    let output = '';
+    let outputTruncated = false;
+    try {
+      const logs = await execFileAsync('docker', ['logs', containerName], {
+        encoding: 'utf8',
+        timeout: 30_000,
+        maxBuffer: MAX_OUTPUT_BYTES,
+        windowsHide: true,
+      });
+      output = `${logs.stdout}${logs.stderr}`;
+      if (Buffer.byteLength(output, 'utf8') > MAX_OUTPUT_BYTES) {
+        output = Buffer.from(output).subarray(0, MAX_OUTPUT_BYTES).toString('utf8');
+        outputTruncated = true;
+      }
+    } catch (error) {
+      output = `Hawk could not recover complete worker logs: ${errorMessage(error)}`;
+      outputTruncated = true;
+    }
+    await this.removeContainer(containerName);
+    return {
+      exitCode,
+      output,
+      outputTruncated,
+      timedOut,
+      cancelled: false,
+      ...(timedOut ? { error: `Recovered worker exceeded ${timeoutSeconds} seconds` } : {}),
+    };
   }
 
   async cancel(runId: string, taskId: string): Promise<void> {
@@ -490,6 +665,18 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       });
     } catch {
       // The worker may have completed between status inspection and cancellation.
+    }
+  }
+
+  private async removeContainer(containerName: string): Promise<void> {
+    try {
+      await execFileAsync('docker', ['rm', '--force', containerName], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsHide: true,
+      });
+    } catch {
+      // Container cleanup is best effort and recovery can reconcile a retained container.
     }
   }
 }
@@ -626,4 +813,23 @@ function isTerminalRun(status: OrchestrationStatus): boolean {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function errorCode(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+}
+
+function isInside(candidate: string, parent: string): boolean {
+  const path = relative(resolve(parent), resolve(candidate));
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+}
+
+async function readJsonFile<T>(file: string): Promise<T | undefined> {
+  try {
+    return JSON.parse(await readFile(file, 'utf8')) as T;
+  } catch {
+    return undefined;
+  }
 }

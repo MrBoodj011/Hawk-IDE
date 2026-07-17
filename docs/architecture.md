@@ -21,7 +21,9 @@ The current local-first slice provides:
    confirmation, and a local Markdown report.
 7. Offer a native Hawk AI task composer that sends approved workspace-context
    prompts to the local terminal agent.
-8. Offer a read-only local MCP server for route, audit, and Hawk health context.
+8. Offer a Smart MCP server with structured passive context, governed plans,
+   durable native tasks, ProofGraph evidence, verification, security
+   inspection, and explicit controls for higher-risk isolated workers.
 
 ## Runtime layout
 
@@ -37,6 +39,16 @@ Hawk IDE daemon
     +-- Tool runtime and permissions
     +-- MCP gateway
     +-- Browser and Burp bridge
+
+Hawk Smart MCP Brain
+    +-- Intent and scope compiler
+    +-- Policy and exact-plan approvals
+    +-- Semantic capability registry
+    +-- Model and agent router
+    +-- Durable DAG engine and worker leases
+    +-- ProofGraph and evidence verifier
+    +-- Governed memory and MCP Sentinel
+    +-- MCP App, Tasks, resources, and prompts
 ```
 
 The daemon binds only to a loopback host. Every endpoint requires a
@@ -48,10 +60,11 @@ never in settings, the webview, or the daemon. HAR import
 has a bounded body size and stores only a redacted request inventory, not
 cookies, authorization headers, or request/response bodies.
 
-## Security graph
+## ProofGraph
 
-The long-term graph connects `Route`, `Source symbol`, `Identity`, `Request`,
-`Response`, `Finding`, `Evidence`, `Patch`, `Test`, and `Commit` records.
+The implemented local ProofGraph connects `Repository`, `Commit`, `File`,
+`Symbol`, `Route`, `Identity`, `Request`, `Response`, `Finding`, `Evidence`,
+`Patch`, `Test`, `Run`, `Agent`, `Tool`, and `Model` records.
 The graph lets the IDE navigate in both directions:
 
 ```text
@@ -64,7 +77,18 @@ The desktop client owns editor UX, diffs, panels, and user approvals. The
 daemon owns route analysis, audit signals, redacted traffic, and local
 persistence. The extension launches the existing terminal agent only in a
 trusted workspace. A passive workspace scan is local-text-only and requires
-an explicit UI approval before it writes a report. MCP is read-only for the
-implemented IDE tools; editor internals stay native for performance and least
-privilege. Remote testing and active scanner actions remain subject to the
-existing agent permission and authorization workflow.
+an explicit UI approval before it writes a report.
+
+Smart MCP separates read-only context tools from local state changes and
+higher-risk actions using tool annotations, typed action permissions, budgets,
+host scope, plan hashes, and short-lived approvals. The default goal is
+`local-only`, `read-workspace`, and network-denied. A high-risk plan never
+inherits authority from a natural-language prompt: required actions must exist
+in the GoalSpec, and active testing always requires exact-plan approval.
+The plan hash includes the complete GoalSpec hash, and Hawk rechecks plan
+integrity plus policy immediately before starting a run.
+
+The embedded MCP App has no network or external resource CSP permissions. It
+can observe and control Hawk runs only through the host-mediated MCP channel.
+Remote testing and active scanner actions remain subject to the existing
+agent permission and authorization workflow.

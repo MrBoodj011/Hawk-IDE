@@ -20,7 +20,8 @@ Every worker:
   `no-new-privileges`, and a 256-process limit;
 - receives explicit CPU, memory, retry, and timeout limits;
 - has no network by default; and
-- is removed automatically when it exits or is cancelled.
+- is explicitly removed by Hawk after its exit code and capped logs are
+  collected. A retained container can be reattached after an MCP restart.
 
 Run state and capped logs are written under
 `.hawk/orchestrations/<run-id>/`. Each task owns a separate output directory,
@@ -52,7 +53,7 @@ runtime. Hawk never pulls or builds an image during `hawk_parallel_start`.
   also asynchronous.
 - `hawk_parallel_start` validates and starts a background task graph.
 - `hawk_parallel_status` returns progress and optionally capped logs.
-- `hawk_parallel_runs` lists runs held by the current MCP session.
+- `hawk_parallel_runs` lists restored and current runs from the workspace.
 - `hawk_parallel_cancel` stops pending work and force-removes active workers.
 
 The stop tool refuses to run while a Hawk orchestration is active unless
@@ -139,7 +140,15 @@ and explicit approval.
 can run for up to 43,200 seconds (12 hours), retry up to three times, and a run
 can contain up to 64 tasks with at most 32 active workers.
 
-The current MCP process owns its workers and cancels them during graceful
-shutdown. Durable reattachment after a machine reboot is a separate
-production feature; the persisted `run.json` remains available for audit even
-when the in-memory session is gone.
+Hawk atomically writes both a redacted `run.json` and a private `spec.json`. On MCP
+restart it restores run history and reattaches to a retained Docker container
+by its `hawk.run` and `hawk.task` identity. It waits for the original
+container, recovers its exit code and capped logs, then continues the
+dependency graph.
+
+If a running container disappeared before recovery, Hawk retries only when
+the task explicitly declared an available retry. Otherwise it fails the task
+instead of silently repeating a potentially non-idempotent security action.
+Machine reboot recovery therefore works for Docker containers configured by
+the host to restart or remain available; a container removed by Docker cannot
+be reconstructed without an explicitly authorized retry.
