@@ -78,7 +78,7 @@ function defaultDebugPath(sessionID: string): string | undefined {
   const home = homedir();
   if (!home) return undefined;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  return join(home, '.pentesterflow', 'debug', `session-${sessionID}-${stamp}.jsonl`);
+  return join(home, '.hawk', 'debug', `session-${sessionID}-${stamp}.jsonl`);
 }
 
 function serializeAgentEvent(ev: AgentEvent): Record<string, unknown> {

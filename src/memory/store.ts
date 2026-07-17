@@ -6,8 +6,8 @@
 // This layer is what the user reads, edits, and recalls.
 //
 // Two scopes (mirrors EngagementStore / IntelligenceStore):
-//   - project:  ./.pentesterflow/memory/   (this engagement; commit with it)
-//   - personal: ~/.pentesterflow/memory/   (habits/preferences across engagements)
+//   - project:  ./.hawk/memory/   (this engagement; commit with it)
+//   - personal: ~/.hawk/memory/   (habits/preferences across engagements)
 //
 // "Don't forget mid-session" is enforced by the agent, not here: the index()
 // rides in the system prompt on every request (survives compaction) and
@@ -83,8 +83,8 @@ export class MemoryStore {
   constructor(opts: MemoryStoreOptions = {}) {
     const cwd = resolve(opts.cwd ?? process.cwd());
     const home = opts.home ?? homedir();
-    this.projectDir = join(cwd, '.pentesterflow', 'memory');
-    this.personalDir = join(home, '.pentesterflow', 'memory');
+    this.projectDir = join(cwd, '.hawk', 'memory');
+    this.personalDir = join(home, '.hawk', 'memory');
   }
 
   private dir(scope: MemoryScope): string {
@@ -259,7 +259,7 @@ export class MemoryStore {
       return;
     }
     const lines = [
-      `# PentesterFlow memory (${scope})`,
+      `# Hawk memory (${scope})`,
       '',
       'One fact per file. Recalled by relevance each turn; this index is always in context.',
       '',

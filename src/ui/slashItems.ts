@@ -23,7 +23,7 @@ export const SLASH_ITEMS: SlashItem[] = [
     description: 'saved + session memory; add/list curated facts (or #<text>), forget/clear',
   },
   { name: '/snapshot', description: 'write the current redacted context snapshot now' },
-  { name: '/burp', args: '[port]', description: 'start the local Burp/PentesterFlow listener' },
+  { name: '/burp', args: '[port]', description: 'start the local Burp/Hawk listener' },
   { name: '/clear', description: 'clear the on-screen transcript only' },
   { name: '/reset', description: 'clear conversation + saved session' },
   {
@@ -40,7 +40,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   { name: '/thinking', args: 'on|off', description: 'toggle the show-thinking system directive' },
   { name: '/update', args: '[version]', description: 'fetch GitHub release updates and install' },
   { name: '/yolo', args: '[on|off]', description: 'toggle auto-approve for every tool call' },
-  { name: '/exit', description: 'quit pentesterflow' },
+  { name: '/exit', description: 'quit Hawk' },
 ];
 
 /**

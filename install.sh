@@ -1,21 +1,21 @@
 #!/bin/sh
-# pentesterflow online installer (macOS / Linux).
+# Hawk online installer (macOS / Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/PentesterFlow/agent/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MrBoodj011/hawk/main/install.sh | sh
 #
 # Downloads the standalone binary for your OS/arch from the latest GitHub
 # release, verifies its SHA-256, and installs it to ~/.local/bin.
 #
 # Environment overrides:
-#   PENTESTERFLOW_VERSION=v0.1.0      pin a release tag (default: latest)
-#   PENTESTERFLOW_INSTALL_DIR=/path   install location (default: ~/.local/bin)
-#   PENTESTERFLOW_SKILLS_DIR=/path    shipped skills location (default: ~/.pentesterflow/builtin-skills)
-#   PENTESTERFLOW_SKIP_SKILLS=1       install binary only
-#   PENTESTERFLOW_SKIP_CHECKSUM=1     install without SHA-256 verification (unsafe)
+#   HAWK_VERSION=v0.1.0      pin a release tag (default: latest)
+#   HAWK_INSTALL_DIR=/path   install location (default: ~/.local/bin)
+#   HAWK_SKILLS_DIR=/path    shipped skills location (default: ~/.hawk/builtin-skills)
+#   HAWK_SKIP_SKILLS=1       install binary only
+#   HAWK_SKIP_CHECKSUM=1     install without SHA-256 verification (unsafe)
 set -eu
 
-REPO="${PENTESTERFLOW_REPO:-PentesterFlow/agent}"
-BIN="pentesterflow"
+REPO="${HAWK_REPO:-MrBoodj011/hawk}"
+BIN="hawk"
 
 info() { printf '%s\n' "$*" >&2; }
 err() {
@@ -51,7 +51,7 @@ esac
 
 asset="${BIN}-${os}-${arch}"
 
-ver="${PENTESTERFLOW_VERSION:-latest}"
+ver="${HAWK_VERSION:-latest}"
 case "$ver" in
   latest | v*) ;;
   [0-9]*) ver="v${ver}" ;;
@@ -73,13 +73,13 @@ dl "${base}/${asset}" "${tmp}/${asset}" || err "download failed: ${base}/${asset
 
 # --- verify checksum (required; fail-closed) -----------------------------
 # A self-updating binary must not install an unverified download. Any failure
-# to verify is fatal. Set PENTESTERFLOW_SKIP_CHECKSUM=1 to override (e.g. an
+# to verify is fatal. Set HAWK_SKIP_CHECKSUM=1 to override (e.g. an
 # air-gapped mirror you trust by other means).
-if [ "${PENTESTERFLOW_SKIP_CHECKSUM:-}" = "1" ]; then
-  info "warning: PENTESTERFLOW_SKIP_CHECKSUM=1 set — installing WITHOUT checksum verification"
+if [ "${HAWK_SKIP_CHECKSUM:-}" = "1" ]; then
+  info "warning: HAWK_SKIP_CHECKSUM=1 set — installing WITHOUT checksum verification"
 else
   dl_stdout "${base}/SHA256SUMS" >"${tmp}/SHA256SUMS" 2>/dev/null ||
-    err "could not download SHA256SUMS from ${base} — refusing to install an unverified binary (set PENTESTERFLOW_SKIP_CHECKSUM=1 to override)"
+    err "could not download SHA256SUMS from ${base} — refusing to install an unverified binary (set HAWK_SKIP_CHECKSUM=1 to override)"
   [ -s "${tmp}/SHA256SUMS" ] ||
     err "downloaded SHA256SUMS is empty — refusing to install an unverified binary"
   want=$(awk -v a="$asset" '$2==a {print $1}' "${tmp}/SHA256SUMS" | head -n1)
@@ -90,7 +90,7 @@ else
   elif command -v shasum >/dev/null 2>&1; then
     got=$(shasum -a 256 "${tmp}/${asset}" | awk '{print $1}')
   else
-    err "no sha256sum/shasum tool found — cannot verify the download (set PENTESTERFLOW_SKIP_CHECKSUM=1 to override)"
+    err "no sha256sum/shasum tool found — cannot verify the download (set HAWK_SKIP_CHECKSUM=1 to override)"
   fi
   [ "$got" = "$want" ] ||
     err "checksum mismatch for ${asset} (expected ${want}, got ${got})"
@@ -98,10 +98,10 @@ else
 fi
 
 # --- install --------------------------------------------------------------
-if [ -n "${PENTESTERFLOW_INSTALL_DIR:-}" ]; then
-  dir="$PENTESTERFLOW_INSTALL_DIR"
+if [ -n "${HAWK_INSTALL_DIR:-}" ]; then
+  dir="$HAWK_INSTALL_DIR"
 else
-  [ -n "${HOME:-}" ] || err "HOME is not set; set PENTESTERFLOW_INSTALL_DIR explicitly"
+  [ -n "${HOME:-}" ] || err "HOME is not set; set HAWK_INSTALL_DIR explicitly"
   dir="$HOME/.local/bin"
 fi
 
@@ -123,12 +123,12 @@ fi
 info "installed ${BIN} -> ${dest}"
 
 # --- install shipped skills ----------------------------------------------
-if [ "${PENTESTERFLOW_SKIP_SKILLS:-}" != "1" ]; then
-  if [ -n "${PENTESTERFLOW_SKILLS_DIR:-}" ]; then
-    skills_dir="$PENTESTERFLOW_SKILLS_DIR"
+if [ "${HAWK_SKIP_SKILLS:-}" != "1" ]; then
+  if [ -n "${HAWK_SKILLS_DIR:-}" ]; then
+    skills_dir="$HAWK_SKILLS_DIR"
   else
-    [ -n "${HOME:-}" ] || err "HOME is not set; set PENTESTERFLOW_SKILLS_DIR explicitly"
-    skills_dir="$HOME/.pentesterflow/builtin-skills"
+    [ -n "${HOME:-}" ] || err "HOME is not set; set HAWK_SKILLS_DIR explicitly"
+    skills_dir="$HOME/.hawk/builtin-skills"
   fi
 
   if command -v tar >/dev/null 2>&1; then

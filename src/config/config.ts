@@ -1,4 +1,4 @@
-// Config file at ~/.pentesterflow/config.json. Loaded once at startup; saved atomically (write to
+// Config file at ~/.hawk/config.json. Loaded once at startup; saved atomically (write to
 // sibling .tmp + fsync + rename) so a crash mid-write can't corrupt it.
 
 import { randomBytes } from 'node:crypto';
@@ -112,10 +112,10 @@ function noShellMeta(s: string): boolean {
 // ---------- Paths ----------
 
 export function configPath(): string {
-  const override = process.env.PENTESTERFLOW_CONFIG;
+  const override = process.env.HAWK_CONFIG;
   if (override && override.length > 0) return override;
   const home = homedir();
-  return join(home, '.pentesterflow', 'config.json');
+  return join(home, '.hawk', 'config.json');
 }
 
 // ---------- Load / save ----------
@@ -150,7 +150,7 @@ export async function save(cfg: Config): Promise<void> {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   const body = `${JSON.stringify(cfg, null, 2)}\n`;
-  const tmp = join(dir, `.pentesterflow.cfg.tmp.${randomBytes(3).toString('hex')}`);
+  const tmp = join(dir, `.hawk.cfg.tmp.${randomBytes(3).toString('hex')}`);
 
   let fh: Awaited<ReturnType<typeof open>> | undefined;
   try {

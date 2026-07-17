@@ -97,8 +97,8 @@ export class IntelligenceStore {
   constructor(opts: StoreOptions = {}) {
     const cwd = resolve(opts.cwd ?? process.cwd());
     const home = opts.home ?? homedir();
-    this.projectPath = join(cwd, '.pentesterflow', 'intelligence', 'scenarios.jsonl');
-    this.personalPath = join(home, '.pentesterflow', 'intelligence', 'scenarios.jsonl');
+    this.projectPath = join(cwd, '.hawk', 'intelligence', 'scenarios.jsonl');
+    this.personalPath = join(home, '.hawk', 'intelligence', 'scenarios.jsonl');
   }
 
   list(): IntelligenceScenario[] {
@@ -287,7 +287,7 @@ export class IntelligenceStore {
 export function formatIntelligenceContext(results: SearchResult[]): string {
   if (results.length === 0) return '';
   const out: string[] = [];
-  out.push('# Local PentesterFlow Intelligence');
+  out.push('# Local Hawk Intelligence');
   out.push('');
   out.push(
     'The following local intelligence scenarios matched this turn. Use them as scan-coverage guidance only; verify all claims with live evidence before reporting findings.',

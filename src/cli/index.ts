@@ -111,8 +111,8 @@ function parseFlags(argv: string[]): ParsedFlags {
     burpPort: 9999,
     noStream: false,
     logPath: '',
-    debugSession: process.env.PENTESTERFLOW_DEBUG_SESSION === '1',
-    debugSessionPath: process.env.PENTESTERFLOW_DEBUG_SESSION_PATH ?? '',
+    debugSession: process.env.HAWK_DEBUG_SESSION === '1',
+    debugSessionPath: process.env.HAWK_DEBUG_SESSION_PATH ?? '',
     listSkills: false,
     listTools: false,
   };
@@ -447,7 +447,7 @@ async function main(): Promise<number> {
     try {
       const result = await startBurpBridge(flags.burpPort);
       process.stderr.write(
-        `PentesterFlow Burp bridge listening at ${result.url}\nPentesterFlow Burp bridge token: ${result.token}\nSet both values in the Burp plugin.\n`,
+        `Hawk Burp bridge listening at ${result.url}\nHawk Burp bridge token: ${result.token}\nSet both values in the Burp plugin.\n`,
       );
     } catch (err) {
       process.stderr.write(
@@ -849,7 +849,7 @@ function buildResumeSummary(sessionID: string, memory: string): string {
 }
 
 function buildExitResumeHint(sessionID: string): string {
-  return `Resume this session: pentesterflow --resume ${sessionID}`;
+  return `Resume this session: hawk --resume ${sessionID}`;
 }
 
 function prettyCwd(): string {
@@ -888,10 +888,10 @@ async function runFirstRunPicker(): Promise<config.ToolingProfile | null> {
 }
 
 function printHelp(): void {
-  process.stdout.write(`pentesterflow ${VERSION}
+  process.stdout.write(`hawk ${VERSION}
 
 Usage:
-  pentesterflow [flags]
+  hawk [flags]
 
 Flags:
   --backend ollama|lmstudio|openai-compat|kimi|groq|openrouter|deepseek|gemini
@@ -901,7 +901,7 @@ Flags:
   --skills <dirs>            comma-separated extra skill directories
   --resume <session-id>
   --browser                  enable Browser MCP for this session only (not persisted)
-  --burp [port]              start local Burp/PentesterFlow bridge (default :9999)
+  --burp [port]              start local Burp/Hawk bridge (default :9999)
   --browser-ingest [port]    deprecated alias for --burp
   --no-stream                disable streaming chat (fallback for backends
                              whose SSE/ND-JSON path drops tool_calls)

@@ -119,7 +119,7 @@ export class WebFetchTool implements Tool {
         redirect: 'manual',
         headers: {
           Accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8',
-          'User-Agent': 'Mozilla/5.0 pentesterflow/0.1 (+research)',
+          'User-Agent': 'Mozilla/5.0 hawk/0.1 (+research)',
         },
         signal: combined,
       });
@@ -280,7 +280,7 @@ export class WebSearchTool implements Tool {
     try {
       resp = await fetch(endpoint, {
         method: 'GET',
-        headers: { 'User-Agent': 'Mozilla/5.0 pentesterflow/0.1' },
+        headers: { 'User-Agent': 'Mozilla/5.0 hawk/0.1' },
         signal: combined,
       });
     } catch (err) {

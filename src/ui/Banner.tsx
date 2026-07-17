@@ -48,7 +48,7 @@ export function Banner({ data, width }: { data: BannerData; width?: number }): R
     hint?: boolean;
     pill?: { text: string; color: string } | null;
   }> = [
-    { label: 'Welcome to pentesterflow', value: '', accent: true },
+    { label: 'Welcome to Hawk', value: '', accent: true },
     { label: 'Provider', value: data.state ? `${data.provider} (${data.state})` : data.provider },
     { label: 'Model', value: modelValue, pill },
     ...(data.endpoint ? [{ label: 'Endpoint', value: data.endpoint }] : []),

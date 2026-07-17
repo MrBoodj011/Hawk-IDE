@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 1;
+export const IDE_PROTOCOL_VERSION = 2;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -75,6 +75,50 @@ export interface TrafficInventory {
   hosts: string[];
   requests: TrafficRequest[];
   truncated: boolean;
+}
+
+export interface HawkHealthSummary {
+  repositories: number;
+  maintenanceScore?: number;
+  governanceScore?: number;
+  highRiskRepositories: number;
+  failedUpdatePulls: number;
+  overdueSecurityAlerts: number;
+  securityAlerts: number;
+  criticalSecurityAlerts: number;
+  highSecurityAlerts: number;
+  sbomRepositories: number;
+  trackedPackages: number;
+  unknownPackageLicenses: number;
+  securityUnknown: number;
+  inspectionErrors: number;
+}
+
+export interface HawkRepositoryRisk {
+  name: string;
+  url?: string;
+  score: number;
+  level: 'critical' | 'high' | 'moderate' | 'low' | 'unknown';
+  reasons: string[];
+  securityAlerts: number | null;
+  criticalAlerts: number;
+  highAlerts: number;
+  overdueSecurityAlerts: number;
+  failedChecks: number;
+  sbomPackages: number;
+  unknownLicenses: number;
+}
+
+/** Sanitized, local-only import of a Hawk organization health report. */
+export interface HawkHealthReport {
+  protocolVersion: number;
+  source: 'hawk-health-json';
+  importedAt: string;
+  generatedAt?: string;
+  organization?: string;
+  outcome?: string;
+  summary: HawkHealthSummary;
+  priorityQueue: HawkRepositoryRisk[];
 }
 
 export interface DaemonHealth {

@@ -34,7 +34,7 @@ describe('probeToolSupport', () => {
           {
             id: 'call-1',
             type: 'function',
-            function: { name: '__pentesterflow_probe_ping', arguments: '{"value":"ok"}' },
+            function: { name: '__hawk_probe_ping', arguments: '{"value":"ok"}' },
           },
         ],
       },

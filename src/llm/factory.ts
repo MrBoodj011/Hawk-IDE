@@ -76,8 +76,8 @@ export function newFromConfig(cfg: Config): Client {
         cfg.model || OPENROUTER_DEFAULT_MODEL,
         'openrouter',
         {
-          'HTTP-Referer': 'https://github.com/pentesterflow/agent',
-          'X-OpenRouter-Title': 'PentesterFlow',
+          'HTTP-Referer': 'https://github.com/MrBoodj011/hawk',
+          'X-OpenRouter-Title': 'Hawk Security IDE',
         },
         gen,
       );

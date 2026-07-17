@@ -1,6 +1,6 @@
-# PentesterFlow IDE architecture
+# Hawk Security IDE architecture
 
-PentesterFlow IDE is a security-native development environment that joins
+Hawk Security IDE is a security-native development environment that joins
 source-code understanding, live traffic, evidence-backed findings, and verified
 fixes in one local-first workflow.
 
@@ -15,7 +15,9 @@ The current local-first slice provides:
    token-gated loopback daemon.
 4. Connect the Code-OSS-compatible dashboard without exposing the daemon token
    to the webview.
-5. Offer a read-only local MCP server for route and audit context.
+5. Import a separate Hawk GitHub App `health.json` into a sanitized local
+   supply-chain summary: SBOM, governance, dependency, and security-SLA risk.
+6. Offer a read-only local MCP server for route, audit, and Hawk health context.
 
 ## Runtime layout
 
@@ -24,7 +26,7 @@ Code-OSS-compatible extension
     |
     | local authenticated API
     v
-PentesterFlow IDE daemon
+Hawk IDE daemon
     +-- Agent core
     +-- Security graph
     +-- Findings and evidence
@@ -34,7 +36,9 @@ PentesterFlow IDE daemon
 ```
 
 The daemon binds only to a loopback host. Every endpoint requires a
-process-scoped token; webview UI code never receives this token. HAR import
+process-scoped token; webview UI code never receives this token. Hawk report
+import contains no GitHub credential and persists only a sanitized summary
+under `.hawk/health.json`. HAR import
 has a bounded body size and stores only a redacted request inventory, not
 cookies, authorization headers, or request/response bodies.
 

@@ -9,19 +9,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultConfig, load, save } from './config.js';
 
 let tmp = '';
-const originalEnv = process.env.PENTESTERFLOW_CONFIG;
+const originalEnv = process.env.HAWK_CONFIG;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'pf-config-'));
-  process.env.PENTESTERFLOW_CONFIG = join(tmp, 'config.json');
+  process.env.HAWK_CONFIG = join(tmp, 'config.json');
 });
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
   if (originalEnv === undefined) {
-    process.env.PENTESTERFLOW_CONFIG = undefined;
+    process.env.HAWK_CONFIG = undefined;
   } else {
-    process.env.PENTESTERFLOW_CONFIG = originalEnv;
+    process.env.HAWK_CONFIG = originalEnv;
   }
 });
 
@@ -133,7 +133,11 @@ describe('config', () => {
     cfg.backend = 'ollama';
     await save(cfg);
     const { statSync } = await import('node:fs');
-    const mode = statSync(process.env.PENTESTERFLOW_CONFIG ?? '').mode & 0o777;
+    const mode = statSync(process.env.HAWK_CONFIG ?? '').mode & 0o777;
+    if (process.platform === 'win32') {
+      expect(mode & 0o200).toBe(0o200);
+      return;
+    }
     expect(mode).toBe(0o600);
   });
 });

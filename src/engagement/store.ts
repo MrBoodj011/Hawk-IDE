@@ -6,8 +6,8 @@
 // objectives the operator wants enforced on every turn.
 //
 // Two scopes are read and concatenated (mirrors IntelligenceStore):
-//   - project: ./.pentesterflow/engagement.md   (this engagement)
-//   - personal: ~/.pentesterflow/engagement.md  (defaults across engagements)
+//   - project: ./.hawk/engagement.md   (this engagement)
+//   - personal: ~/.hawk/engagement.md  (defaults across engagements)
 // Personal notes come first (general defaults), project notes last so the
 // most specific context is nearest the end of the block.
 
@@ -32,8 +32,8 @@ export class EngagementStore {
   constructor(opts: EngagementStoreOptions = {}) {
     const cwd = resolve(opts.cwd ?? process.cwd());
     const home = opts.home ?? homedir();
-    this.projectPath = join(cwd, '.pentesterflow', 'engagement.md');
-    this.personalPath = join(home, '.pentesterflow', 'engagement.md');
+    this.projectPath = join(cwd, '.hawk', 'engagement.md');
+    this.personalPath = join(home, '.hawk', 'engagement.md');
   }
 
   /**

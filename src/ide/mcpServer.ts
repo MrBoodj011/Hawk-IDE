@@ -1,11 +1,13 @@
-import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { importHawkHealthReport } from './hawkReport.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
-const SERVER_NAME = 'pentesterflow-ide';
+const SERVER_NAME = 'hawk-ide';
 const SERVER_VERSION = '0.1.0';
 
 interface ParsedArgs {
@@ -25,19 +27,19 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printHelp(): void {
-  process.stderr.write(`pentesterflow-ide-mcp ${SERVER_VERSION}
+  process.stderr.write(`hawk-ide-mcp ${SERVER_VERSION}
 
-Read-only MCP server for local PentesterFlow IDE analysis.
+Read-only MCP server for local Hawk Security IDE analysis.
 It parses source files; it does not execute project code or send requests.
 
 Usage:
-  pentesterflow-ide-mcp --workspace <path>
+  hawk-ide-mcp --workspace <path>
 
 MCP configuration:
   {
     "mcpServers": {
-      "pentesterflow-ide": {
-        "command": "pentesterflow-ide-mcp",
+      "hawk": {
+        "command": "hawk-ide-mcp",
         "args": ["--workspace", "\${workspaceFolder}"]
       }
     }
@@ -70,6 +72,30 @@ async function main(): Promise<void> {
         ? inventory.routes.filter((route) => route.path.toLowerCase().includes(query))
         : inventory.routes;
       return textResult(JSON.stringify({ sourceFiles: inventory.sourceFiles, routes }, null, 2));
+    },
+  );
+  mcp.registerTool(
+    'hawk_supply_chain_health',
+    {
+      title: 'Hawk supply-chain health',
+      description:
+        'Read the sanitized local .hawk/health.json import created from a Hawk health report. This never contacts GitHub and does not expose credentials or raw alert payloads.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const report = importHawkHealthReport(
+          JSON.parse(await readFile(join(args.workspaceRoot, '.hawk', 'health.json'), 'utf8')),
+        );
+        return textResult(JSON.stringify(report, null, 2));
+      } catch (err) {
+        return textResult(
+          JSON.stringify({
+            available: false,
+            message: `No local Hawk health report: ${errorMessage(err)}`,
+          }),
+        );
+      }
     },
   );
   mcp.registerTool(
@@ -115,8 +141,10 @@ function textResult(text: string) {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(
-    `[pentesterflow-ide-mcp] ${err instanceof Error ? err.message : String(err)}\n`,
-  );
+  process.stderr.write(`[hawk-ide-mcp] ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

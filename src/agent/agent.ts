@@ -63,7 +63,7 @@ export interface AgentOptions {
   /** Curated, human-editable memory (Claude-Code-style facts). Its catalog is
    *  pinned into the system prompt and matching facts are recalled each turn. */
   memoryStore?: MemoryStore | null;
-  /** Operator-authored engagement notes (from .pentesterflow/engagement.md),
+  /** Operator-authored engagement notes (from .hawk/engagement.md),
    *  always injected into the system prompt. Loaded once at startup. */
   engagement?: string;
 }
@@ -155,7 +155,7 @@ export class Agent {
   private history: Message[];
   private memory: SessionMemory | null = null;
   // Operator-authored engagement notes (scope/rules/creds), loaded once at
-  // startup from .pentesterflow/engagement.md. Always injected into the system
+  // startup from .hawk/engagement.md. Always injected into the system
   // prompt — transcript-independent, so it survives compaction unconditionally.
   private engagement: string;
   private autoCompactThreshold: number;
@@ -240,7 +240,7 @@ export class Agent {
     };
   }
 
-  /** Clear learned background intelligence (the .pentesterflow/intelligence/scenarios.jsonl files).
+  /** Clear learned background intelligence (the .hawk/intelligence/scenarios.jsonl files).
    *  Complements the automatic prune (MAX 5000 most recent per scope).
    *  This provides user-visible control over the M13 historical growth concern.
    */
@@ -332,7 +332,7 @@ export class Agent {
   async saveContextSnapshot(reason = 'periodic'): Promise<string> {
     if (!this.store) return '';
     const out: string[] = [];
-    out.push('# PentesterFlow Session Context');
+    out.push('# Hawk Session Context');
     out.push('');
     out.push(`Updated: ${new Date().toISOString()}`);
     out.push(`Reason: ${reason}`);
@@ -398,7 +398,7 @@ export class Agent {
    * Returns whether the state actually changed (false if it was already
    * in the requested state, or if the skill doesn't exist).
    *
-   * Persisting to ~/.pentesterflow/config.json is the caller's job —
+   * Persisting to ~/.hawk/config.json is the caller's job —
    * the agent only knows about its in-memory state.
    */
   async setSkillEnabled(name: string, enabled: boolean): Promise<boolean> {
@@ -508,7 +508,7 @@ export class Agent {
     // allowed-tools → unrestricted (omit = inherit all tools).
     if (activeSkills.length === 0) return { ok: true };
     if (activeSkills.some((s) => s.tools.length === 0)) return { ok: true };
-    // pentesterflow registers tools under two names (Unix and
+    // Hawk registers tools under two names (Unix and
     // PascalCase — `shell` AND `BashTool`, `file_write` AND
     // `FileWriteTool`, etc.) so models trained against either corpus
     // can call them. The skill author writes the canonical Unix name

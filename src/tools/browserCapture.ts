@@ -1,4 +1,4 @@
-// browser_capture_* tools. Surface traffic the PentesterFlow Chrome
+// browser_capture_* tools. Surface traffic the Hawk Chrome
 // extension forwards to the local ingest server. The agent uses these to
 // reason about the target's surface, replay interesting requests, and
 // reuse captured session cookies / storage.
@@ -66,7 +66,7 @@ export class BrowserCaptureStatusTool extends BaseCaptureTool {
     return `${TOOL_PREFIX}status`;
   }
   description(): string {
-    return 'Show counts and last-activity time for traffic captured by the PentesterFlow Chrome extension. Call this first to confirm the extension is connected and forwarding before relying on the other browser_capture_* tools.';
+    return 'Show counts and last-activity time for traffic captured by the Hawk Chrome extension. Call this first to confirm the extension is connected and forwarding before relying on the other browser_capture_* tools.';
   }
   schema(): Record<string, unknown> {
     return { type: 'object', properties: {} };
@@ -265,7 +265,7 @@ export class BrowserCaptureBurpTasksTool extends BaseCaptureTool {
     return `${TOOL_PREFIX}burp_tasks`;
   }
   description(): string {
-    return 'List scan / plan / scope tasks queued from the PentesterFlow Burp extension. Use this after the user sends requests from Burp to decide what to scan or plan next.';
+    return 'List scan / plan / scope tasks queued from the Hawk Burp extension. Use this after the user sends requests from Burp to decide what to scan or plan next.';
   }
   schema(): Record<string, unknown> {
     return { type: 'object', properties: {} };
@@ -285,14 +285,14 @@ export class BrowserCaptureBurpIssuesTool extends BaseCaptureTool {
     return `${TOOL_PREFIX}burp_issues`;
   }
   description(): string {
-    return 'List PentesterFlow issues exposed to the Burp extension for import into Burp Scanner issues.';
+    return 'List Hawk issues exposed to the Burp extension for import into Burp Scanner issues.';
   }
   schema(): Record<string, unknown> {
     return { type: 'object', properties: {} };
   }
   async run(): Promise<string> {
     const issues = this.store.listBurpIssues();
-    if (issues.length === 0) return 'No PentesterFlow issues queued for Burp import.';
+    if (issues.length === 0) return 'No Hawk issues queued for Burp import.';
     return renderList(
       issues.map((i) => ({ ...i, createdAt: new Date(i.createdAt).toISOString() })),
       DEFAULT_LIST_LIMIT,

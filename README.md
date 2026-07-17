@@ -1,7 +1,7 @@
-# PentesterFlow IDE
+# Hawk Security IDE
 
-PentesterFlow IDE is a security-native AI development environment for
-evidence-driven code review, authorized pentesting, and verified fixes.
+Hawk is a security-native AI development environment for evidence-driven code
+review, authorized testing, supply-chain intelligence, and verified fixes.
 
 Its product loop is:
 
@@ -9,13 +9,13 @@ Its product loop is:
 Understand code -> observe runtime traffic -> prove a finding -> fix it -> retest it
 ```
 
-The project starts from the PentesterFlow Agent runtime and adds a local-first
-Code-OSS-compatible security workspace.
+The project builds on the original PentesterFlow Agent runtime and adds a
+local-first Code-OSS-compatible Hawk security workspace.
 
 ## What works now
 
-- Code-OSS / VS Code activity-bar dashboard for routes, local audit signals,
-  HAR traffic, findings retest, MCP setup, and an integrated AI-agent terminal.
+- Hawk activity-bar control plane for routes, local audit signals, HAR traffic,
+  Hawk health intelligence, findings retest, MCP setup, and an AI-agent terminal.
 - A local daemon that binds only to loopback and requires a random,
   process-scoped token held by the extension host.
 - Passive route indexing for Express, Fastify, and common Next.js API layouts.
@@ -25,8 +25,10 @@ Code-OSS-compatible security workspace.
   validation.
 - HAR import that stays on-device and redacts sensitive query values. It never
   replays imported requests or stores request/response bodies.
-- `pentesterflow-ide-mcp`, a read-only MCP server exposing route inventory and
-  redacted static-audit results to an MCP-capable assistant.
+- Hawk `health.json` import that safely correlates local SBOM, governance,
+  dependency maintenance, and security-SLA signals without GitHub credentials.
+- `hawk-ide-mcp`, a read-only MCP server exposing route inventory, redacted
+  static-audit results, and a sanitized Hawk health summary to an assistant.
 - Existing PentesterFlow CLI, permissions, sessions, browser/Burp bridge, and
   evidence-backed findings workflow.
 
@@ -42,9 +44,9 @@ npm run build:extension
 ```
 
 Open the repository's `extensions/pentesterflow-ide` folder in the Code-OSS
-extension development host, then open the PentesterFlow activity-bar icon.
+extension development host, then open the Hawk activity-bar icon.
 The dashboard can index local routes, run its passive audit, import a HAR file,
-and launch the existing `pentesterflow` AI agent in the integrated terminal.
+and launch the existing `hawk` AI agent in the integrated terminal.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -57,8 +59,8 @@ configuration on the clipboard:
 ```json
 {
   "mcpServers": {
-    "pentesterflow-ide": {
-      "command": "pentesterflow-ide-mcp",
+    "hawk": {
+      "command": "hawk-ide-mcp",
       "args": ["--workspace", "${workspaceFolder}"]
     }
   }
@@ -73,15 +75,24 @@ npm run dev:ide-daemon -- --workspace /path/to/project
 ```
 
 The command prints one JSON line with a local URL and a process-scoped token.
-Use that token in `X-Pentesterflow-Token` for every request.
+Use that token in `X-Hawk-Token` for every request.
 
 ```sh
-curl -H "X-Pentesterflow-Token: <token>" http://127.0.0.1:<port>/v1/health
-curl -X POST -H "X-Pentesterflow-Token: <token>" http://127.0.0.1:<port>/v1/workspace/index
+curl -H "X-Hawk-Token: <token>" http://127.0.0.1:<port>/v1/health
+curl -X POST -H "X-Hawk-Token: <token>" http://127.0.0.1:<port>/v1/workspace/index
 ```
 
 See [architecture documentation](docs/architecture.md) for the current
 security boundary and longer-term security graph.
+
+## Hawk health report liaison
+
+The separate [Cybrense Hawk](https://github.com/Cybrense-IT-Services/Hawk)
+GitHub App publishes `health.json`. Use **Import Hawk health** in the activity
+bar to load that report locally. Hawk IDE persists only a sanitized summary in
+`.hawk/health.json`; it never accepts a GitHub App private key, installation
+token, raw alert payload, source code, or pull-request body. This is a
+file-contract integration only: no GPL-3.0 Hawk code is included here.
 
 ## Roadmap
 
@@ -89,8 +100,8 @@ security boundary and longer-term security graph.
 2. Explicit scope/identity management for authorized IDOR/BOLA validation.
 3. Patch generation, regression-test orchestration, and replay after fixes.
 4. Runtime digital twin, attack graph, and collaborative security workspace.
-5. A branded standalone Code-OSS distribution instead of the extension-host
-   development workflow used today.
+5. Full source-to-request correlation, approved patches, regression tests, and
+   active validation inside explicitly authorized scopes.
 
 ## License and attribution
 

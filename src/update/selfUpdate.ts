@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_REPO = 'PentesterFlow/agent';
+const DEFAULT_REPO = 'MrBoodj011/hawk';
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_BUFFER = 1024 * 1024;
 
@@ -17,14 +17,14 @@ export interface UpdateResult {
 }
 
 export async function runSelfUpdate(version = 'latest'): Promise<UpdateResult> {
-  const repo = process.env.PENTESTERFLOW_REPO || DEFAULT_REPO;
+  const repo = process.env.HAWK_REPO || DEFAULT_REPO;
   const normalizedVersion = normalizeVersion(version);
   const installDir = detectInstallDir();
   const env = {
     ...process.env,
-    PENTESTERFLOW_REPO: repo,
-    ...(normalizedVersion === 'latest' ? {} : { PENTESTERFLOW_VERSION: normalizedVersion }),
-    ...(installDir ? { PENTESTERFLOW_INSTALL_DIR: installDir } : {}),
+    HAWK_REPO: repo,
+    ...(normalizedVersion === 'latest' ? {} : { HAWK_VERSION: normalizedVersion }),
+    ...(installDir ? { HAWK_INSTALL_DIR: installDir } : {}),
   };
 
   // Pin the installer to the requested release tag (immutable git ref) instead
@@ -54,9 +54,9 @@ function normalizeVersion(raw: string): string {
 }
 
 function detectInstallDir(): string | undefined {
-  if (process.env.PENTESTERFLOW_INSTALL_DIR) return process.env.PENTESTERFLOW_INSTALL_DIR;
+  if (process.env.HAWK_INSTALL_DIR) return process.env.HAWK_INSTALL_DIR;
   const exe = basename(process.execPath).toLowerCase();
-  if (exe === 'pentesterflow' || exe === 'pentesterflow.exe') return dirname(process.execPath);
+  if (exe === 'hawk' || exe === 'hawk.exe') return dirname(process.execPath);
   return undefined;
 }
 
@@ -67,7 +67,7 @@ async function runUnixInstaller(
 ): Promise<string> {
   const scriptURL = `https://raw.githubusercontent.com/${repo}/${ref}/install.sh`;
   const script = await fetchText(scriptURL);
-  const dir = await mkdtemp(join(tmpdir(), 'pentesterflow-update-'));
+  const dir = await mkdtemp(join(tmpdir(), 'hawk-update-'));
   const file = join(dir, 'install.sh');
   try {
     await writeFile(file, script, 'utf8');
@@ -111,7 +111,7 @@ async function runWindowsInstaller(
 
 /**
  * Reject an installer URL that isn't https on the expected githubusercontent
- * host. The script is fetched then executed, so a tampered PENTESTERFLOW_REPO
+ * host. The script is fetched then executed, so a tampered HAWK_REPO
  * must not be able to redirect the fetch to an attacker scheme/host (L10). TLS
  * guards the bytes in flight; this guards the destination.
  */

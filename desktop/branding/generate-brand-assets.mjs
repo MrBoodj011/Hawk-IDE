@@ -6,7 +6,7 @@ const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 /**
  * Generates the application artwork from code, so each Code-OSS preparation
- * receives the same PentesterFlow identity without committing opaque binaries.
+ * receives the same Hawk identity without committing opaque binaries.
  */
 export async function writeBrandAssets(codeOssRoot) {
   const images = new Map([
@@ -63,7 +63,7 @@ function createPng(size) {
 
       if (insideRoundedRect(px, py, point(18), point(18), point(220), point(220), point(52))) {
         const depth = Math.min(1, Math.hypot(px - point(196), py - point(36)) / point(230));
-        set(Math.round(10 + depth * 7), Math.round(18 + depth * 9), Math.round(40 + depth * 18));
+        set(Math.round(10 + depth * 7), Math.round(16 + depth * 9), Math.round(29 + depth * 14));
       }
 
       const shield = [
@@ -71,34 +71,37 @@ function createPng(size) {
       ].map(([sx, sy]) => [point(sx), point(sy)]);
       if (insidePolygon(px, py, shield)) {
         const ratio = (px + py) / (size * 2);
-        set(Math.round(31 + ratio * 63), Math.round(206 - ratio * 86), Math.round(232 + ratio * 15));
+        set(Math.round(255 - ratio * 12), Math.round(203 - ratio * 102), Math.round(104 - ratio * 48));
       }
 
       const innerShield = [
         [128, 52], [183, 74], [174, 147], [128, 196], [82, 147], [73, 74],
       ].map(([sx, sy]) => [point(sx), point(sy)]);
       if (insidePolygon(px, py, innerShield)) {
-        set(10, 22, 45);
+        set(10, 19, 33);
       }
 
-      const cyan = [55, 235, 226];
-      const violet = [137, 115, 255];
-      const lineWidth = Math.max(1, point(14));
+      const sky = [85, 220, 255];
+      const amber = [255, 184, 77];
+      const lineWidth = Math.max(1, point(13));
       const p = (vx, vy) => [point(vx), point(vy)];
-      const vertical = distanceToSegment(px, py, ...p(96, 93), ...p(96, 167));
-      const diagonal = distanceToSegment(px, py, ...p(96, 116), ...p(151, 78));
-      const tail = distanceToSegment(px, py, ...p(96, 141), ...p(160, 177));
-      const loop = Math.abs(Math.hypot(px - point(137), py - point(112)) - point(36));
-      if (vertical < lineWidth / 2 || diagonal < lineWidth / 2 || tail < lineWidth / 2 || (loop < lineWidth / 2 && px > point(113))) {
-        const hue = Math.min(1, Math.max(0, (px - point(88)) / point(86)));
+      const wingSegments = [
+        [p(70, 94), p(119, 114)], [p(70, 94), p(105, 137)], [p(73, 138), p(128, 183)],
+        [p(186, 94), p(137, 114)], [p(186, 94), p(151, 137)], [p(183, 138), p(128, 183)],
+      ];
+      const wing = wingSegments.some(([from, to]) => distanceToSegment(px, py, ...from, ...to) < lineWidth / 2);
+      if (wing) {
+        const hue = Math.min(1, Math.max(0, (px - point(70)) / point(116)));
         set(
-          Math.round(cyan[0] * (1 - hue) + violet[0] * hue),
-          Math.round(cyan[1] * (1 - hue) + violet[1] * hue),
-          Math.round(cyan[2] * (1 - hue) + violet[2] * hue),
+          Math.round(sky[0] * (1 - hue) + amber[0] * hue),
+          Math.round(sky[1] * (1 - hue) + amber[1] * hue),
+          Math.round(sky[2] * (1 - hue) + amber[2] * hue),
         );
       }
-
-      if (Math.hypot(px - point(160), py - point(177)) < Math.max(1, point(10))) set(...violet);
+      const beak = [[128, 99], [151, 128], [128, 177], [105, 128]].map(([sx, sy]) => [point(sx), point(sy)]);
+      if (insidePolygon(px, py, beak)) set(...amber);
+      const eyeRadius = Math.max(1, point(6));
+      if (Math.hypot(px - point(105), py - point(111)) < eyeRadius || Math.hypot(px - point(151), py - point(111)) < eyeRadius) set(...sky);
     }
   }
 

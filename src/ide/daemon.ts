@@ -1,8 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { importHawkHealthReport } from './hawkReport.js';
 import {
   type DaemonHealth,
+  type HawkHealthReport,
   IDE_PROTOCOL_VERSION,
   type RetestResult,
   type SecurityFinding,
@@ -46,6 +49,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   let latestInventory: WorkspaceInventory | null = null;
   let findings: SecurityFinding[] = [];
   let traffic: TrafficInventory | null = null;
+  let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
 
   const server = createServer((req, res) => {
     void handleRequest(req, res, {
@@ -63,6 +67,11 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       traffic: () => traffic,
       setTraffic: (value) => {
         traffic = value;
+      },
+      hawkHealth: () => hawkHealth,
+      setHawkHealth: async (value) => {
+        await persistHawkHealthReport(workspaceRoot, value);
+        hawkHealth = value;
       },
     });
   });
@@ -95,6 +104,8 @@ interface RequestContext {
   setFindings(value: SecurityFinding[]): void;
   traffic(): TrafficInventory | null;
   setTraffic(value: TrafficInventory): void;
+  hawkHealth(): HawkHealthReport | null;
+  setHawkHealth(value: HawkHealthReport): Promise<void>;
 }
 
 async function handleRequest(
@@ -168,6 +179,28 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/hawk/health') {
+    const health = context.hawkHealth();
+    if (!health) {
+      sendJSON(res, 404, { ok: false, error: 'no Hawk health report has been imported yet' });
+      return;
+    }
+    sendJSON(res, 200, health);
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/hawk/health/import') {
+    try {
+      const body = await readBody(req);
+      const health = importHawkHealthReport(JSON.parse(body.toString('utf8')), context.now());
+      await context.setHawkHealth(health);
+      sendJSON(res, 200, health);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/v1/traffic/import/har') {
     try {
       const body = await readBody(req);
@@ -219,11 +252,35 @@ async function handleRequest(
 }
 
 function authorized(req: IncomingMessage, token: string): boolean {
-  const rawHeader = req.headers['x-pentesterflow-token'];
+  const rawHeader = req.headers['x-hawk-token'];
   const supplied = Array.isArray(rawHeader) ? (rawHeader[0] ?? '') : (rawHeader ?? '');
   const actual = Buffer.from(supplied);
   const expected = Buffer.from(token);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function loadStoredHawkHealthReport(
+  workspaceRoot: string,
+  now: () => Date,
+): Promise<HawkHealthReport | null> {
+  try {
+    return importHawkHealthReport(
+      JSON.parse(await readFile(join(workspaceRoot, '.hawk', 'health.json'), 'utf8')),
+      now(),
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return null;
+  }
+}
+
+async function persistHawkHealthReport(
+  workspaceRoot: string,
+  report: HawkHealthReport,
+): Promise<void> {
+  const directory = join(workspaceRoot, '.hawk');
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, 'health.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 }
 
 function isLoopbackHost(host: string): boolean {

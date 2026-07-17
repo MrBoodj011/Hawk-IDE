@@ -18,7 +18,7 @@ import type { Client } from './client.js';
 import type { ChatRequest, ToolSpec } from './types.js';
 
 const PROBE_TIMEOUT_MS = 8_000;
-const PING_TOOL_NAME = '__pentesterflow_probe_ping';
+const PING_TOOL_NAME = '__hawk_probe_ping';
 
 /**
  * Status of the tool-calling capability probe:
@@ -73,7 +73,7 @@ export async function probeToolSupport(
       {
         role: 'system',
         content:
-          'You are a tool-calling probe. Your ONLY response must be a call to the `__pentesterflow_probe_ping` tool with value="ok". Do not produce any text. Do not call any other tool.',
+          'You are a tool-calling probe. Your ONLY response must be a call to the `__hawk_probe_ping` tool with value="ok". Do not produce any text. Do not call any other tool.',
       },
       { role: 'user', content: 'probe' },
     ],

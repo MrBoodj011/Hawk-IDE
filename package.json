@@ -1,16 +1,16 @@
 {
-  "name": "@pentesterflow/ide",
+  "name": "@hawk/ide",
   "version": "0.1.0-dev",
-  "description": "Security-native AI development environment for evidence-driven code review and authorized pentesting.",
+  "description": "Hawk is a security-native AI development environment for evidence-driven code review and authorized testing.",
   "type": "module",
   "workspaces": [
     "extensions/*"
   ],
   "bin": {
-    "pentesterflow": "./dist/cli.js",
-    "pentesterflow-browser-mcp": "./dist/browser-mcp.js",
-    "pentesterflow-ide-daemon": "./dist/ide-daemon.js",
-    "pentesterflow-ide-mcp": "./dist/ide-mcp.js"
+    "hawk": "./dist/cli.js",
+    "hawk-browser-mcp": "./dist/browser-mcp.js",
+    "hawk-ide-daemon": "./dist/ide-daemon.js",
+    "hawk-ide-mcp": "./dist/ide-mcp.js"
   },
   "files": [
     "dist",
@@ -25,9 +25,9 @@
     "dev": "tsx src/cli/index.ts",
     "dev:burp": "tsx src/cli/index.ts --burp",
     "dev:ide-daemon": "tsx src/ide/daemonCli.ts",
-    "build:extension": "npm --workspace pentesterflow-ide run build",
-    "check:extension": "npm --workspace pentesterflow-ide run check",
-    "package:extension": "npm --workspace pentesterflow-ide run package",
+    "build:extension": "npm --workspace hawk-security-ide run build",
+    "check:extension": "npm --workspace hawk-security-ide run check",
+    "package:extension": "npm --workspace hawk-security-ide run package",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -51,10 +51,10 @@
     "security-review"
   ],
   "license": "Apache-2.0",
-  "homepage": "https://github.com/MrBoodj011/pentesterflow-ide",
+  "homepage": "https://github.com/MrBoodj011/hawk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MrBoodj011/pentesterflow-ide.git"
+    "url": "https://github.com/MrBoodj011/hawk.git"
   },
   "engines": {
     "node": ">=20.0.0"

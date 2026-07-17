@@ -278,9 +278,7 @@ describe('Agent.run', () => {
       );
 
       const messages = client.requests[0]?.messages ?? [];
-      expect(messages.some((m) => m.content.includes('Local PentesterFlow Intelligence'))).toBe(
-        true,
-      );
+      expect(messages.some((m) => m.content.includes('Local Hawk Intelligence'))).toBe(true);
       expect(messages.some((m) => m.content.includes('ecosystem.config.js'))).toBe(true);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -1060,7 +1058,7 @@ describe('Agent.run', () => {
   });
 
   it('allows BashTool when the active skill declared "shell" (alias equivalence)', async () => {
-    // Regression for: pentesterflow registers shell + BashTool side-by-
+    // Regression for: Hawk registers shell + BashTool side-by-
     // side; some models reach for BashTool, but skill
     // authors write the Unix `shell` in their `tools:` list. The
     // enforcer canonicalizes both sides so the call goes through.

@@ -1,4 +1,4 @@
-// HTTP ingest server for the PentesterFlow Chrome extension companion.
+// HTTP ingest server for the Hawk Chrome extension companion.
 // Binds to 127.0.0.1 only — never exposed off-host — and accepts JSON
 // payloads from the extension's forwardUrl. Same instance also serves a
 // tiny status endpoint so the extension popup / tooling can sanity-check.
@@ -73,10 +73,7 @@ function handle(
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, X-Pentesterflow-Source, X-Pentesterflow-Token',
-  );
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hawk-Source, X-Hawk-Token');
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -226,7 +223,7 @@ function parseRequestURL(req: IncomingMessage): URL {
 }
 
 function authorized(req: IncomingMessage, token: string): boolean {
-  const header = req.headers['x-pentesterflow-token'];
+  const header = req.headers['x-hawk-token'];
   const headerToken = Array.isArray(header) ? (header[0] ?? '') : (header ?? '');
   return constantTimeEqual(headerToken, token);
 }

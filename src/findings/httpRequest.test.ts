@@ -70,13 +70,13 @@ describe('findingRequestForBurp', () => {
       findingWithCurl('curl -A "MyScanner/1.0" https://app.example.com/api/x'),
     );
     expect(space).toContain('User-Agent: MyScanner/1.0');
-    expect(space).not.toContain('User-Agent: PentesterFlow');
+    expect(space).not.toContain('User-Agent: Hawk');
 
     const long = findingRequestForBurp(
       findingWithCurl('curl --user-agent "Custom UA" https://app.example.com/api/x'),
     );
     expect(long).toContain('User-Agent: Custom UA');
-    expect(long).not.toContain('User-Agent: PentesterFlow');
+    expect(long).not.toContain('User-Agent: Hawk');
 
     const attached = findingRequestForBurp(
       findingWithCurl('curl -AAttachedUA https://app.example.com/api/x'),
@@ -97,7 +97,7 @@ describe('findingRequestForBurp', () => {
     });
 
     expect(request).toBe(
-      'OPTIONS /api/items?id=7 HTTP/1.1\r\nHost: app.example.com\r\nUser-Agent: PentesterFlow\r\n\r\n',
+      'OPTIONS /api/items?id=7 HTTP/1.1\r\nHost: app.example.com\r\nUser-Agent: Hawk\r\n\r\n',
     );
   });
 });

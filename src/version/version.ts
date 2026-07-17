@@ -20,5 +20,5 @@ function readBuildVersion(): string {
 export const VERSION: string = readBuildVersion();
 
 export function describe(): string {
-  return `pentesterflow ${VERSION}`;
+  return `hawk ${VERSION}`;
 }

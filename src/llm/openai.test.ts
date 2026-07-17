@@ -317,13 +317,13 @@ describe('OpenAIClient', () => {
 
   it('sends provider-specific extra headers', async () => {
     const c = new OpenAIClient(baseURL, 'sk-or', 'openrouter/auto', 'openrouter', {
-      'HTTP-Referer': 'https://github.com/pentesterflow/agent',
-      'X-OpenRouter-Title': 'PentesterFlow',
+      'HTTP-Referer': 'https://github.com/MrBoodj011/hawk',
+      'X-OpenRouter-Title': 'Hawk Security IDE',
     });
     await c.chat({ model: 'openrouter/auto', messages: [{ role: 'user', content: 'hi' }] });
 
-    expect(lastHeaders?.['http-referer']).toBe('https://github.com/pentesterflow/agent');
-    expect(lastHeaders?.['x-openrouter-title']).toBe('PentesterFlow');
+    expect(lastHeaders?.['http-referer']).toBe('https://github.com/MrBoodj011/hawk');
+    expect(lastHeaders?.['x-openrouter-title']).toBe('Hawk Security IDE');
     expect(lastHeaders?.authorization).toBe('Bearer sk-or');
   });
 

@@ -22,10 +22,10 @@ describe('startIdeDaemon', () => {
       const blocked = await fetch(`${daemon.url}/v1/health`);
       expect(blocked.status).toBe(401);
 
-      const headers = { 'X-Pentesterflow-Token': daemon.token };
+      const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 1 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 2 });
 
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);
@@ -74,6 +74,32 @@ describe('startIdeDaemon', () => {
         requests: [
           expect.objectContaining({ url: 'https://api.example.test/orders?token=REDACTED' }),
         ],
+      });
+
+      const hawk = await fetch(`${daemon.url}/v1/hawk/health/import`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          organization: 'example-org',
+          summary: { repositories: 1, criticalSecurityAlerts: 1 },
+          repositories: [
+            {
+              name: 'payments-api',
+              securityAlerts: 1,
+              securityBreakdown: { critical: 1 },
+              securitySla: { total: 1 },
+              sbom: { packageCount: 24, unknownLicenses: 0 },
+            },
+          ],
+        }),
+      });
+      expect(hawk.status).toBe(200);
+      await expect(hawk.json()).resolves.toMatchObject({
+        organization: 'example-org',
+        priorityQueue: [expect.objectContaining({ name: 'payments-api', level: 'critical' })],
+      });
+      await expect(fetch(`${daemon.url}/v1/hawk/health`, { headers })).resolves.toMatchObject({
+        status: 200,
       });
     } finally {
       await daemon.close();

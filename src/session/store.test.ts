@@ -105,16 +105,24 @@ describe('session.Store', () => {
     await store.save([{ role: 'user', content: 'x' }], null);
     const { statSync } = await import('node:fs');
     const mode = statSync(store.path).mode & 0o777;
+    if (process.platform === 'win32') {
+      expect(mode & 0o200).toBe(0o200);
+      return;
+    }
     expect(mode).toBe(0o600);
   });
 
-  it('writes context snapshots under the pentesterflow context directory', async () => {
+  it('writes context snapshots under the Hawk context directory', async () => {
     const store = Store.newWithID(join(tmp, 'sessions'), 'abc123');
     const outPath = await store.saveContextSnapshot('# Context\n\nredacted history');
     expect(outPath).toBe(join(tmp, 'context', 'abc123.md'));
     expect(readFileSync(outPath, 'utf8')).toContain('redacted history');
     const { statSync } = await import('node:fs');
     const mode = statSync(outPath).mode & 0o777;
+    if (process.platform === 'win32') {
+      expect(mode & 0o200).toBe(0o200);
+      return;
+    }
     expect(mode).toBe(0o600);
   });
 });

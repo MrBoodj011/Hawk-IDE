@@ -65,7 +65,7 @@ export interface ProviderChange {
   apiKey?: string;
 }
 export type ApplyProvider = (change: ProviderChange) => Promise<void>;
-/** Persist a disabled-skills list change (writes ~/.pentesterflow/config.json). */
+/** Persist a disabled-skills list change (writes ~/.hawk/config.json). */
 export type PersistDisabledSkills = (names: string[]) => Promise<void>;
 
 const MENTION_LIMIT = 12;
@@ -98,7 +98,7 @@ export interface AppProps {
   /** Optional bridge: lets the CLI push BannerData patches (e.g. tool-support
    *  probe result, detected num_ctx) after the TUI has mounted. */
   bindBannerPublisher?: (publish: (patch: Partial<BannerData>) => void) => void;
-  /** Persist /skills enable/disable to ~/.pentesterflow/config.json. */
+  /** Persist /skills enable/disable to ~/.hawk/config.json. */
   persistDisabledSkills?: PersistDisabledSkills;
   /** Optional complete JSONL debug log for real-world session triage. */
   sessionDebug?: SessionDebugLog;
@@ -108,7 +108,7 @@ export interface AppProps {
   /** Optional bridge for out-of-loop system notices — live-reload uses
    *  it to surface "skill reloaded" without a modal. */
   bindNoticePublisher?: (publish: (text: string) => void) => void;
-  /** Start the local Burp/PentesterFlow bridge on demand from /burp. */
+  /** Start the local Burp/Hawk bridge on demand from /burp. */
   startBurpBridge?: (
     port?: number,
   ) => Promise<{ url: string; token: string; alreadyRunning: boolean }>;
@@ -1466,7 +1466,7 @@ Rules:
  * /skills — list / enable / disable. Without args, prints the loaded
  * skills with their on/off state. `/skills <name>` toggles. Explicit
  * `/skills enable <name>` and `/skills disable <name>` are also accepted.
- * Persistence to ~/.pentesterflow/config.json is delegated to the
+ * Persistence to ~/.hawk/config.json is delegated to the
  * persistDisabledSkills callback wired by the CLI.
  */
 function handleSkillsCommand(
@@ -1494,7 +1494,7 @@ function handleSkillsCommand(
   }
 
   // /skills new <name> — scaffold a skill under
-  // ./.pentesterflow/skills/<name>/SKILL.md (an auto-discovered dir), then
+  // ./.hawk/skills/<name>/SKILL.md (an auto-discovered dir), then
   // hot-load it so it's usable immediately via /<name>.
   if (rest[0] === 'new') {
     const name = (rest[1] ?? '').trim();
@@ -1508,7 +1508,7 @@ function handleSkillsCommand(
       });
       return;
     }
-    const skillsRoot = resolve(process.cwd(), '.pentesterflow', 'skills');
+    const skillsRoot = resolve(process.cwd(), '.hawk', 'skills');
     const dir = join(skillsRoot, name);
     const file = join(dir, 'SKILL.md');
     if (existsSync(file)) {
@@ -1526,7 +1526,7 @@ function handleSkillsCommand(
       agent.skills.loadDir(skillsRoot);
       agent.rebuildFromSkills();
       // Tell the CLI to start watching this dir so future edits hot-reload
-      // even if .pentesterflow/skills didn't exist at startup.
+      // even if .hawk/skills didn't exist at startup.
       onSkillCreated?.(skillsRoot);
       dispatch({
         type: 'append',
@@ -1639,7 +1639,7 @@ const KEYBINDINGS: Array<{ keys: string; desc: string }> = [
   { keys: 'Ctrl-F', desc: 'cycle the transcript filter' },
   { keys: 'mouse wheel / scrollbar', desc: 'scroll the conversation (native terminal scrollback)' },
   { keys: 'Esc', desc: 'cancel an in-flight turn / clear the input draft' },
-  { keys: 'Ctrl-C', desc: 'quit pentesterflow' },
+  { keys: 'Ctrl-C', desc: 'quit Hawk' },
 ];
 
 const TIPS: string[] = [
@@ -1670,7 +1670,7 @@ function buildHelpText(
 
   const out: string[] = [];
 
-  out.push(c.bold.cyan('PentesterFlow') + c.gray(' — quick reference'));
+  out.push(c.bold.yellow('Hawk') + c.gray(' — quick reference'));
   out.push(c.gray('─'.repeat(60)));
   out.push('');
 
@@ -1757,7 +1757,7 @@ function openProviderPicker(
   const req: AskRequest = {
     question: {
       header: 'provider',
-      question: 'Which LLM backend should pentesterflow use?',
+      question: 'Which LLM backend should Hawk use?',
       options: [
         { label: labelOllama, description: 'local — /api/tags + /api/chat' },
         { label: labelLM, description: 'local — /v1/models + /v1/chat/completions' },
@@ -1819,7 +1819,7 @@ function openProviderPicker(
             kind: 'error',
             text:
               'openai-compat needs a base URL + API key. Restart with --base-url + --api-key, ' +
-              'or pre-set them in ~/.pentesterflow/config.json, then run /provider again.',
+              'or pre-set them in ~/.hawk/config.json, then run /provider again.',
           },
         });
         return;

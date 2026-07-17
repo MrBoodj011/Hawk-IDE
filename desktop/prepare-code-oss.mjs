@@ -28,8 +28,8 @@ if (out.startsWith(`${source}\\`) || out.startsWith(`${source}/`)) {
 }
 
 await assertFile(resolve(source, 'product.json'), 'a Code-OSS checkout (missing product.json)');
-await assertFile(resolve(extension, 'package.json'), 'the compiled PentesterFlow extension');
-await assertFile(resolve(extension, 'dist', 'extension.js'), 'the compiled PentesterFlow extension bundle');
+await assertFile(resolve(extension, 'package.json'), 'the compiled Hawk extension');
+await assertFile(resolve(extension, 'dist', 'extension.js'), 'the compiled Hawk extension bundle');
 await assertFile(overridesPath, 'product overrides');
 
 if (await exists(out)) {
@@ -55,13 +55,13 @@ await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
 await patchDevLaunchers(out);
 await writeBrandAssets(out);
 
-const builtinExtension = resolve(out, 'extensions', 'pentesterflow-ide');
+const builtinExtension = resolve(out, 'extensions', 'hawk-security-ide');
 await cp(extension, builtinExtension, {
   recursive: true,
   filter: (path) => !['node_modules', 'src', '.vscodeignore'].includes(basename(path)) && !path.endsWith('.vsix'),
 });
 
-process.stdout.write(`Prepared branded Code-OSS source at ${out}\n`);
+process.stdout.write(`Prepared Hawk Security IDE source at ${out}\n`);
 process.stdout.write('Next: npm install, npm run watch, then start the platform script for your OS.\n');
 
 async function patchWindowsPackagingTask(gulpfilePath) {
@@ -88,7 +88,7 @@ async function patchDevLaunchers(root) {
   const batchPath = resolve(root, 'scripts', 'code.bat');
   try {
     const original = await readFile(batchPath, 'utf8');
-    await writeFile(batchPath, original.replace('title VSCode Dev', 'title PentesterFlow IDE'));
+    await writeFile(batchPath, original.replace('title VSCode Dev', 'title Hawk Security IDE'));
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
@@ -120,7 +120,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`Prepare a branded Code-OSS checkout with PentesterFlow IDE built in.\n\nUsage:\n  node desktop/prepare-code-oss.mjs --source <code-oss-checkout> --out <new-directory> [--force]\n`);
+  process.stdout.write(`Prepare a branded Code-OSS checkout with Hawk Security IDE built in.\n\nUsage:\n  node desktop/prepare-code-oss.mjs --source <code-oss-checkout> --out <new-directory> [--force]\n`);
 }
 
 function requiredPath(value, flag) {

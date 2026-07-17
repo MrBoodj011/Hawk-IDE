@@ -1,30 +1,30 @@
 <#
 .SYNOPSIS
-  pentesterflow online installer (Windows).
+  Hawk online installer (Windows).
 
 .DESCRIPTION
   Downloads the standalone Windows binary from the latest GitHub release,
-  verifies its SHA-256, installs it under %LOCALAPPDATA%\Programs\pentesterflow,
+  verifies its SHA-256, installs it under %LOCALAPPDATA%\Programs\hawk,
   and adds that directory to your user PATH.
 
   Run:
-    irm https://raw.githubusercontent.com/PentesterFlow/agent/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/MrBoodj011/hawk/main/install.ps1 | iex
 
 .NOTES
   Environment overrides:
-    $env:PENTESTERFLOW_VERSION     = 'v0.1.0'   # pin a release (default: latest)
-    $env:PENTESTERFLOW_INSTALL_DIR = 'C:\path'  # install location
-    $env:PENTESTERFLOW_SKILLS_DIR  = 'C:\path'  # shipped skills location
-    $env:PENTESTERFLOW_SKIP_SKILLS = '1'        # install binary only
-    $env:PENTESTERFLOW_SKIP_CHECKSUM = '1'      # install without SHA-256 verification (unsafe)
-    $env:PENTESTERFLOW_REPO        = 'owner/repo'
+    $env:HAWK_VERSION     = 'v0.1.0'   # pin a release (default: latest)
+    $env:HAWK_INSTALL_DIR = 'C:\path'  # install location
+    $env:HAWK_SKILLS_DIR  = 'C:\path'  # shipped skills location
+    $env:HAWK_SKIP_SKILLS = '1'        # install binary only
+    $env:HAWK_SKIP_CHECKSUM = '1'      # install without SHA-256 verification (unsafe)
+    $env:HAWK_REPO        = 'owner/repo'
 #>
 
 #Requires -Version 5
 $ErrorActionPreference = 'Stop'
 
-$Repo = if ($env:PENTESTERFLOW_REPO) { $env:PENTESTERFLOW_REPO } else { 'PentesterFlow/agent' }
-$Bin  = 'pentesterflow'
+$Repo = if ($env:HAWK_REPO) { $env:HAWK_REPO } else { 'MrBoodj011/hawk' }
+$Bin  = 'hawk'
 
 # --- detect arch (only windows-x64 is published) -------------------------
 if (-not [Environment]::Is64BitOperatingSystem) {
@@ -32,7 +32,7 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 }
 $asset = "$Bin-windows-x64.exe"
 
-$ver = if ($env:PENTESTERFLOW_VERSION) { $env:PENTESTERFLOW_VERSION.Trim() } else { 'latest' }
+$ver = if ($env:HAWK_VERSION) { $env:HAWK_VERSION.Trim() } else { 'latest' }
 if ($ver -ne 'latest' -and -not $ver.StartsWith('v')) {
   $ver = "v$ver"
 }
@@ -43,13 +43,13 @@ $base = if ($ver -eq 'latest') {
   "https://github.com/$Repo/releases/download/$ver"
 }
 
-$dir = if ($env:PENTESTERFLOW_INSTALL_DIR) {
-  $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:PENTESTERFLOW_INSTALL_DIR)
+$dir = if ($env:HAWK_INSTALL_DIR) {
+  $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:HAWK_INSTALL_DIR)
 } else {
   if (-not $env:LOCALAPPDATA) {
-    throw 'LOCALAPPDATA is not set; set PENTESTERFLOW_INSTALL_DIR explicitly.'
+    throw 'LOCALAPPDATA is not set; set HAWK_INSTALL_DIR explicitly.'
   }
-  Join-Path $env:LOCALAPPDATA 'Programs\pentesterflow'
+  Join-Path $env:LOCALAPPDATA 'Programs\hawk'
 }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
@@ -70,15 +70,15 @@ try {
 
   # --- verify checksum (required; fail-closed) ----------------------------
   # A self-updating binary must not install an unverified download. Any
-  # failure to verify is fatal. Set $env:PENTESTERFLOW_SKIP_CHECKSUM='1' to
+  # failure to verify is fatal. Set $env:HAWK_SKIP_CHECKSUM='1' to
   # override (e.g. a mirror you trust by other means).
-  if ($env:PENTESTERFLOW_SKIP_CHECKSUM -eq '1') {
-    Write-Warning 'PENTESTERFLOW_SKIP_CHECKSUM=1 set - installing WITHOUT checksum verification'
+  if ($env:HAWK_SKIP_CHECKSUM -eq '1') {
+    Write-Warning 'HAWK_SKIP_CHECKSUM=1 set - installing WITHOUT checksum verification'
   } else {
     try {
       $sums = (Invoke-WebRequest -Uri "$base/SHA256SUMS" -UseBasicParsing -ErrorAction Stop).Content
     } catch {
-      throw "could not download SHA256SUMS from $base - refusing to install an unverified binary (set `$env:PENTESTERFLOW_SKIP_CHECKSUM='1' to override): $($_.Exception.Message)"
+      throw "could not download SHA256SUMS from $base - refusing to install an unverified binary (set `$env:HAWK_SKIP_CHECKSUM='1' to override): $($_.Exception.Message)"
     }
     # Parse SHA256SUMS by exact filename. Each line is "<hex>  <name>"
     # (coreutils text mode) or "<hex> *<name>" (binary mode). Match the
@@ -98,7 +98,7 @@ try {
       $listed = (($sums -split "`r?`n") |
         ForEach-Object { if ($_ -match '^[0-9A-Fa-f]{64}\s+\*?(.+)$') { $matches[1].Trim() } } |
         Where-Object { $_ }) -join ', '
-      throw "SHA256SUMS does not list $asset - refusing to install an unverified binary (listed: $listed). Set `$env:PENTESTERFLOW_SKIP_CHECKSUM='1' to override."
+      throw "SHA256SUMS does not list $asset - refusing to install an unverified binary (listed: $listed). Set `$env:HAWK_SKIP_CHECKSUM='1' to override."
     }
     $got  = (Get-FileHash -Algorithm SHA256 -Path $download).Hash.ToLower()
     if ($got -ne $want) {
@@ -115,11 +115,11 @@ try {
   Write-Host "installed $Bin -> $dest"
 
   # --- install shipped skills --------------------------------------------
-  if ($env:PENTESTERFLOW_SKIP_SKILLS -ne '1') {
-    $skillsDir = if ($env:PENTESTERFLOW_SKILLS_DIR) {
-      $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:PENTESTERFLOW_SKILLS_DIR)
+  if ($env:HAWK_SKIP_SKILLS -ne '1') {
+    $skillsDir = if ($env:HAWK_SKILLS_DIR) {
+      $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:HAWK_SKILLS_DIR)
     } else {
-      Join-Path $env:USERPROFILE '.pentesterflow\builtin-skills'
+      Join-Path $env:USERPROFILE '.hawk\builtin-skills'
     }
 
     $archiveRef = $ver

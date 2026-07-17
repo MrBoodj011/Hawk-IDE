@@ -43,10 +43,10 @@ function parseFlags(argv: string[]): DaemonFlags {
 }
 
 function printHelp(): void {
-  process.stdout.write(`PentesterFlow IDE local daemon
+  process.stdout.write(`Hawk Security IDE local daemon
 
 Usage:
-  pentesterflow-ide-daemon [flags]
+  hawk-ide-daemon [flags]
 
 Flags:
   --workspace <path>  Workspace to index (default: current directory)
@@ -84,8 +84,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(
-    `pentesterflow-ide-daemon: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
+  process.stderr.write(`hawk-ide-daemon: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

@@ -24,7 +24,7 @@ describe('browser ingest server', () => {
     expect(queryToken.status).toBe(401);
 
     const authedStatus = await fetch(`${base}/status`, {
-      headers: { 'X-Pentesterflow-Token': 'secret-token' },
+      headers: { 'X-Hawk-Token': 'secret-token' },
     });
     expect(authedStatus.status).toBe(200);
 
@@ -32,7 +32,7 @@ describe('browser ingest server', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Pentesterflow-Token': 'secret-token',
+        'X-Hawk-Token': 'secret-token',
       },
       body: JSON.stringify({ url: 'https://app.example.com/api', method: 'GET' }),
     });
@@ -46,7 +46,7 @@ describe('browser ingest server', () => {
 
     const status = await rawStatusRequest(handle.port, {
       Host: 'evil.example',
-      'X-Pentesterflow-Token': 'secret-token',
+      'X-Hawk-Token': 'secret-token',
     });
 
     expect(status).toBe(403);

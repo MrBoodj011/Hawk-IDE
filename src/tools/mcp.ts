@@ -45,7 +45,7 @@ export class MCPSession {
       env: server.env as Record<string, string> | undefined,
       stderr: 'pipe',
     });
-    const client = new MCPClient({ name: 'pentesterflow', version: '0.1.0' }, { capabilities: {} });
+    const client = new MCPClient({ name: 'hawk', version: '0.1.0' }, { capabilities: {} });
 
     const timeout = setTimeout(() => {
       try {
@@ -123,7 +123,7 @@ export class MCPSession {
   }
 }
 
-/** Wrap a discovered MCP tool as a pentesterflow Tool the registry knows about. */
+/** Wrap a discovered MCP tool as a Hawk Tool the registry knows about. */
 export class MCPTool implements Tool {
   private readonly session: MCPSession;
   private readonly toolName: string;

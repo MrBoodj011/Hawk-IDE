@@ -19,10 +19,10 @@ afterEach(async () => {
 
 describe('prepare-code-oss', () => {
   it('copies a clean Code-OSS source tree, brands product.json, and embeds the compiled extension', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pentesterflow-codeoss-'));
+    const root = await mkdtemp(join(tmpdir(), 'hawk-codeoss-'));
     temporaryRoots.push(root);
     const source = join(root, 'vscode-source');
-    const out = join(root, 'pentesterflow-codeoss');
+    const out = join(root, 'hawk-security-ide');
     const extension = join(root, 'extension');
     const overrides = join(root, 'overrides.json');
     await mkdir(join(source, 'node_modules'), { recursive: true });
@@ -39,12 +39,9 @@ describe('prepare-code-oss', () => {
     await mkdir(join(source, 'scripts'), { recursive: true });
     await writeFile(join(source, 'scripts', 'code.bat'), '@echo off\ntitle VSCode Dev\n');
     await writeFile(join(source, 'node_modules', 'ignored.txt'), 'ignored');
-    await writeFile(join(extension, 'package.json'), '{"name":"pentesterflow-ide"}\n');
+    await writeFile(join(extension, 'package.json'), '{"name":"hawk-security-ide"}\n');
     await writeFile(join(extension, 'dist', 'extension.js'), 'module.exports = {};\n');
-    await writeFile(
-      overrides,
-      '{"nameShort":"PentesterFlow IDE","applicationName":"pentesterflow-ide"}\n',
-    );
+    await writeFile(overrides, '{"nameShort":"Hawk","applicationName":"hawk"}\n');
 
     await execFile(process.execPath, [
       prepareScript,
@@ -58,14 +55,12 @@ describe('prepare-code-oss', () => {
       overrides,
     ]);
 
-    await expect(readFile(join(out, 'product.json'), 'utf8')).resolves.toContain(
-      'PentesterFlow IDE',
-    );
+    await expect(readFile(join(out, 'product.json'), 'utf8')).resolves.toContain('Hawk');
     await expect(readFile(join(out, 'scripts', 'code.bat'), 'utf8')).resolves.toContain(
-      'title PentesterFlow IDE',
+      'title Hawk Security IDE',
     );
     await expect(
-      readFile(join(out, 'extensions', 'pentesterflow-ide', 'dist', 'extension.js'), 'utf8'),
+      readFile(join(out, 'extensions', 'hawk-security-ide', 'dist', 'extension.js'), 'utf8'),
     ).resolves.toContain('module.exports');
     await expect(access(join(out, 'node_modules', 'ignored.txt'))).rejects.toThrow();
     await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(

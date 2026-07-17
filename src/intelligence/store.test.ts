@@ -196,7 +196,7 @@ describe('IntelligenceStore', () => {
     const store = new IntelligenceStore({ cwd: join(root, 'project'), home: join(root, 'home') });
     const text = formatIntelligenceContext(store.search('server.js package.json node', 1));
 
-    expect(text).toContain('Local PentesterFlow Intelligence');
+    expect(text).toContain('Local Hawk Intelligence');
     expect(text).toContain('ecosystem.config.js');
     expect(text.length).toBeLessThan(1600);
   });

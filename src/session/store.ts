@@ -1,4 +1,4 @@
-// Session persistence at ~/.pentesterflow/sessions/<uuid>.json. The JSON
+// Session persistence at ~/.hawk/sessions/<uuid>.json. The JSON
 // schema is kept stable so saved sessions remain loadable across
 // versions.
 //
@@ -78,7 +78,7 @@ export function validateID(id: string): void {
 }
 
 export function dirFromPath(path: string): string {
-  if (!path) return join(homedir(), '.pentesterflow', 'sessions');
+  if (!path) return join(homedir(), '.hawk', 'sessions');
   return dirname(path);
 }
 
