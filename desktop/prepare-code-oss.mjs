@@ -48,6 +48,7 @@ const [productText, overridesText] = await Promise.all([
 const product = JSON.parse(productText);
 const overrides = JSON.parse(overridesText);
 await writeFile(resolve(out, 'product.json'), `${JSON.stringify({ ...product, ...overrides }, null, 2)}\n`);
+await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
 
 const builtinExtension = resolve(out, 'extensions', 'pentesterflow-ide');
 await cp(extension, builtinExtension, {
@@ -57,6 +58,26 @@ await cp(extension, builtinExtension, {
 
 process.stdout.write(`Prepared branded Code-OSS source at ${out}\n`);
 process.stdout.write('Next: npm install, npm run watch, then start the platform script for your OS.\n');
+
+async function patchWindowsPackagingTask(gulpfilePath) {
+  const original = await readFile(gulpfilePath, 'utf8');
+  const target = "glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),";
+  const replacement = `glob('**/*.node', {
+\t\t\tcwd,
+\t\t\tignore: [
+\t\t\t\t'extensions/node_modules/@parcel/watcher/**',
+\t\t\t\t'**/vendor/audio-capture/*-linux/**',
+\t\t\t\t'**/vendor/audio-capture/darwin-*/**'
+\t\t\t]
+\t\t}),`;
+
+  if (original.includes(replacement)) return;
+  if (!original.includes(target)) {
+    fail(`could not apply the Windows packaging compatibility patch: ${gulpfilePath}`);
+  }
+
+  await writeFile(gulpfilePath, original.replace(target, replacement));
+}
 
 function parseArgs(argv) {
   const output = { help: false, force: false };
