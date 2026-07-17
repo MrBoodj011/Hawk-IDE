@@ -1,0 +1,9 @@
+# Keep source formatting deterministic across Windows, Linux, and macOS.
+* text=auto eol=lf
+
+# Preserve binary assets exactly as shipped.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
