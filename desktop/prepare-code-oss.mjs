@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, resolve } from 'node:path';
+import { writeBrandAssets } from './branding/generate-brand-assets.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, '..');
@@ -40,6 +42,7 @@ await cp(source, out, {
   recursive: true,
   filter: (path) => !['.git', 'node_modules', 'out', '.build'].includes(basename(path)),
 });
+ensureBuildGitRepository(out);
 
 const [productText, overridesText] = await Promise.all([
   readFile(resolve(out, 'product.json'), 'utf8'),
@@ -49,6 +52,8 @@ const product = JSON.parse(productText);
 const overrides = JSON.parse(overridesText);
 await writeFile(resolve(out, 'product.json'), `${JSON.stringify({ ...product, ...overrides }, null, 2)}\n`);
 await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
+await patchDevLaunchers(out);
+await writeBrandAssets(out);
 
 const builtinExtension = resolve(out, 'extensions', 'pentesterflow-ide');
 await cp(extension, builtinExtension, {
@@ -77,6 +82,25 @@ async function patchWindowsPackagingTask(gulpfilePath) {
   }
 
   await writeFile(gulpfilePath, original.replace(target, replacement));
+}
+
+async function patchDevLaunchers(root) {
+  const batchPath = resolve(root, 'scripts', 'code.bat');
+  try {
+    const original = await readFile(batchPath, 'utf8');
+    await writeFile(batchPath, original.replace('title VSCode Dev', 'title PentesterFlow IDE'));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+function ensureBuildGitRepository(root) {
+  try {
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: root, stdio: 'ignore' });
+  } catch (error) {
+    if (error?.code === 'ENOENT') fail('Git is required to prepare a Code-OSS build source');
+    execFileSync('git', ['init', '--quiet'], { cwd: root, stdio: 'ignore' });
+  }
 }
 
 function parseArgs(argv) {

@@ -36,6 +36,8 @@ describe('prepare-code-oss', () => {
       join(source, 'build', 'gulpfile.vscode.ts'),
       "const deps = [\n  glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),\n];\n",
     );
+    await mkdir(join(source, 'scripts'), { recursive: true });
+    await writeFile(join(source, 'scripts', 'code.bat'), '@echo off\ntitle VSCode Dev\n');
     await writeFile(join(source, 'node_modules', 'ignored.txt'), 'ignored');
     await writeFile(join(extension, 'package.json'), '{"name":"pentesterflow-ide"}\n');
     await writeFile(join(extension, 'dist', 'extension.js'), 'module.exports = {};\n');
@@ -59,6 +61,9 @@ describe('prepare-code-oss', () => {
     await expect(readFile(join(out, 'product.json'), 'utf8')).resolves.toContain(
       'PentesterFlow IDE',
     );
+    await expect(readFile(join(out, 'scripts', 'code.bat'), 'utf8')).resolves.toContain(
+      'title PentesterFlow IDE',
+    );
     await expect(
       readFile(join(out, 'extensions', 'pentesterflow-ide', 'dist', 'extension.js'), 'utf8'),
     ).resolves.toContain('module.exports');
@@ -69,5 +74,9 @@ describe('prepare-code-oss', () => {
     await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(
       "'**/vendor/audio-capture/*-darwin/**'",
     );
+    await expect(access(join(out, 'resources', 'win32', 'code.ico'))).resolves.toBeUndefined();
+    await expect(access(join(out, 'resources', 'linux', 'code.png'))).resolves.toBeUndefined();
+    await expect(access(join(out, 'resources', 'darwin', 'code.icns'))).resolves.toBeUndefined();
+    await expect(access(join(out, '.git', 'HEAD'))).resolves.toBeUndefined();
   });
 });
