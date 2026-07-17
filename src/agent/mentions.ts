@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { decodeUtf8Capped } from '../tools/file.js';
 import { isSensitivePath } from '../tools/sensitive.js';
 
@@ -237,7 +237,9 @@ function ensureIndex(): void {
 }
 
 function relativize(path: string, cwd: string): string {
-  if (path.startsWith(`${cwd}/`)) return path.slice(cwd.length + 1);
+  const rel = relative(cwd, path);
+  if (rel === '') return basename(path);
+  if (!rel.startsWith('..') && !isAbsolute(rel)) return rel.split(sep).join('/');
   return path;
 }
 

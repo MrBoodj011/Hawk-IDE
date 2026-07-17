@@ -142,14 +142,24 @@ export function load(): Config {
 /**
  * Atomically save the config: write to a sibling .tmp file with O_EXCL +
  * 0o600 from the moment of creation (no readable window), fsync, then
- * rename. Cleans up the .tmp on any error path.
+ * rename. Process-local saves are serialized because Windows cannot reliably
+ * replace the destination while another rename/chmod is still completing.
+ * Cleans up the .tmp on any error path.
  */
-export async function save(cfg: Config): Promise<void> {
+let saveQueue: Promise<void> = Promise.resolve();
+
+export function save(cfg: Config): Promise<void> {
   const path = configPath();
+  const body = `${JSON.stringify(cfg, null, 2)}\n`;
+  const pending = saveQueue.then(() => saveSnapshot(path, body));
+  saveQueue = pending.catch(() => undefined);
+  return pending;
+}
+
+async function saveSnapshot(path: string, body: string): Promise<void> {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
-  const body = `${JSON.stringify(cfg, null, 2)}\n`;
   const tmp = join(dir, `.hawk.cfg.tmp.${randomBytes(3).toString('hex')}`);
 
   let fh: Awaited<ReturnType<typeof open>> | undefined;

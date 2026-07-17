@@ -45,6 +45,10 @@ const HOME_RELATIVE = [
  * directory prefix match — `.ssh_other` does NOT match `.ssh`.
  */
 export function isSensitivePath(abs: string): boolean {
+  const slashPath = abs.replaceAll('\\', '/').toLowerCase();
+  for (const path of SYSTEM_PATHS) {
+    if (slashPath === path || slashPath.startsWith(`${path}/`)) return true;
+  }
   const cleaned = resolve(abs);
 
   for (const p of SYSTEM_PATHS) {

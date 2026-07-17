@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { runAiWorkerCli } from './aiWorker.js';
 import { startIdeDaemon } from './daemon.js';
 import { IDE_PROTOCOL_VERSION } from './protocol.js';
 
@@ -81,7 +82,10 @@ async function main(): Promise<void> {
   process.once('SIGTERM', () => void shutdown());
 }
 
-main().catch((err: unknown) => {
-  process.stderr.write(`hawk-ide-daemon: ${err instanceof Error ? err.message : String(err)}\n`);
+const workerMode = process.argv.slice(2).includes('--ai-worker');
+const entry = workerMode ? runAiWorkerCli() : main();
+entry.catch((err: unknown) => {
+  const label = workerMode ? 'hawk-ai-worker' : 'hawk-ide-daemon';
+  process.stderr.write(`${label}: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

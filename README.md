@@ -17,9 +17,13 @@ local-first Code-OSS-compatible Hawk security workspace.
 - Hawk Mission Control: a full editor surface with a responsive activity-bar
   view, security telemetry, a living route graph, traffic correlation,
   findings triage, organization posture, evidence actions, and MCP status.
-- Hawk AI investigation room with active-file, selection, open-tab, git-diff,
-  and diagnostics context; session task history; plan-first safety guidance;
-  and a direct change-review handoff to the native source-control diff.
+- Native Hawk AI engineering room with active-file, selection, open-tab,
+  git-diff, and diagnostics context; durable session history; in-panel model,
+  plan, tool, and response streaming; and isolated coding turns powered by the
+  existing multi-provider Hawk agent runtime.
+- Exact patch review with a visual diff, SHA-256-bound Apply, Reject, approved
+  typecheck/lint/test/build gates, workspace-drift detection, and Revert that
+  refuses to overwrite any file changed after apply.
 - A local daemon that binds only to loopback and requires a random,
   process-scoped token held by the extension host. The desktop extension ships
   this daemon bundle, so the portable IDE does not require a separate daemon
@@ -79,7 +83,7 @@ extension development host, then open the Hawk activity-bar icon. Use
 `Ctrl+Shift+H` (`Cmd+Shift+H` on macOS) for the full Mission Control surface.
 It can index local routes, run its passive audit, import a HAR file, run an
 approved passive workspace scan, sync a health report, and compose a
-workspace-aware AI task for the existing `hawk` agent.
+workspace-aware native AI task without opening a separate agent terminal.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -125,6 +129,9 @@ See [Smart MCP Brain](docs/smart-mcp.md) for the goal, policy, planner,
 orchestration, ProofGraph, memory, Sentinel, MCP App, A2A bridge, and Eval Lab
 contracts.
 
+See [native Hawk AI sessions](docs/native-ai.md) for the worktree, streaming,
+test-gate, Apply/Reject/Revert, persistence, and security contracts.
+
 ## Hawk health report liaison
 
 The separate [Cybrense Hawk](https://github.com/Cybrense-IT-Services/Hawk)
@@ -147,21 +154,16 @@ is written to `.hawk/reports/` and every signal still needs manual validation.
 
 ## Roadmap
 
-1. Native token/tool streaming in the editor AI panel and first-class
-   plan/approval cards backed by the Smart MCP run engine.
-2. Isolated patch worktrees with visual diff preview, Apply, Reject, Revert,
-   and automatic security/regression retests. The current patch-tournament
-   tool deliberately produces a blueprint and never edits files.
-3. Burp live-traffic streaming, browser trace capture, authenticated
+1. Burp live-traffic streaming, browser trace capture, authenticated
    multi-identity replay, and deeper source-to-data-flow correlation.
-4. A restricted egress proxy that enforces the declared host allowlist for
+2. A restricted egress proxy that enforces the declared host allowlist for
    active containers. Docker bridge mode currently requires an additional
    warning acknowledgement because Docker itself does not enforce host-level
    destinations.
-5. Signed Windows installers and auto-update, plus signed macOS and Linux
+3. Signed Windows installers and auto-update, plus signed macOS and Linux
    desktop releases. CI currently validates the extension and source bundles;
    production signing credentials are intentionally not stored in this repo.
-6. Team RBAC/SSO, shared evidence workspaces, cloud-scale durable execution,
+4. Team RBAC/SSO, shared evidence workspaces, cloud-scale durable execution,
    and a network A2A endpoint. Current Smart MCP, A2A bridge, and persistence
    are local-first.
 

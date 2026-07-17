@@ -19,8 +19,9 @@ The current local-first slice provides:
    supply-chain summary: SBOM, governance, dependency, and security-SLA risk.
 6. Offer an approved passive workspace scan with an explicit plan, modal
    confirmation, and a local Markdown report.
-7. Offer a native Hawk AI task composer that sends approved workspace-context
-   prompts to the local terminal agent.
+7. Offer a native Hawk AI workbench with durable streaming sessions, isolated
+   git worktrees, exact diff review, approved test gates, hash-bound Apply,
+   Reject, and drift-safe Revert.
 8. Offer a Smart MCP server with structured passive context, governed plans,
    durable native tasks, ProofGraph evidence, verification, security
    inspection, and explicit controls for higher-risk isolated workers.
@@ -74,10 +75,10 @@ HTTP request -> route -> source code -> patch -> regression test
 ## Extension and MCP boundary
 
 The desktop client owns editor UX, diffs, panels, and user approvals. The
-daemon owns route analysis, audit signals, redacted traffic, and local
-persistence. The extension launches the existing terminal agent only in a
-trusted workspace. A passive workspace scan is local-text-only and requires
-an explicit UI approval before it writes a report.
+daemon owns route analysis, audit signals, redacted traffic, native AI
+worktrees, and local persistence. The extension starts native Hawk workers only
+for a trusted workspace. A passive workspace scan is local-text-only and
+requires an explicit UI approval before it writes a report.
 
 Smart MCP separates read-only context tools from local state changes and
 higher-risk actions using tool annotations, typed action permissions, budgets,

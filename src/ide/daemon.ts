@@ -2,6 +2,8 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 import { join, resolve } from 'node:path';
+import type { AiApplyRequest, AiCreateSessionRequest, AiRunTestsRequest } from './aiProtocol.js';
+import { AiSessionManager } from './aiSessionManager.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import {
   type DaemonHealth,
@@ -53,6 +55,8 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   let findings: SecurityFinding[] = [];
   let traffic: TrafficInventory | null = null;
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
+  const aiSessions = new AiSessionManager({ workspaceRoot, now });
+  await aiSessions.initialize();
 
   const server = createServer((req, res) => {
     void handleRequest(req, res, {
@@ -76,6 +80,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         await persistHawkHealthReport(workspaceRoot, value);
         hawkHealth = value;
       },
+      aiSessions,
     });
   });
 
@@ -91,7 +96,10 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         url,
         token,
         inventory: () => latestInventory,
-        close: () => closeServer(server),
+        close: async () => {
+          await aiSessions.dispose();
+          await closeServer(server);
+        },
       });
     });
   });
@@ -109,6 +117,7 @@ interface RequestContext {
   setTraffic(value: TrafficInventory): void;
   hawkHealth(): HawkHealthReport | null;
   setHawkHealth(value: HawkHealthReport): Promise<void>;
+  aiSessions: AiSessionManager;
 }
 
 async function handleRequest(
@@ -189,6 +198,148 @@ async function handleRequest(
       return;
     }
     sendJSON(res, 200, health);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/ai/sessions') {
+    try {
+      const limit = Number.parseInt(requestURL.searchParams.get('limit') ?? '30', 10);
+      sendJSON(res, 200, { sessions: await context.aiSessions.list(limit) });
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/sessions') {
+    try {
+      const input = parseJSONBody<AiCreateSessionRequest>(await readBody(req));
+      sendJSON(res, 201, await context.aiSessions.create(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiSessionMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)$/);
+  if (req.method === 'GET' && aiSessionMatch?.[1]) {
+    try {
+      sendJSON(res, 200, await context.aiSessions.get(decodeURIComponent(aiSessionMatch[1])));
+    } catch (err) {
+      sendJSON(res, statusForSessionError(err), { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiEventsMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/events$/);
+  if (req.method === 'GET' && aiEventsMatch?.[1]) {
+    try {
+      const after = Number.parseInt(requestURL.searchParams.get('after') ?? '0', 10);
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.events(
+          decodeURIComponent(aiEventsMatch[1]),
+          Number.isFinite(after) ? after : 0,
+        ),
+      );
+    } catch (err) {
+      sendJSON(res, statusForSessionError(err), { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiDiffMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/diff$/);
+  if (req.method === 'GET' && aiDiffMatch?.[1]) {
+    try {
+      sendJSON(res, 200, await context.aiSessions.diff(decodeURIComponent(aiDiffMatch[1])));
+    } catch (err) {
+      sendJSON(res, statusForSessionError(err), { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiContinueMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/messages$/);
+  if (req.method === 'POST' && aiContinueMatch?.[1]) {
+    try {
+      const input = parseJSONBody<AiCreateSessionRequest>(await readBody(req));
+      sendJSON(
+        res,
+        202,
+        await context.aiSessions.continue(decodeURIComponent(aiContinueMatch[1]), input),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiTestsMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/tests$/);
+  if (req.method === 'POST' && aiTestsMatch?.[1]) {
+    try {
+      const input = parseJSONBody<AiRunTestsRequest>(await readBody(req));
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.runTests(decodeURIComponent(aiTestsMatch[1]), input),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiApplyMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/apply$/);
+  if (req.method === 'POST' && aiApplyMatch?.[1]) {
+    try {
+      const input = parseJSONBody<AiApplyRequest>(await readBody(req));
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.apply(decodeURIComponent(aiApplyMatch[1]), input),
+      );
+    } catch (err) {
+      sendJSON(res, 409, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiRejectMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/reject$/);
+  if (req.method === 'POST' && aiRejectMatch?.[1]) {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      if (input.approved !== true)
+        throw new Error('Operator approval is required to reject changes.');
+      sendJSON(res, 200, await context.aiSessions.reject(decodeURIComponent(aiRejectMatch[1])));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiRevertMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/revert$/);
+  if (req.method === 'POST' && aiRevertMatch?.[1]) {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      if (input.approved !== true)
+        throw new Error('Operator approval is required to revert changes.');
+      sendJSON(res, 200, await context.aiSessions.revert(decodeURIComponent(aiRevertMatch[1])));
+    } catch (err) {
+      sendJSON(res, 409, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiCancelMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/cancel$/);
+  if (req.method === 'POST' && aiCancelMatch?.[1]) {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      if (input.approved !== true)
+        throw new Error('Operator approval is required to cancel a task.');
+      sendJSON(res, 200, await context.aiSessions.cancel(decodeURIComponent(aiCancelMatch[1])));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
     return;
   }
 
@@ -378,4 +529,21 @@ function parseScanRequest(body: Buffer): { approved: boolean; scope: string } {
     throw new Error('operator approval is required for a workspace scan');
   if (request.scope !== 'passive-workspace') throw new Error('unsupported scan scope');
   return { approved: true, scope: request.scope };
+}
+
+function parseJSONBody<T>(body: Buffer): T {
+  let value: unknown;
+  try {
+    value = JSON.parse(body.toString('utf8'));
+  } catch {
+    throw new Error('request body must be valid JSON');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('request body must be an object');
+  }
+  return value as T;
+}
+
+function statusForSessionError(err: unknown): number {
+  return errorMessage(err).toLowerCase().includes('not found') ? 404 : 400;
 }

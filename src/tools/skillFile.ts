@@ -12,7 +12,7 @@
 // content).
 
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Prompter } from '../permission/permission.js';
 import type { Registry as SkillRegistry } from '../skills/registry.js';
 import { type Tool, argNumber, argString } from './types.js';
@@ -117,7 +117,8 @@ export class ReadSkillFileTool implements Tool {
       body = `${body.slice(0, MAX_PREVIEW_BYTES)}\n...<truncated; ${bytes} bytes on disk>`;
     }
     const truncated = total > limit ? `\n...<truncated at ${limit} of ${total} lines>` : '';
-    return `# ${skillName}/${rel} — ${total} line(s), ${bytes} bytes\n${body}${truncated}`;
+    const displayPath = rel.split(sep).join('/');
+    return `# ${skillName}/${displayPath} — ${total} line(s), ${bytes} bytes\n${body}${truncated}`;
   }
 }
 

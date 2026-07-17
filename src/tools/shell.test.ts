@@ -55,7 +55,7 @@ describe('shell denylist', () => {
   }
 });
 
-describe('ShellTool.run', () => {
+describe.skipIf(process.platform === 'win32')('ShellTool.run POSIX behavior', () => {
   it('describes portable grep usage and avoids grep -P guidance', () => {
     const desc = new ShellTool().description();
     expect(desc).toContain('grep -P');
@@ -194,7 +194,7 @@ describe('ShellTool.run', () => {
   });
 });
 
-describe('ShellTool output cap', () => {
+describe.skipIf(process.platform === 'win32')('ShellTool POSIX output cap', () => {
   it('bounds retained output to ~MAX_OUTPUT_BYTES even for huge streams', async () => {
     const t = new ShellTool();
     // Emit ~1MB; the model should only ever see the 64KB head+tail budget plus
@@ -232,7 +232,7 @@ describe('ShellTool output cap', () => {
   });
 });
 
-describe('BashTool', () => {
+describe.skipIf(process.platform === 'win32')('BashTool', () => {
   it('runs bash-only constructs', async () => {
     const t = new BashTool();
     const out = await t.run(

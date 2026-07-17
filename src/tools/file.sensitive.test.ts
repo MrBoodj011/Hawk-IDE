@@ -50,7 +50,12 @@ describe('FileReadTool sensitive gating', () => {
 
   it('catches a symlink that points into a sensitive path', async () => {
     const link = join(tmp, 'innocent.txt');
-    symlinkSync(join(tmp, '.ssh', 'id_rsa'), link);
+    try {
+      symlinkSync(join(tmp, '.ssh', 'id_rsa'), link);
+    } catch (err) {
+      if (process.platform === 'win32' && (err as NodeJS.ErrnoException).code === 'EPERM') return;
+      throw err;
+    }
     // Lexically `innocent.txt` is not sensitive; the gate must follow the
     // link to the real target and still prompt.
     await expect(new FileReadTool().run({ path: link }, signal, new AlwaysDeny())).rejects.toThrow(
