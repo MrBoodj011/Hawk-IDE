@@ -3,12 +3,15 @@ import { join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { DockerDesktopController } from './dockerDesktop.js';
 import { importHawkHealthReport } from './hawkReport.js';
+import { estimateParallelExecution } from './orchestrationEstimate.js';
+import { HawkDockerOrchestrator } from './orchestrator.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
 const SERVER_NAME = 'hawk-ide';
-const SERVER_VERSION = '0.1.0';
+const SERVER_VERSION = '0.2.0';
 
 interface ParsedArgs {
   workspaceRoot: string;
@@ -29,8 +32,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 function printHelp(): void {
   process.stderr.write(`hawk-ide-mcp ${SERVER_VERSION}
 
-Read-only MCP server for local Hawk Security IDE analysis.
-It parses source files; it does not execute project code or send requests.
+Local Hawk Security IDE analysis and isolated worker orchestration.
+Passive tools only parse source files. Parallel worker tools require an
+explicit call, use an existing local Docker image, mount the workspace
+read-only, and disable container network unless external access is explicitly
+approved.
 
 Usage:
   hawk-ide-mcp --workspace <path>
@@ -55,6 +61,8 @@ async function main(): Promise<void> {
   }
 
   const mcp = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const orchestrator = new HawkDockerOrchestrator(args.workspaceRoot);
+  const dockerDesktop = new DockerDesktopController();
   mcp.registerTool(
     'ide_route_inventory',
     {
@@ -131,13 +139,281 @@ async function main(): Promise<void> {
       );
     },
   );
+  mcp.registerTool(
+    'hawk_parallel_estimate',
+    {
+      title: 'Estimate a Hawk parallel task graph',
+      description:
+        'Estimate the scheduling floor, critical path, and theoretical speedup for a proposed dependency graph before starting containers. This is advisory and does not execute work.',
+      inputSchema: {
+        tasks: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(64),
+              estimated_minutes: z.number().positive().max(43_200),
+              depends_on: z.array(z.string()).max(32).optional(),
+            }),
+          )
+          .min(1)
+          .max(64),
+        max_parallel: z.number().int().min(1).max(32),
+        startup_seconds_per_task: z.number().nonnegative().max(300).optional(),
+      },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          JSON.stringify(
+            estimateParallelExecution(
+              input.tasks.map((task) => ({
+                id: task.id,
+                estimatedMinutes: task.estimated_minutes,
+                dependsOn: task.depends_on,
+              })),
+              input.max_parallel,
+              input.startup_seconds_per_task,
+            ),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_parallel_runtime',
+    {
+      title: 'Hawk parallel runtime status',
+      description:
+        'Check whether the local Docker daemon is ready for isolated Hawk worker orchestration. This does not start containers.',
+      inputSchema: {},
+    },
+    async () => {
+      const runtime = await orchestrator.availability();
+      return textResult(
+        JSON.stringify(
+          {
+            ...runtime,
+            isolation: {
+              workspace: 'read-only',
+              output: '.hawk/orchestrations/<run>/<task>',
+              network: 'none by default; bridge requires explicit approval',
+              capabilities: 'dropped',
+            },
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+  mcp.registerTool(
+    'hawk_docker_desktop_status',
+    {
+      title: 'Read Docker Desktop lifecycle status',
+      description:
+        'Read Docker Desktop application status without starting or stopping it. Use this after an asynchronous lifecycle request.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(await dockerDesktop.status(), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_docker_desktop_start',
+    {
+      title: 'Start Docker Desktop for Hawk workers',
+      description:
+        'Request an asynchronous start of the local Docker Desktop engine. This changes host application state and requires explicit operator approval. Poll hawk_parallel_runtime until workers are available.',
+      inputSchema: {
+        approved: z
+          .literal(true)
+          .describe('Explicit confirmation that Docker Desktop may be started on this host.'),
+      },
+    },
+    async () => {
+      try {
+        return textResult(JSON.stringify(await dockerDesktop.start(), null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_docker_desktop_stop',
+    {
+      title: 'Stop Docker Desktop after Hawk work',
+      description:
+        'Stop Docker Desktop after worker runs finish. This can stop unrelated containers owned by the operator, so the caller must explicitly acknowledge that impact. Refuses while Hawk runs are active unless force is true.',
+      inputSchema: {
+        approved: z.literal(true),
+        acknowledge_stops_other_containers: z.literal(true),
+        force: z.boolean().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const active = orchestrator
+          .list()
+          .filter((run) => run.status === 'queued' || run.status === 'running');
+        if (active.length > 0 && input.force !== true) {
+          throw new Error(
+            `Docker Desktop cannot stop while ${active.length} Hawk run(s) are active; cancel them or set force`,
+          );
+        }
+        if (active.length > 0) {
+          await Promise.all(active.map((run) => orchestrator.cancel(run.id)));
+        }
+        return textResult(JSON.stringify(await dockerDesktop.stop(input.force === true), null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_parallel_start',
+    {
+      title: 'Start isolated parallel Hawk workers',
+      description:
+        'Start a background dependency graph of independent tasks in isolated Docker containers. The image must already exist locally. Workers receive a read-only workspace, write only to per-task artifact folders, use CPU/RAM/PID/time limits, and are removed when done. Network and credential inheritance are off by default and require explicit external-access approval. Use this only for authorized work.',
+      inputSchema: {
+        image: z
+          .string()
+          .min(1)
+          .max(255)
+          .describe('Existing local Docker image. Hawk never pulls images automatically.'),
+        tasks: z
+          .array(
+            z.object({
+              id: z
+                .string()
+                .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/)
+                .describe('Unique stable task id.'),
+              title: z.string().min(1).max(160),
+              command: z
+                .array(z.string().min(1).max(4096))
+                .min(1)
+                .max(64)
+                .describe('Executable and arguments passed directly without a host shell.'),
+              depends_on: z.array(z.string()).max(32).optional(),
+              timeout_seconds: z.number().int().min(10).max(43_200).optional(),
+              retries: z.number().int().min(0).max(3).optional(),
+            }),
+          )
+          .min(1)
+          .max(64),
+        max_parallel: z.number().int().min(1).max(32).optional(),
+        cpu_per_worker: z.number().min(0.25).max(8).optional(),
+        memory_mb_per_worker: z.number().int().min(128).max(16_384).optional(),
+        network_mode: z
+          .enum(['none', 'bridge'])
+          .optional()
+          .describe(
+            'Container network mode. Defaults to none. Bridge requires approved_external_access.',
+          ),
+        inherit_env: z
+          .array(z.string().regex(/^[A-Z_][A-Z0-9_]{0,127}$/))
+          .max(16)
+          .optional()
+          .describe(
+            'Names of host environment variables to pass into workers. Values are never returned by Hawk. Requires approved_external_access.',
+          ),
+        approved_external_access: z
+          .boolean()
+          .optional()
+          .describe(
+            'Must be true to enable network access or inherit credentials. This can trigger external API usage and cost across every parallel worker.',
+          ),
+      },
+    },
+    async (input) => {
+      try {
+        const run = await orchestrator.start({
+          image: input.image,
+          tasks: input.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            command: task.command,
+            dependsOn: task.depends_on,
+            timeoutSeconds: task.timeout_seconds,
+            retries: task.retries,
+          })),
+          maxParallel: input.max_parallel,
+          cpuPerWorker: input.cpu_per_worker,
+          memoryMbPerWorker: input.memory_mb_per_worker,
+          networkMode: input.network_mode,
+          inheritEnv: input.inherit_env,
+          approvedExternalAccess: input.approved_external_access,
+        });
+        return textResult(JSON.stringify(run, null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_parallel_status',
+    {
+      title: 'Read a Hawk parallel run',
+      description:
+        'Read progress, task states, exit codes, artifact folders, and optionally capped local worker output for one background run.',
+      inputSchema: {
+        run_id: z.string().min(1),
+        include_output: z.boolean().optional(),
+      },
+    },
+    async (input) => {
+      const run = orchestrator.get(input.run_id, input.include_output === true);
+      return run
+        ? textResult(JSON.stringify(run, null, 2))
+        : toolError(new Error(`Unknown orchestration run: ${input.run_id}`));
+    },
+  );
+  mcp.registerTool(
+    'hawk_parallel_runs',
+    {
+      title: 'List Hawk parallel runs',
+      description:
+        'List the background orchestration runs held by this local MCP session. Worker output is omitted.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify({ runs: orchestrator.list() }, null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_parallel_cancel',
+    {
+      title: 'Cancel a Hawk parallel run',
+      description:
+        'Cancel pending work and force-remove running containers for one Hawk orchestration run.',
+      inputSchema: { run_id: z.string().min(1) },
+    },
+    async (input) => {
+      try {
+        return textResult(JSON.stringify(await orchestrator.cancel(input.run_id), null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
 
   await mcp.connect(new StdioServerTransport());
+  const shutdown = (): void => {
+    void orchestrator.shutdown().finally(() => process.exit(0));
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
   await new Promise<void>(() => undefined);
 }
 
 function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }] };
+}
+
+function toolError(err: unknown) {
+  return {
+    isError: true,
+    content: [{ type: 'text' as const, text: errorMessage(err) }],
+  };
 }
 
 main().catch((err: unknown) => {

@@ -36,8 +36,12 @@ local-first Code-OSS-compatible Hawk security workspace.
 - Hawk `health.json` import and optional GitHub raw/Contents API sync that
   correlate local SBOM, governance, dependency maintenance, and security-SLA
   signals. Optional GitHub tokens remain in VS Code SecretStorage.
-- `hawk-ide-mcp`, a read-only MCP server exposing route inventory, redacted
+- `hawk-ide-mcp`, an MCP server exposing passive route inventory, redacted
   static-audit results, and a sanitized Hawk health summary to an assistant.
+- Approval-aware Docker orchestration in `hawk-ide-mcp`: background task
+  graphs, up to 32 bounded parallel workers, dependency scheduling, retries,
+  timeouts, cancellation, capped logs, per-task artifacts, and optional
+  explicitly approved network/credential access.
 - Existing PentesterFlow CLI, permissions, sessions, browser/Burp bridge, and
   evidence-backed findings workflow.
 
@@ -95,6 +99,9 @@ curl -X POST -H "X-Hawk-Token: <token>" http://127.0.0.1:<port>/v1/workspace/ind
 
 See [architecture documentation](docs/architecture.md) for the current
 security boundary and longer-term security graph.
+
+See [parallel Docker orchestration](docs/parallel-orchestration.md) for worker
+isolation, the MCP tools, image setup, and long-running task examples.
 
 ## Hawk health report liaison
 

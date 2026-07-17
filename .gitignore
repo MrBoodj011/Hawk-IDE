@@ -28,5 +28,6 @@ dist/
 # root so they don't also exclude source dirs like src/findings/.
 /findings/
 /recon/
+/.hawk/
 /.pentesterflow/
 bughunter-report-*.md
