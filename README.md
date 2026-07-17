@@ -14,9 +14,12 @@ local-first Code-OSS-compatible Hawk security workspace.
 
 ## What works now
 
-- Hawk activity-bar control plane for routes, local audit signals, HAR traffic,
-  approved passive workspace scans, Hawk health intelligence, findings retest,
-  MCP setup, and a native AI task composer.
+- Hawk Mission Control: a full editor surface with a responsive activity-bar
+  view, security telemetry, a living route graph, traffic correlation,
+  findings triage, organization posture, evidence actions, and MCP status.
+- Hawk AI investigation room with active-file, selection, open-tab, git-diff,
+  and diagnostics context; session task history; plan-first safety guidance;
+  and a direct change-review handoff to the native source-control diff.
 - A local daemon that binds only to loopback and requires a random,
   process-scoped token held by the extension host. The desktop extension ships
   this daemon bundle, so the portable IDE does not require a separate daemon
@@ -26,8 +29,10 @@ local-first Code-OSS-compatible Hawk security workspace.
   `eval`, interpolated SQL-looking calls, and risky CORS combinations.
   Signals are explicitly not confirmed vulnerabilities: they require manual
   validation.
-- HAR import that stays on-device and redacts sensitive query values. It never
-  replays imported requests or stores request/response bodies.
+- HAR import that stays on-device and redacts sensitive query values. Imported
+  paths are correlated with indexed source routes and marked live in Mission
+  Control. Hawk never replays imported requests or stores request/response
+  bodies.
 - Hawk `health.json` import and optional GitHub raw/Contents API sync that
   correlate local SBOM, governance, dependency maintenance, and security-SLA
   signals. Optional GitHub tokens remain in VS Code SecretStorage.
@@ -48,10 +53,11 @@ npm run build:extension
 ```
 
 Open the repository's `extensions/pentesterflow-ide` folder in the Code-OSS
-extension development host, then open the Hawk activity-bar icon.
-The dashboard can index local routes, run its passive audit, import a HAR file,
-run an approved passive workspace scan, sync a health report, and compose an
-AI task for the existing `hawk` agent in the integrated terminal.
+extension development host, then open the Hawk activity-bar icon. Use
+`Ctrl+Shift+H` (`Cmd+Shift+H` on macOS) for the full Mission Control surface.
+It can index local routes, run its passive audit, import a HAR file, run an
+approved passive workspace scan, sync a health report, and compose a
+workspace-aware AI task for the existing `hawk` agent.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -112,12 +118,13 @@ is written to `.hawk/reports/` and every signal still needs manual validation.
 
 ## Roadmap
 
-1. Source-to-request correlation and Burp live-traffic import.
-2. Explicit scope/identity management for authorized IDOR/BOLA validation.
-3. Patch generation, regression-test orchestration, and replay after fixes.
-4. Runtime digital twin, attack graph, and collaborative security workspace.
-5. Full source-to-request correlation, approved patches, regression tests, and
-   active validation inside explicitly authorized scopes.
+1. Native captured-response streaming in the AI panel with structured tool
+   events and approval cards.
+2. Staged patch generation with Apply, Reject, and one-click Revert snapshots.
+3. Burp live-traffic streaming and richer request-to-data-flow correlation.
+4. Explicit scope/identity management for authorized IDOR/BOLA validation.
+5. Runtime digital twin, regression-test orchestration, and collaborative
+   evidence workspaces.
 
 ## License and attribution
 
