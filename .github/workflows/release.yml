@@ -144,10 +144,29 @@ jobs:
           path: dist-bin/*
           if-no-files-found: error
 
+  extension:
+    name: package Code-OSS extension
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run check:extension
+      - run: npm run package:extension
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pentesterflow-ide-vsix
+          path: extensions/pentesterflow-ide/*.vsix
+          if-no-files-found: error
+
   # Collect every binary + a combined SHA256SUMS into one GitHub Release.
   release:
     name: github release
-    needs: [prepare, binaries]
+    needs: [prepare, binaries, extension]
     if: needs.prepare.outputs.should_publish_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -163,11 +182,19 @@ jobs:
         with:
           path: dist-bin
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: pentesterflow-ide-vsix
+          path: dist-extension
       - name: Aggregate checksums
         run: |
           cd dist-bin
           cat ./*.sha256 > SHA256SUMS
           rm -f ./*.sha256
+          for extension in ../dist-extension/*.vsix; do
+            test -s "$extension"
+            sha256sum "$extension" >> SHA256SUMS
+          done
           echo "Release assets:" && ls -la
       # Never publish a partial / out-of-sync release: every expected binary
       # must be present AND listed in SHA256SUMS before we cut the release.
@@ -193,6 +220,10 @@ jobs:
               echo "::error::SHA256SUMS does not list $a"; fail=1
             fi
           done
+          extension_count=$(find ../dist-extension -maxdepth 1 -name '*.vsix' -type f -size +0c | wc -l)
+          if [[ "$extension_count" != "1" ]]; then
+            echo "::error::expected exactly one non-empty PentesterFlow IDE VSIX asset"; fail=1
+          fi
           exit "$fail"
       - uses: softprops/action-gh-release@v2
         with:
@@ -205,10 +236,11 @@ jobs:
           make_latest: true
           files: |
             dist-bin/*
+            dist-extension/*
 
   dry-run:
     name: dry-run artifacts
-    needs: [prepare, binaries]
+    needs: [prepare, binaries, extension]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -216,16 +248,26 @@ jobs:
         with:
           path: dist-bin
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: pentesterflow-ide-vsix
+          path: dist-extension
       - name: Aggregate checksums
         run: |
           cd dist-bin
           cat ./*.sha256 > SHA256SUMS
           rm -f ./*.sha256
+          for extension in ../dist-extension/*.vsix; do
+            test -s "$extension"
+            sha256sum "$extension" >> SHA256SUMS
+          done
           echo "Dry-run assets:" && ls -la
       - uses: actions/upload-artifact@v4
         with:
           name: release-dry-run-${{ needs.prepare.outputs.release_tag }}
-          path: dist-bin/*
+          path: |
+            dist-bin/*
+            dist-extension/*
           if-no-files-found: error
 
   # npm publish runs only for real tag pushes (not manual dry-runs) and only

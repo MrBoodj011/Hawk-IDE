@@ -1,5 +1,7 @@
 node_modules/
 dist/
+*.vsix
+/extensions/pentesterflow-ide/resources/pentesterflow-mark.png
 /coverage/
 .DS_Store
 *.log

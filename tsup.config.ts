@@ -8,6 +8,7 @@ export default defineConfig({
     cli: 'src/cli/index.ts',
     'browser-mcp': 'src/browser/mcpServer.ts',
     'ide-daemon': 'src/ide/daemonCli.ts',
+    'ide-mcp': 'src/ide/mcpServer.ts',
   },
   format: ['esm'],
   target: 'node20',

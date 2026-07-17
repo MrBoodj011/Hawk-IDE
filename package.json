@@ -3,10 +3,14 @@
   "version": "0.1.0-dev",
   "description": "Security-native AI development environment for evidence-driven code review and authorized pentesting.",
   "type": "module",
+  "workspaces": [
+    "extensions/*"
+  ],
   "bin": {
     "pentesterflow": "./dist/cli.js",
     "pentesterflow-browser-mcp": "./dist/browser-mcp.js",
-    "pentesterflow-ide-daemon": "./dist/ide-daemon.js"
+    "pentesterflow-ide-daemon": "./dist/ide-daemon.js",
+    "pentesterflow-ide-mcp": "./dist/ide-mcp.js"
   },
   "files": [
     "dist",
@@ -21,12 +25,15 @@
     "dev": "tsx src/cli/index.ts",
     "dev:burp": "tsx src/cli/index.ts --burp",
     "dev:ide-daemon": "tsx src/ide/daemonCli.ts",
+    "build:extension": "npm --workspace pentesterflow-ide run build",
+    "check:extension": "npm --workspace pentesterflow-ide run check",
+    "package:extension": "npm --workspace pentesterflow-ide run package",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "lint:fix": "biome check --write src",
-    "ci": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "ci": "npm run typecheck && npm run lint && npm run test && npm run build && npm run check:extension && npm run build:extension"
   },
   "keywords": [
     "pentest",
