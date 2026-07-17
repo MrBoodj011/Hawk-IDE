@@ -67,7 +67,7 @@ async function patchWindowsPackagingTask(gulpfilePath) {
 \t\t\tignore: [
 \t\t\t\t'extensions/node_modules/@parcel/watcher/**',
 \t\t\t\t'**/vendor/audio-capture/*-linux/**',
-\t\t\t\t'**/vendor/audio-capture/darwin-*/**'
+\t\t\t\t'**/vendor/audio-capture/*-darwin/**'
 \t\t\t]
 \t\t}),`;
 

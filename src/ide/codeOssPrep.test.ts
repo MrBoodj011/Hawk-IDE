@@ -66,5 +66,8 @@ describe('prepare-code-oss', () => {
     await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(
       "'**/vendor/audio-capture/*-linux/**'",
     );
+    await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(
+      "'**/vendor/audio-capture/*-darwin/**'",
+    );
   });
 });
