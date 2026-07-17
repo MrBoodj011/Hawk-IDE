@@ -4,12 +4,16 @@ import { resolve } from 'node:path';
 import {
   type DaemonHealth,
   IDE_PROTOCOL_VERSION,
+  type RetestResult,
   type SecurityFinding,
+  type TrafficInventory,
   type WorkspaceInventory,
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import { scanWorkspaceSecurity } from './staticAudit.js';
+import { importHarTraffic } from './traffic.js';
 
-const MAX_REQUEST_BODY_BYTES = 128 * 1024;
+const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
 
 export interface IdeDaemonOptions {
   workspaceRoot?: string;
@@ -40,7 +44,8 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   const token = opts.token ?? randomBytes(32).toString('base64url');
   const now = opts.now ?? (() => new Date());
   let latestInventory: WorkspaceInventory | null = null;
-  const findings: SecurityFinding[] = [];
+  let findings: SecurityFinding[] = [];
+  let traffic: TrafficInventory | null = null;
 
   const server = createServer((req, res) => {
     void handleRequest(req, res, {
@@ -51,7 +56,14 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       setInventory: (value) => {
         latestInventory = value;
       },
-      findings,
+      findings: () => findings,
+      setFindings: (value) => {
+        findings = value;
+      },
+      traffic: () => traffic,
+      setTraffic: (value) => {
+        traffic = value;
+      },
     });
   });
 
@@ -79,7 +91,10 @@ interface RequestContext {
   now: () => Date;
   inventory: () => WorkspaceInventory | null;
   setInventory(value: WorkspaceInventory): void;
-  findings: SecurityFinding[];
+  findings(): SecurityFinding[];
+  setFindings(value: SecurityFinding[]): void;
+  traffic(): TrafficInventory | null;
+  setTraffic(value: TrafficInventory): void;
 }
 
 async function handleRequest(
@@ -139,7 +154,64 @@ async function handleRequest(
   }
 
   if (req.method === 'GET' && pathname === '/v1/findings') {
-    sendJSON(res, 200, { findings: context.findings });
+    sendJSON(res, 200, { findings: context.findings() });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/traffic') {
+    const traffic = context.traffic();
+    if (!traffic) {
+      sendJSON(res, 404, { ok: false, error: 'no traffic has been imported yet' });
+      return;
+    }
+    sendJSON(res, 200, traffic);
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/traffic/import/har') {
+    try {
+      const body = await readBody(req);
+      const traffic = importHarTraffic(JSON.parse(body.toString('utf8')), context.now());
+      context.setTraffic(traffic);
+      sendJSON(res, 200, traffic);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/audit/static') {
+    try {
+      await consumeBody(req);
+      const audit = await scanWorkspaceSecurity(context.workspaceRoot, context.now());
+      context.setFindings(audit.findings);
+      sendJSON(res, 200, audit);
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const retestMatch = pathname.match(/^\/v1\/findings\/([^/]+)\/retest$/);
+  if (req.method === 'POST' && retestMatch?.[1]) {
+    try {
+      await consumeBody(req);
+      const id = decodeURIComponent(retestMatch[1]);
+      const previous = context.findings().find((finding) => finding.id === id);
+      if (!previous) {
+        sendJSON(res, 404, { ok: false, error: 'finding not found' });
+        return;
+      }
+      const audit = await scanWorkspaceSecurity(context.workspaceRoot, context.now());
+      context.setFindings(audit.findings);
+      const current = audit.findings.find((finding) => finding.id === id);
+      const result: RetestResult = current
+        ? { finding: current, present: true }
+        : { finding: { ...previous, status: 'fixed' }, present: false };
+      sendJSON(res, 200, result);
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
     return;
   }
 
@@ -170,16 +242,23 @@ function validLoopbackHost(req: IncomingMessage): boolean {
 }
 
 function consumeBody(req: IncomingMessage): Promise<void> {
+  return readBody(req).then(() => undefined);
+}
+
+function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolveBody, reject) => {
     let total = 0;
+    const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => {
       total += chunk.length;
       if (total > MAX_REQUEST_BODY_BYTES) {
         req.destroy();
         reject(new Error('request body too large'));
+        return;
       }
+      chunks.push(chunk);
     });
-    req.on('end', resolveBody);
+    req.on('end', () => resolveBody(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }

@@ -33,6 +33,48 @@ describe('startIdeDaemon', () => {
         sourceFiles: 1,
         routes: [expect.objectContaining({ method: 'GET', path: '/api/profile' })],
       });
+
+      await writeFile(join(root, 'risky.ts'), 'eval(untrustedInput);\n');
+      const audit = await fetch(`${daemon.url}/v1/audit/static`, { method: 'POST', headers });
+      expect(audit.status).toBe(200);
+      const audited = (await audit.json()) as { findings: Array<{ id: string; ruleId: string }> };
+      expect(audited.findings).toEqual(
+        expect.arrayContaining([expect.objectContaining({ ruleId: 'dynamic-code-execution' })]),
+      );
+
+      const finding = audited.findings.find((item) => item.ruleId === 'dynamic-code-execution');
+      expect(finding).toBeDefined();
+      await writeFile(join(root, 'risky.ts'), 'const safe = true;\n');
+      const retest = await fetch(`${daemon.url}/v1/findings/${finding?.id}/retest`, {
+        method: 'POST',
+        headers,
+      });
+      expect(retest.status).toBe(200);
+      await expect(retest.json()).resolves.toMatchObject({
+        present: false,
+        finding: { status: 'fixed' },
+      });
+
+      const traffic = await fetch(`${daemon.url}/v1/traffic/import/har`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          log: {
+            entries: [
+              {
+                request: { method: 'GET', url: 'https://api.example.test/orders?token=private' },
+                response: { status: 200 },
+              },
+            ],
+          },
+        }),
+      });
+      expect(traffic.status).toBe(200);
+      await expect(traffic.json()).resolves.toMatchObject({
+        requests: [
+          expect.objectContaining({ url: 'https://api.example.test/orders?token=REDACTED' }),
+        ],
+      });
     } finally {
       await daemon.close();
     }

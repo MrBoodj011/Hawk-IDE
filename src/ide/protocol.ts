@@ -29,13 +29,52 @@ export type FindingStatus = 'suspected' | 'validated' | 'fixed' | 'retested';
 
 export interface SecurityFinding {
   id: string;
+  ruleId: string;
   title: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   status: FindingStatus;
+  confidence: 'signal';
   createdAt: string;
-  evidenceIds: string[];
+  description: string;
+  remediation: string;
+  evidence: EvidenceSnippet[];
   route?: Pick<WorkspaceRoute, 'method' | 'path'>;
   source?: Pick<WorkspaceRoute, 'file' | 'line'>;
+}
+
+export interface EvidenceSnippet {
+  kind: 'code';
+  summary: string;
+}
+
+export interface StaticAuditReport {
+  protocolVersion: number;
+  scannedAt: string;
+  sourceFiles: number;
+  findings: SecurityFinding[];
+}
+
+export interface RetestResult {
+  finding: SecurityFinding;
+  present: boolean;
+}
+
+export interface TrafficRequest {
+  id: string;
+  method: string;
+  url: string;
+  host: string;
+  status?: number;
+  startedAt: string;
+}
+
+export interface TrafficInventory {
+  protocolVersion: number;
+  importedAt: string;
+  source: 'har';
+  hosts: string[];
+  requests: TrafficRequest[];
+  truncated: boolean;
 }
 
 export interface DaemonHealth {

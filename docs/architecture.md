@@ -4,20 +4,23 @@ PentesterFlow IDE is a security-native development environment that joins
 source-code understanding, live traffic, evidence-backed findings, and verified
 fixes in one local-first workflow.
 
-## First vertical slice
+## Implemented vertical slice
 
-The first deliverable is deliberately narrow and complete:
+The current local-first slice provides:
 
 1. Index routes from a workspace without executing project code.
-2. Expose that inventory from a token-gated loopback daemon.
-3. Connect a future Code-OSS client to the daemon.
-4. Import captured traffic and associate it with routes.
-5. Validate one IDOR/BOLA finding, propose a patch, and replay it after the fix.
+2. Run passive static-audit rules and retest the same source location after a
+   change. Audit signals are not vulnerability confirmations.
+3. Expose inventory, audit results, and a redacted HAR traffic inventory from a
+   token-gated loopback daemon.
+4. Connect the Code-OSS-compatible dashboard without exposing the daemon token
+   to the webview.
+5. Offer a read-only local MCP server for route and audit context.
 
 ## Runtime layout
 
 ```text
-Code-OSS client
+Code-OSS-compatible extension
     |
     | local authenticated API
     v
@@ -31,8 +34,9 @@ PentesterFlow IDE daemon
 ```
 
 The daemon binds only to a loopback host. Every endpoint requires a
-process-scoped token; desktop UI code must never make the daemon remotely
-reachable.
+process-scoped token; webview UI code never receives this token. HAR import
+has a bounded body size and stores only a redacted request inventory, not
+cookies, authorization headers, or request/response bodies.
 
 ## Security graph
 
@@ -44,9 +48,12 @@ The graph lets the IDE navigate in both directions:
 HTTP request -> route -> source code -> patch -> regression test
 ```
 
-## Extension boundary
+## Extension and MCP boundary
 
 The desktop client owns editor UX, diffs, panels, and user approvals. The
-daemon owns agent execution, route analysis, tool calls, secrets, traffic,
-evidence, and local persistence. MCP is reserved for external integrations;
-editor internals stay native for performance and least privilege.
+daemon owns route analysis, audit signals, redacted traffic, and local
+persistence. The extension launches the existing terminal agent only in a
+trusted workspace. MCP is read-only for the implemented IDE tools; editor
+internals stay native for performance and least privilege. Remote testing and
+active scanner actions remain subject to the existing agent permission and
+authorization workflow.
