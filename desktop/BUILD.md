@@ -53,3 +53,14 @@ Windows Authenticode signing is optional. If
 the workflow signs Hawk; otherwise it publishes an explicitly unsigned
 personal artifact. Releases are installed or updated manually from the
 private GitHub repository.
+
+For a personal Windows build outside GitHub Actions, the checked-in packaging
+scripts accept portable tool directories and do not require a machine-wide
+installation:
+
+```powershell
+$env:HAWK_NSIS_BIN = 'C:\tools\nsis'
+$env:HAWK_WIX_BIN = 'C:\tools\wix314'
+.\desktop\windows\package-installer.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.0 -Output artifacts\HawkSetup-windows-x64-0.2.0.exe
+.\desktop\windows\package-msi.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.0 -Output artifacts\Hawk-windows-x64-0.2.0.msi
+```

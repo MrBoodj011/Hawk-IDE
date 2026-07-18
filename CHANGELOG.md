@@ -8,11 +8,6 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
-- **Hawk Coding Core** — editor-native inline completion, a bounded local
-  symbol-aware semantic index, natural-language workspace search, named
-  checkpoints, isolated task terminals, three-lane parallel coding sessions,
-  explicit BYOK model fallback routes, performance benchmarks, and a private
-  GitHub Release updater with SHA-256 verification.
 - **Saved memory (`#` quick-add)** — a curated, human-readable memory layer
   modeled on Claude Code. `#<text>` saves a durable fact (one Markdown file per
   fact with frontmatter, under `.pentesterflow/memory/`); `#!<text>` saves it to
@@ -51,13 +46,19 @@ All notable changes to this project are documented here. The format is based on
 - Closed out the internal code audit: 35 of 39 findings fixed, 3 accepted as
   intentional, 1 hardened (see `AUDIT.md`).
 
-## [0.2.0] - 2026-06-06
+## [0.2.0] - 2026-07-18
 
 Hardening, model tuning, and a transcript/status overhaul, plus Claude
 Code-style permission bypass. Focus areas: the permission model, Kimi K2.6/K2.5
 behavior, and making long-running turns legible.
 
 ### Added
+
+- **Hawk Coding Core** — editor-native inline completion, a bounded local
+  symbol-aware semantic index, natural-language workspace search, named
+  checkpoints, isolated task terminals, three-lane parallel coding sessions,
+  explicit BYOK model fallback routes, performance benchmarks, and a private
+  GitHub Release updater with SHA-256 verification.
 
 - **`--yolo` flag** — canonical short flag for permission-bypass mode;
   `--dangerously-skip-permissions` is kept as an alias.

@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$SourceDir,
   [Parameter(Mandatory = $true)][string]$Version,
-  [Parameter(Mandatory = $true)][string]$Output
+  [Parameter(Mandatory = $true)][string]$Output,
+  [string]$WixBin = $env:HAWK_WIX_BIN
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,10 +12,11 @@ if ($source -notmatch 'VSCode-win32-x64$') {
 }
 
 $wixRoots = @(
+  $WixBin,
   "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin",
   "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin",
   "$env:ChocolateyInstall\bin"
-)
+) | Where-Object { $_ }
 $heat = $null
 $candle = $null
 $light = $null
@@ -35,7 +37,8 @@ $normalizedVersion = if ($Version -match '^(\d+)\.(\d+)\.(\d+)') {
   throw "Invalid MSI version: $Version"
 }
 
-$work = Join-Path $env:RUNNER_TEMP 'hawk-msi'
+$tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+$work = Join-Path $tempRoot 'hawk-msi'
 New-Item -ItemType Directory -Force $work | Out-Null
 $filesWxs = Join-Path $work 'files.wxs'
 $productWxs = Join-Path $work 'product.wxs'
