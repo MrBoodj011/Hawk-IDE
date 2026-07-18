@@ -44,7 +44,7 @@ local-first Code-OSS-compatible Hawk security workspace.
   that option.
 - Hawk `health.json` import and optional GitHub raw/Contents API sync that
   correlate local SBOM, governance, dependency maintenance, and security-SLA
-  signals. Optional GitHub tokens remain in VS Code SecretStorage.
+  signals. Optional GitHub tokens remain in Hawk encrypted local secret storage.
 - Hawk Smart MCP Brain: typed goals and scope, semantic capability search,
   goal-bound DAG plans, exact-hash approvals, execution-time policy rechecks,
   local/hosted model routing,
@@ -113,7 +113,7 @@ and token used by either capture companion.
 Use **Hawk: Plan Governed Smart MCP Mission** to inspect a security DAG before
 approval, and **Hawk: Build Sanitized Evidence Pack** for portable reports.
 Hawk does not require a Hawk login. Optional GitHub health-report tokens remain
-in VS Code SecretStorage; LLM keys can be read from local environment
+in Hawk encrypted local secret storage; LLM keys can be read from local environment
 variables and are not synchronized anywhere.
 
 For a branded Code-OSS source tree with the extension built in, follow
@@ -173,7 +173,7 @@ The separate [Cybrense Hawk](https://github.com/Cybrense-IT-Services/Hawk)
 GitHub App publishes `health.json`. Use **Import Hawk health** to load a local
 file, or **Configure sync** to connect a `raw.githubusercontent.com` or
 GitHub Contents API URL. A private-report token, when needed, is held only in
-VS Code SecretStorage; it is never sent to the dashboard webview or daemon.
+Hawk encrypted local secret storage; it is never sent to the dashboard webview or daemon.
 Hawk IDE persists only a sanitized summary in `.hawk/health.json`; it never
 accepts a GitHub App private key, installation token, raw alert payload,
 source code, or pull-request body. This is a file-contract integration only:

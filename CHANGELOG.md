@@ -27,6 +27,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Hawk Obsidian desktop identity** — rebuilt the native shell, product mark,
+  title bar, activity icon, colors, Mission Control, and Hawk AI surfaces around
+  one operator-grade visual system. Upstream onboarding, sign-in, Chat, and
+  Copilot surfaces stay hidden; local model outages now render as a guided
+  offline state instead of raw transport errors.
+
 - **Self-update hardening** — a pinned `pentesterflow update <version>` now
   fetches the installer from that release tag (immutable) instead of `main`, and
   the installer URL is asserted to be https on `raw.githubusercontent.com`

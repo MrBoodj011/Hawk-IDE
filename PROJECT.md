@@ -157,7 +157,7 @@ Hawk is designed for one operator on trusted personal machines:
 - engagement state, evidence, task history, and reports stay in the workspace;
 - Browser and Burp companions are installed locally and require explicit pairing;
 - LLM access is BYOK, with environment-variable indirection available;
-- optional GitHub health sync stores its token in VS Code SecretStorage;
+- optional GitHub health sync stores its token in Hawk encrypted local secret storage;
 - dependency assurance and release checks run against the private repository.
 
 ## Important local paths

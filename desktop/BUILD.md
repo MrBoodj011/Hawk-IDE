@@ -10,7 +10,7 @@ does not build or publish Apple artifacts.
 The preparation step also removes the upstream Copilot extension, prevents it
 from being fetched as a built-in, disables its built-in AI surfaces and
 first-run onboarding, and starts with the upstream secondary sidebar hidden.
-Hawk ships its own native AI workspace and `Hawk Carbon` workbench theme
+Hawk ships its own native AI workspace and `Hawk Obsidian` workbench theme
 instead of showing VS Code or Copilot onboarding.
 It also creates local Git metadata in the prepared tree because current
 Code-OSS dependency setup requires it; the upstream checkout remains unchanged.

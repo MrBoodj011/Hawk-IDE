@@ -47,6 +47,15 @@ describe('prepare-code-oss', () => {
     await mkdir(join(source, 'build', 'linux'), { recursive: true });
     await mkdir(join(source, 'extensions', 'copilot'), { recursive: true });
     await mkdir(join(source, 'src', 'vs', 'workbench', 'browser'), { recursive: true });
+    await mkdir(join(source, 'src', 'vs', 'workbench', 'browser', 'media'), {
+      recursive: true,
+    });
+    await mkdir(join(source, 'src', 'vs', 'workbench', 'browser', 'parts', 'titlebar'), {
+      recursive: true,
+    });
+    await mkdir(join(source, 'src', 'vs', 'platform', 'theme', 'electron-main'), {
+      recursive: true,
+    });
     await mkdir(join(source, 'src', 'vs', 'workbench', 'contrib', 'chat', 'browser'), {
       recursive: true,
     });
@@ -66,6 +75,9 @@ describe('prepare-code-oss', () => {
         win32TunnelServiceMutex: 'code-tunnel-service',
         win32TunnelMutex: 'code-tunnel',
         builtInExtensions: [{ name: 'GitHub.copilot-chat' }, { name: 'ms-vscode.js-debug' }],
+        builtInExtensionsEnabledWithAutoUpdates: ['GitHub.copilot-chat', 'ms-vscode.js-debug'],
+        agentsTelemetryAppName: 'agents',
+        voiceWsUrl: 'wss://upstream.invalid',
       }),
     );
     await writeFile(join(source, 'package.json'), '{"name":"code-oss-dev","version":"0.0.0"}\n');
@@ -101,7 +113,28 @@ describe('prepare-code-oss', () => {
     );
     await writeFile(
       join(source, 'src', 'vs', 'workbench', 'browser', 'workbench.contribution.ts'),
-      "const settings = {\n\t\t'workbench.secondarySideBar.defaultVisibility': {\n\t\t\t'type': 'string',\n\t\t\t'default': 'visibleInWorkspace',\n\t\t\tdescription: 'Upstream sidebar default'\n\t\t}\n};\n",
+      "const settings = {\n\t\t'workbench.secondarySideBar.defaultVisibility': {\n\t\t\t'type': 'string',\n\t\t\t'default': 'visibleInWorkspace',\n\t\t\tdescription: 'Upstream sidebar default'\n\t\t},\n\t\t[LayoutSettings.COMMAND_CENTER]: {\n\t\t\ttype: 'boolean',\n\t\t\tdefault: true,\n\t\t\tdescription: 'Upstream command center'\n\t\t}\n};\n",
+    );
+    await writeFile(
+      join(source, 'src', 'vs', 'platform', 'theme', 'electron-main', 'themeMainServiceImpl.ts'),
+      "const auxiliary = new Setting<'hidden' | 'visibleInWorkspace' | 'visible' | 'maximizedInWorkspace' | 'maximized'>('workbench.secondarySideBar.defaultVisibility', 'visibleInWorkspace');\n" +
+        "const startup = new Setting<'none' | 'welcomePage' | 'readme' | 'newUntitledFile' | 'welcomePageInEmptyWorkbench' | 'terminal' | 'agentSessionsWelcomePage'>('workbench.startupEditor', 'welcomePage');\n",
+    );
+    await writeFile(
+      join(
+        source,
+        'src',
+        'vs',
+        'workbench',
+        'browser',
+        'parts',
+        'titlebar',
+        'commandCenterControl.ts',
+      ),
+      'label = localize(\'label.dfl\', "Search");\n' +
+        'const one = localize(\'title\', "Search {0} ({1}) \\u2014 {2}");\n' +
+        'const two = localize(\'title2\', "Search {0} \\u2014 {1}");\n' +
+        'const item = { title: localize(\'title3\', "Command Center"), };\n',
     );
     await writeFile(
       join(
@@ -122,6 +155,11 @@ describe('prepare-code-oss', () => {
     await writeFile(join(source, 'extensions', 'copilot', 'package.json'), '{"name":"copilot"}\n');
     await writeFile(join(extension, 'package.json'), '{"name":"hawk-security-ide"}\n');
     await writeFile(join(extension, 'dist', 'extension.js'), 'module.exports = {};\n');
+    await mkdir(join(extension, 'resources'), { recursive: true });
+    await writeFile(
+      join(extension, 'resources', 'hawk-mark.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg"><path id="hawk-mark"/></svg>\n',
+    );
     await writeFile(overrides, '{"nameShort":"Hawk","applicationName":"hawk"}\n');
 
     await execFile(process.execPath, [
@@ -141,19 +179,29 @@ describe('prepare-code-oss', () => {
     const product = JSON.parse(await readFile(join(out, 'product.json'), 'utf8')) as {
       nameShort: string;
       defaultChatAgent: { extensionId: string };
-      trustedExtensionAuthAccess: { github: string[] };
+      trustedExtensionAuthAccess?: { github: string[] };
+      agentsTelemetryAppName?: string;
+      voiceWsUrl?: string;
+      enableTelemetry: boolean;
+      showTelemetryOptOut: boolean;
       tunnelApplicationName?: string;
       win32TunnelServiceMutex?: string;
       win32TunnelMutex?: string;
       builtInExtensions: Array<{ name: string }>;
+      builtInExtensionsEnabledWithAutoUpdates: string[];
     };
     expect(product.nameShort).toBe('Hawk');
     expect(product.defaultChatAgent).toEqual({ extensionId: 'GitHub.copilot' });
-    expect(product.trustedExtensionAuthAccess).toEqual({ github: ['GitHub.copilot-chat'] });
+    expect(product.trustedExtensionAuthAccess).toBeUndefined();
+    expect(product.agentsTelemetryAppName).toBeUndefined();
+    expect(product.voiceWsUrl).toBeUndefined();
+    expect(product.enableTelemetry).toBe(false);
+    expect(product.showTelemetryOptOut).toBe(false);
     expect(product.tunnelApplicationName).toBeUndefined();
     expect(product.win32TunnelServiceMutex).toBeUndefined();
     expect(product.win32TunnelMutex).toBeUndefined();
     expect(product.builtInExtensions).toEqual([{ name: 'ms-vscode.js-debug' }]);
+    expect(product.builtInExtensionsEnabledWithAutoUpdates).toEqual(['ms-vscode.js-debug']);
     await expect(readFile(join(out, 'package.json'), 'utf8')).resolves.toContain(
       '"version": "0.2.0"',
     );
@@ -205,6 +253,28 @@ describe('prepare-code-oss', () => {
     await expect(
       readFile(join(out, 'src', 'vs', 'workbench', 'browser', 'workbench.contribution.ts'), 'utf8'),
     ).resolves.toContain("'default': 'hidden',");
+    await expect(
+      readFile(
+        join(out, 'src', 'vs', 'platform', 'theme', 'electron-main', 'themeMainServiceImpl.ts'),
+        'utf8',
+      ),
+    ).resolves.toContain("'workbench.startupEditor', 'none'");
+    const commandCenterSource = await readFile(
+      join(
+        out,
+        'src',
+        'vs',
+        'workbench',
+        'browser',
+        'parts',
+        'titlebar',
+        'commandCenterControl.ts',
+      ),
+      'utf8',
+    );
+    expect(commandCenterSource).toContain('HAWK / Search');
+    expect(commandCenterSource).toContain('Hawk Search / {0}');
+    expect(commandCenterSource).toContain('Hawk Command Center');
     const chatConfigurationSource = await readFile(
       join(
         out,
@@ -235,6 +305,9 @@ describe('prepare-code-oss', () => {
     );
     await expect(access(join(out, 'resources', 'win32', 'code.ico'))).resolves.toBeUndefined();
     await expect(access(join(out, 'resources', 'linux', 'code.png'))).resolves.toBeUndefined();
+    await expect(
+      readFile(join(out, 'src', 'vs', 'workbench', 'browser', 'media', 'code-icon.svg'), 'utf8'),
+    ).resolves.toContain('hawk-mark');
     await expect(access(join(out, '.git', 'HEAD'))).resolves.toBeUndefined();
   });
 });

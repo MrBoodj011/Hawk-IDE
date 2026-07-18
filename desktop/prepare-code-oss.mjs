@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, resolve } from 'node:path';
 import { writeBrandAssets } from './branding/generate-brand-assets.mjs';
+import { sanitizeHawkProduct } from './product-branding.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, '..');
@@ -50,7 +51,7 @@ const [productText, overridesText] = await Promise.all([
 ]);
 const product = JSON.parse(productText);
 const overrides = JSON.parse(overridesText);
-const brandedProduct = filterUpstreamAiDownloads({
+const brandedProduct = sanitizeHawkProduct({
   ...product,
   ...overrides,
   ...(args.quality ? { quality: args.quality } : {}),
@@ -104,6 +105,21 @@ await patchSettingDefault(
   "'default': 'visibleInWorkspace',",
   "'default': 'hidden',",
 );
+await patchSettingConstant(
+  resolve(out, 'src', 'vs', 'platform', 'theme', 'electron-main', 'themeMainServiceImpl.ts'),
+  "new Setting<'hidden' | 'visibleInWorkspace' | 'visible' | 'maximizedInWorkspace' | 'maximized'>('workbench.secondarySideBar.defaultVisibility', 'visibleInWorkspace')",
+  "new Setting<'hidden' | 'visibleInWorkspace' | 'visible' | 'maximizedInWorkspace' | 'maximized'>('workbench.secondarySideBar.defaultVisibility', 'hidden')",
+  'native secondary side bar default',
+);
+await patchSettingConstant(
+  resolve(out, 'src', 'vs', 'platform', 'theme', 'electron-main', 'themeMainServiceImpl.ts'),
+  "new Setting<'none' | 'welcomePage' | 'readme' | 'newUntitledFile' | 'welcomePageInEmptyWorkbench' | 'terminal' | 'agentSessionsWelcomePage'>('workbench.startupEditor', 'welcomePage')",
+  "new Setting<'none' | 'welcomePage' | 'readme' | 'newUntitledFile' | 'welcomePageInEmptyWorkbench' | 'terminal' | 'agentSessionsWelcomePage'>('workbench.startupEditor', 'none')",
+  'native startup editor default',
+);
+await patchHawkCommandCenter(
+  resolve(out, 'src', 'vs', 'workbench', 'browser', 'parts', 'titlebar', 'commandCenterControl.ts'),
+);
 const chatConfiguration = resolve(
   out,
   'src',
@@ -128,6 +144,7 @@ await patchSettingDefault(
 );
 await patchDevLaunchers(out);
 await writeBrandAssets(out);
+await writeNativeWorkbenchBrandAsset(out, extension);
 await removeUpstreamAiExtensions(out);
 
 const builtinExtension = resolve(out, 'extensions', 'hawk-security-ide');
@@ -138,16 +155,6 @@ await cp(extension, builtinExtension, {
 
 process.stdout.write(`Prepared Hawk Security IDE source at ${out}\n`);
 process.stdout.write('Next: npm install, npm run watch, then start the platform script for your OS.\n');
-
-function filterUpstreamAiDownloads(product) {
-  const branded = { ...product };
-  if (Array.isArray(branded.builtInExtensions)) {
-    branded.builtInExtensions = branded.builtInExtensions.filter(
-      (extension) => !String(extension?.name ?? '').toLowerCase().includes('copilot'),
-    );
-  }
-  return branded;
-}
 
 async function removeUpstreamAiExtensions(root) {
   const installDirectories = resolve(root, 'build', 'npm', 'dirs.ts');
@@ -167,6 +174,20 @@ async function removeUpstreamAiExtensions(root) {
       rm(resolve(root, 'extensions', name), { recursive: true, force: true }),
     ),
   );
+}
+
+async function writeNativeWorkbenchBrandAsset(root, extensionRoot) {
+  const target = resolve(
+    root,
+    'src',
+    'vs',
+    'workbench',
+    'browser',
+    'media',
+    'code-icon.svg',
+  );
+  await mkdir(dirname(target), { recursive: true });
+  await cp(resolve(extensionRoot, 'resources', 'hawk-mark.svg'), target);
 }
 
 async function patchWindowsPackagingTask(gulpfilePath) {
@@ -313,6 +334,46 @@ async function patchSettingDefault(configurationPath, setting, currentDefault, h
     configurationPath,
     `${original.slice(0, settingIndex)}${patchedBlock}${original.slice(blockEnd)}`,
   );
+}
+
+async function patchSettingConstant(configurationPath, currentValue, hawkValue, label) {
+  const original = await readFile(configurationPath, 'utf8');
+  if (original.includes(hawkValue)) return;
+  if (!original.includes(currentValue)) {
+    fail(`could not apply the Hawk ${label}: ${configurationPath}`);
+  }
+  await writeFile(configurationPath, original.replace(currentValue, hawkValue));
+}
+
+async function patchHawkCommandCenter(commandCenterPath) {
+  let source = await readFile(commandCenterPath, 'utf8');
+  const replacements = [
+    [
+      'label = localize(\'label.dfl\', "Search");',
+      'label = localize(\'label.dfl\', "HAWK / Search");',
+    ],
+    [
+      'localize(\'title\', "Search {0} ({1}) \\u2014 {2}"',
+      'localize(\'title\', "Hawk Search / {0} ({1}) \\u2014 {2}"',
+    ],
+    [
+      'localize(\'title2\', "Search {0} \\u2014 {1}"',
+      'localize(\'title2\', "Hawk Search / {0} \\u2014 {1}"',
+    ],
+    [
+      'title: localize(\'title3\', "Command Center"),',
+      'title: localize(\'title3\', "Hawk Command Center"),',
+    ],
+  ];
+
+  for (const [target, replacement] of replacements) {
+    if (source.includes(replacement)) continue;
+    if (!source.includes(target)) {
+      fail(`could not brand the native command center: ${commandCenterPath}`);
+    }
+    source = source.replace(target, replacement);
+  }
+  await writeFile(commandCenterPath, source);
 }
 
 async function patchDevLaunchers(root) {

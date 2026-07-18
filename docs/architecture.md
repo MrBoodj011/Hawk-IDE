@@ -59,7 +59,7 @@ The daemon binds only to a loopback host. Every endpoint requires a
 process-scoped token; webview UI code never receives this token. Hawk report
 import contains no GitHub credential and persists only a sanitized summary
 under `.hawk/health.json`. Optional GitHub sync is restricted to GitHub raw
-and Contents API URLs; its optional token is held in VS Code SecretStorage,
+and Contents API URLs; its optional token is held in Hawk encrypted local secret storage,
 never in settings, the webview, or the daemon. HAR import has a bounded body
 size and stores only a redacted request inventory, not cookies, authorization
 headers, or request/response bodies. Live companions are disabled by default,

@@ -30,6 +30,7 @@
     "dev:burp": "tsx src/cli/index.ts --burp",
     "dev:ide-daemon": "tsx src/ide/daemonCli.ts",
     "build:extension": "npm run build && npm --workspace hawk-security-ide run build",
+    "desktop:refresh-portable": "node desktop/refresh-portable.mjs",
     "preview:ui": "node scripts/render-ui-preview.cjs",
     "check:extension": "npm --workspace hawk-security-ide run check",
     "check:integrations": "node scripts/check-integrations.mjs",
