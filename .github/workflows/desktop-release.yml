@@ -214,7 +214,14 @@ jobs:
         working-directory: ${{ runner.temp }}/hawk-codeoss
         shell: pwsh
         run: |
-          npm run gulp "vscode-win32-${{ matrix.arch }}-min"
+          $target = "vscode-win32-${{ matrix.arch }}-min"
+          foreach ($attempt in 1..2) {
+            npm run gulp $target
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 2) { throw "$target failed after $attempt attempts." }
+            Write-Warning "$target failed on attempt $attempt; retrying."
+            Start-Sleep -Seconds 20
+          }
           $portable = Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}"
           if (!(Test-Path (Join-Path $portable 'Hawk.exe'))) {
             throw 'Hawk.exe was not produced by the Code-OSS package task.'
@@ -253,7 +260,14 @@ jobs:
         working-directory: ${{ runner.temp }}/hawk-codeoss
         shell: pwsh
         run: |
-          npm run gulp "vscode-win32-${{ matrix.arch }}-system-setup"
+          $target = "vscode-win32-${{ matrix.arch }}-system-setup"
+          foreach ($attempt in 1..2) {
+            npm run gulp $target
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 2) { throw "$target failed after $attempt attempts." }
+            Write-Warning "$target failed on attempt $attempt; retrying."
+            Start-Sleep -Seconds 20
+          }
           choco install wixtoolset --yes --no-progress
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
           New-Item -ItemType Directory -Force $artifacts | Out-Null
@@ -298,15 +312,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run gulp "vscode-linux-${{ matrix.arch }}-min"
+          run_gulp_with_retry() {
+            for attempt in 1 2; do
+              if npm run gulp "$@"; then
+                return 0
+              fi
+              if [[ "$attempt" == 2 ]]; then
+                echo "::error::gulp $* failed after $attempt attempts."
+                return 1
+              fi
+              echo "::warning::gulp $* failed on attempt $attempt; retrying."
+              sleep 20
+            done
+          }
+          run_gulp_with_retry "vscode-linux-${{ matrix.arch }}-min"
           portable="$RUNNER_TEMP/VSCode-linux-${{ matrix.arch }}"
           test -x "$portable/hawk"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
           tar -C "$RUNNER_TEMP" -czf \
             "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.tar.gz" \
             "VSCode-linux-${{ matrix.arch }}"
-          npm run gulp "vscode-linux-${{ matrix.arch }}-prepare-deb"
-          npm run gulp "vscode-linux-${{ matrix.arch }}-build-deb"
+          run_gulp_with_retry "vscode-linux-${{ matrix.arch }}-prepare-deb"
+          run_gulp_with_retry "vscode-linux-${{ matrix.arch }}-build-deb"
           deb="$(find ".build/linux/deb" -type f -name '*.deb' -size +0c | head -n 1)"
           test -n "$deb"
           cp "$deb" "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.deb"
@@ -320,7 +347,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run gulp "vscode-darwin-${{ matrix.arch }}-min"
+          for attempt in 1 2; do
+            if npm run gulp "vscode-darwin-${{ matrix.arch }}-min"; then
+              break
+            fi
+            if [[ "$attempt" == 2 ]]; then
+              echo "::error::macOS desktop build failed after $attempt attempts."
+              exit 1
+            fi
+            echo "::warning::macOS desktop build failed on attempt $attempt; retrying."
+            sleep 20
+          done
           app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
           test -d "$app"
 
