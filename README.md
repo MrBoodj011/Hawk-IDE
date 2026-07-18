@@ -24,7 +24,20 @@ local-first Code-OSS-compatible Hawk security workspace.
 - Hawk Coding Core: private inline completion, bounded local symbol-aware
   workspace indexing, natural-language code search, isolated task terminals,
   named patch checkpoints, three-lane parallel coding tournaments, explicit
-  BYOK model fallbacks, and built-in latency/RAM benchmarks.
+  BYOK model fallbacks, and built-in latency/RAM benchmarks. The index is now
+  persistent and incremental, extracts TypeScript/JavaScript AST declarations,
+  types, imports, and calls, and can add loopback-only Ollama embeddings.
+- Hawk Next Edit predicts an exact, bounded multiline replacement from recent
+  edits, diagnostics, surrounding code, and repository context. The editor
+  discards the result unless the model's old text exactly matches the current
+  document suffix.
+- Hawk Debug Agent reads native Debug Adapter Protocol threads, stack frames,
+  scopes, variables, breakpoints, and diagnostics, redacts secret-shaped
+  values, and launches an isolated fix-and-regression loop after approval.
+- Long native AI tasks support Pause/Resume, restart recovery, optional
+  background auto-resume, and intelligent synthesis that scores parallel
+  candidates by test evidence and review surface before creating one clean
+  merge lane.
 - Hawk Local AI setup: the Windows installer can add the official Ollama
   runtime, while the native first-run wizard verifies the release digest and
   Windows signer, recommends a coding model from available RAM, downloads it
@@ -91,13 +104,15 @@ local-first Code-OSS-compatible Hawk security workspace.
   evidence-backed findings workflow.
 - A personal desktop release pipeline for Windows portable ZIP/EXE/MSI and
   Linux deb/AppImage/tar, plus locally installed Browser and Burp companions.
-  Releases include SHA-256 checksums; Windows signing is optional. The desktop
+  Releases include SHA-256 checksums; publication now requires a trusted RSA
+  Authenticode certificate and verifies timestamp and Windows trust. The desktop
   can check the private GitHub release feed, verify an installer against
   `SHA256SUMS`, and launch it only after explicit approval.
 - A deliberately solo/local architecture: no Hawk account, team system,
   Stripe/billing, licenses, cloud synchronization, telemetry collector, Apple
-  build, or extension-store publication. Provider keys and engagement data
-  remain on the operator's machine.
+  build, or hosted Hawk backend. Store listing/submission packs exist, but
+  publication still requires the owner's Chrome and PortSwigger accounts.
+  Provider keys and engagement data remain on the operator's machine.
 - CodeQL-ready static assurance and production dependency auditing without a
   hosted Hawk service.
 
@@ -123,8 +138,9 @@ and token used by either capture companion.
 Use **Hawk: Plan Governed Smart MCP Mission** to inspect a security DAG before
 approval, and **Hawk: Build Sanitized Evidence Pack** for portable reports.
 Use **Hawk: Search Workspace Semantically**, **Hawk: Run Coding Core
-Benchmark**, and **Hawk: Check for Private Release Updates** for the coding
-layer. `Alt+\` explicitly requests a Hawk Tab completion.
+Benchmark**, **Hawk: Diagnose and Fix Stopped Debugger**, and **Hawk: Check for
+Private Release Updates** for the coding layer. `Alt+\` explicitly requests a
+Hawk Tab / Next Edit prediction.
 Hawk does not require a Hawk login. Optional GitHub health-report tokens remain
 in Hawk encrypted local secret storage; LLM keys can be read from local environment
 variables and are not synchronized anywhere.

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client } from '../llm/client.js';
-import { createInlineCompletion } from './inlineCompletion.js';
+import { createEditPrediction, createInlineCompletion } from './inlineCompletion.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 
 describe('createInlineCompletion', () => {
@@ -47,5 +47,48 @@ describe('createInlineCompletion', () => {
     expect(result.contextFiles).toContain('auth.ts');
     expect(prompt).toContain('validateToken');
     expect(result.provider).toBe('test');
+  });
+
+  it('returns a safe multiline next edit only when old_text exactly matches the suffix', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-edit-prediction-'));
+    roots.push(root);
+    await writeFile(join(root, 'service.ts'), 'export const timeoutMs = 5000;\n');
+    const client: Client = {
+      name: () => 'test',
+      model: () => 'edit-test',
+      chat: async () => ({
+        message: {
+          role: 'assistant',
+          content: JSON.stringify({
+            old_text: 'return fetch(url);',
+            new_text:
+              'return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });\n// guarded request',
+          }),
+        },
+        finishReason: 'stop',
+      }),
+    };
+    const result = await createEditPrediction(
+      {
+        file: 'client.ts',
+        languageId: 'typescript',
+        prefix: 'export function request(url: string) {\n  ',
+        suffix: 'return fetch(url);\n}',
+        recentEdits: [
+          {
+            file: 'config.ts',
+            line: 3,
+            before: 'const timeout = 1000;',
+            after: 'const timeoutMs = 5000;',
+          },
+        ],
+      },
+      new SemanticWorkspaceIndex(root),
+      { client },
+    );
+
+    expect(result.kind).toBe('next-edit');
+    expect(result.replaceText).toBe('return fetch(url);');
+    expect(result.text).toContain('AbortSignal.timeout');
   });
 });

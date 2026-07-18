@@ -27,6 +27,9 @@ import type {
   AiDiffResponse,
   AiDiffSummary,
   AiEventPage,
+  AiMergeBatchRequest,
+  AiMergeBatchResponse,
+  AiMergeCandidateScore,
   AiParallelBatchRequest,
   AiParallelBatchResponse,
   AiRestoreCheckpointRequest,
@@ -87,6 +90,9 @@ interface StoredAiSession {
   lastEventId: number;
   provider?: string;
   model?: string;
+  background?: boolean;
+  autoResume?: boolean;
+  resumeCount?: number;
   error?: string;
   diff?: AiDiffSummary;
   checkpoints?: StoredCheckpoint[];
@@ -160,16 +166,47 @@ export class AiSessionManager {
     ]);
     const sessions = await this.loadAll();
     for (const session of sessions) {
-      if (
-        session.status === 'preparing' ||
-        session.status === 'running' ||
-        session.status === 'testing'
-      ) {
-        session.status = 'failed';
-        session.error = 'The previous Hawk process stopped before this session completed.';
+      if (session.status === 'testing') {
+        session.status = 'awaiting-review';
+        session.error = undefined;
         session.updatedAt = this.timestamp();
         await this.save(session);
-        await this.addEvent(session, 'error', session.error);
+        await this.addEvent(
+          session,
+          'status',
+          'Hawk recovered the isolated task after restart. Interrupted tests were not assumed to pass.',
+        );
+      } else if (session.status === 'preparing' || session.status === 'running') {
+        session.status = 'paused';
+        session.error = undefined;
+        session.updatedAt = this.timestamp();
+        await this.save(session);
+        await this.addEvent(
+          session,
+          'status',
+          'Hawk recovered this task after restart. Its worktree and agent memory are intact.',
+        );
+        if (session.background && session.autoResume) {
+          try {
+            await ensureWorktree(session);
+            session.resumeCount = (session.resumeCount ?? 0) + 1;
+            await this.startWorker(
+              session,
+              `Resume the interrupted background task and finish it safely. Original objective:\n${session.prompt}`,
+              'Recovery: Hawk restarted. Inspect the current isolated worktree and saved agent session before continuing.',
+            );
+            await this.addEvent(session, 'status', 'Background task resumed automatically.');
+          } catch (err) {
+            session.status = 'paused';
+            session.error = errorMessage(err);
+            await this.save(session);
+            await this.addEvent(
+              session,
+              'error',
+              `Automatic recovery could not start: ${session.error}`,
+            );
+          }
+        }
       }
     }
   }
@@ -177,7 +214,18 @@ export class AiSessionManager {
   async dispose(): Promise<void> {
     for (const controller of this.testControllers.values()) controller.abort();
     this.testControllers.clear();
-    for (const child of this.workers.values()) {
+    for (const [id, child] of this.workers) {
+      const session = await this.load(id).catch(() => undefined);
+      if (session) {
+        session.status = 'paused';
+        session.updatedAt = this.timestamp();
+        await this.save(session);
+        await this.addEvent(
+          session,
+          'status',
+          'Hawk paused this task for shutdown. Resume will continue from saved agent memory.',
+        );
+      }
       if (!child.killed) child.kill();
     }
     this.workers.clear();
@@ -210,6 +258,9 @@ export class AiSessionManager {
       touchedFiles: [],
       testGates: await detectTestGates(prepared.workerRoot),
       testResults: [],
+      background: input.background === true,
+      autoResume: input.background === true && input.autoResume !== false,
+      resumeCount: 0,
     };
     await this.save(session);
     await this.addEvent(session, 'status', 'Isolated worktree ready. Starting Hawk AI.');
@@ -258,6 +309,8 @@ export class AiSessionManager {
         await this.create({
           prompt: `[${role.name} lane] ${objective}\n\nLane focus: ${role.instruction}`,
           context: input.context,
+          background: true,
+          autoResume: true,
         }),
       );
     }
@@ -266,6 +319,61 @@ export class AiSessionManager {
       createdAt: this.timestamp(),
       sessions,
     };
+  }
+
+  async mergeBatch(input: AiMergeBatchRequest): Promise<AiMergeBatchResponse> {
+    const ids = [...new Set(input.sessionIds ?? [])].slice(0, 6);
+    if (ids.length < 2) throw new Error('Select at least two completed Hawk lanes to merge.');
+    const candidates = await Promise.all(ids.map((id) => this.load(id)));
+    for (const candidate of candidates) {
+      if (candidate.status !== 'awaiting-review' || !candidate.diff) {
+        throw new Error(`Lane ${candidate.title} is not ready for intelligent merge.`);
+      }
+      await ensureWorktree(candidate);
+    }
+    const scores = candidates
+      .map(scoreMergeCandidate)
+      .sort((left, right) => right.score - left.score);
+    const patches: string[] = [];
+    let totalBytes = 0;
+    for (const score of scores) {
+      const candidate = candidates.find((item) => item.id === score.sessionId);
+      if (!candidate?.diff) continue;
+      const patch = await readFile(candidate.patchPath, 'utf8');
+      const remaining = Math.max(0, 1_500_000 - totalBytes);
+      if (remaining === 0) break;
+      const boundedPatch = patch.slice(0, remaining);
+      totalBytes += boundedPatch.length;
+      patches.push(
+        [
+          `CANDIDATE ${candidate.id}`,
+          `Title: ${candidate.title}`,
+          `Score: ${score.score} (${score.reasons.join('; ')})`,
+          `Diff: ${candidate.diff.files} files, +${candidate.diff.insertions} -${candidate.diff.deletions}`,
+          `Tests: ${candidate.testResults.map((result) => `${result.label}=${result.status}`).join(', ') || 'not run'}`,
+          'PATCH:',
+          boundedPatch,
+        ].join('\n'),
+      );
+    }
+    const objective =
+      input.objective?.trim() ||
+      candidates[0]?.prompt.replace(/^\[[^\]]+ lane\]\s*/, '') ||
+      'Synthesize the strongest correct implementation.';
+    const mergeSession = await this.create({
+      prompt: [
+        '[Intelligent merge lane]',
+        objective,
+        '',
+        'Review every candidate patch and its test evidence. Build one coherent implementation in this fresh isolated worktree.',
+        'Keep compatible non-overlapping improvements, resolve semantic conflicts deliberately, reject duplicated or risky changes, and add regression coverage.',
+        'Do not blindly concatenate patches. The final output must be a clean reviewable diff.',
+      ].join('\n'),
+      context: [input.context ?? '', ...patches].filter(Boolean).join('\n\n').slice(0, 1_600_000),
+      background: true,
+      autoResume: true,
+    });
+    return { mergeSession, candidates: scores };
   }
 
   async continue(id: string, input: AiCreateSessionRequest): Promise<AiSessionSummary> {
@@ -498,7 +606,8 @@ export class AiSessionManager {
     if (
       session.status !== 'awaiting-review' &&
       session.status !== 'failed' &&
-      session.status !== 'cancelled'
+      session.status !== 'cancelled' &&
+      session.status !== 'paused'
     ) {
       throw new Error(`A ${session.status} session cannot be rejected.`);
     }
@@ -549,13 +658,65 @@ export class AiSessionManager {
     if (
       session.status === 'running' ||
       session.status === 'preparing' ||
-      session.status === 'testing'
+      session.status === 'testing' ||
+      session.status === 'paused'
     ) {
       session.status = 'cancelled';
       session.updatedAt = this.timestamp();
       await this.save(session);
       await this.addEvent(session, 'status', 'Hawk task cancelled by the operator.');
     }
+    return publicSession(session);
+  }
+
+  async pause(id: string): Promise<AiSessionSummary> {
+    const session = await this.load(id);
+    if (session.status !== 'running' && session.status !== 'preparing') {
+      throw new Error(`A ${session.status} session cannot be paused.`);
+    }
+    const worker = this.workers.get(id);
+    session.status = 'paused';
+    session.updatedAt = this.timestamp();
+    await this.save(session);
+    await this.addEvent(
+      session,
+      'status',
+      'Task paused. The isolated worktree and saved agent memory were preserved.',
+    );
+    if (worker && !worker.killed) worker.kill();
+    const deadline = Date.now() + 5_000;
+    while (this.workers.has(id) && Date.now() < deadline) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+    }
+    if (this.workers.has(id)) {
+      throw new Error('Hawk worker did not stop cleanly; the task remains preserved.');
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+    return publicSession(session);
+  }
+
+  async resume(id: string): Promise<AiSessionSummary> {
+    const session = await this.load(id);
+    if (session.status !== 'paused' && session.status !== 'failed') {
+      throw new Error(`A ${session.status} session cannot be resumed.`);
+    }
+    await ensureWorktree(session);
+    if (session.diff) {
+      session.status = 'awaiting-review';
+      session.error = undefined;
+      session.updatedAt = this.timestamp();
+      await this.save(session);
+      await this.addEvent(session, 'status', 'Recovered reviewable changes are ready again.');
+      return publicSession(session);
+    }
+    session.error = undefined;
+    session.resumeCount = (session.resumeCount ?? 0) + 1;
+    await this.addEvent(session, 'status', `Resuming task (recovery ${session.resumeCount}).`);
+    await this.startWorker(
+      session,
+      `Resume and complete the interrupted task. Original objective:\n${session.prompt}`,
+      'Recovery: inspect the current isolated worktree and saved agent memory before continuing.',
+    );
     return publicSession(session);
   }
 
@@ -658,7 +819,7 @@ export class AiSessionManager {
 
   private async finishWorker(id: string, ok: boolean, failureText: string): Promise<void> {
     const session = await this.load(id);
-    if (session.status === 'cancelled') return;
+    if (session.status === 'cancelled' || session.status === 'paused') return;
     if (!ok) {
       session.status = 'failed';
       session.error = session.error || boundText(failureText, 20_000);
@@ -687,7 +848,7 @@ export class AiSessionManager {
 
   private async failWorker(id: string, message: string): Promise<void> {
     const session = await this.load(id);
-    if (session.status === 'cancelled') return;
+    if (session.status === 'cancelled' || session.status === 'paused') return;
     session.status = 'failed';
     session.error = message;
     session.updatedAt = this.timestamp();
@@ -940,6 +1101,9 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
     updatedAt: session.updatedAt,
     provider: session.provider,
     model: session.model,
+    background: session.background === true,
+    autoResume: session.autoResume === true,
+    resumeCount: session.resumeCount ?? 0,
     error: session.error,
     diff: session.diff,
     checkpoints: (session.checkpoints ?? []).map(
@@ -955,8 +1119,43 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
       session.status === 'cancelled',
     canRevert: session.status === 'applied',
     canCheckpoint: session.status === 'awaiting-review' && Boolean(session.diff),
-    canOpenTerminal: session.status === 'awaiting-review',
+    canPause: session.status === 'running' || session.status === 'preparing',
+    canResume: session.status === 'paused' || session.status === 'failed',
+    canOpenTerminal: session.status === 'awaiting-review' || session.status === 'paused',
   };
+}
+
+function scoreMergeCandidate(session: StoredAiSession): AiMergeCandidateScore {
+  const reasons: string[] = [];
+  let score = 50;
+  const passed = session.testResults.filter((result) => result.status === 'passed').length;
+  const failed = session.testResults.filter((result) => result.status === 'failed').length;
+  if (passed > 0) {
+    score += Math.min(24, passed * 8);
+    reasons.push(`${passed} gate(s) passed`);
+  }
+  if (failed > 0) {
+    score -= failed * 15;
+    reasons.push(`${failed} gate(s) failed`);
+  }
+  if (session.testGates.length > 0 && passed === session.testGates.length) {
+    score += 12;
+    reasons.push('all detected gates passed');
+  }
+  const changedLines = (session.diff?.insertions ?? 0) + (session.diff?.deletions ?? 0);
+  if (changedLines <= 250) {
+    score += 8;
+    reasons.push('focused patch');
+  } else if (changedLines > 2_000) {
+    score -= 12;
+    reasons.push('large review surface');
+  }
+  if ((session.diff?.files ?? 0) > 40) {
+    score -= 8;
+    reasons.push('many touched files');
+  }
+  if (reasons.length === 0) reasons.push('review-ready candidate');
+  return { sessionId: session.id, score: Math.max(0, Math.min(100, score)), reasons };
 }
 
 function defaultWorkerLaunch(): WorkerLaunch {

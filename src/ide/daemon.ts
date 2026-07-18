@@ -8,6 +8,7 @@ import type {
   AiApplyRequest,
   AiCheckpointRequest,
   AiCreateSessionRequest,
+  AiMergeBatchRequest,
   AiParallelBatchRequest,
   AiRestoreCheckpointRequest,
   AiRunTestsRequest,
@@ -17,7 +18,12 @@ import { runCodingCoreBenchmark } from './codingBenchmark.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
-import { type InlineCompletionRequest, createInlineCompletion } from './inlineCompletion.js';
+import {
+  type EditPredictionRequest,
+  type InlineCompletionRequest,
+  createEditPrediction,
+  createInlineCompletion,
+} from './inlineCompletion.js';
 import {
   type DaemonHealth,
   type EvidencePackReport,
@@ -82,7 +88,13 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const aiSessions = new AiSessionManager({ workspaceRoot, now });
   await aiSessions.initialize();
-  const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot);
+  const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot, {
+    embeddings: {
+      enabled: process.env.HAWK_IDE_EMBEDDINGS === '1',
+      baseUrl: process.env.HAWK_IDE_EMBEDDING_BASE_URL,
+      model: process.env.HAWK_IDE_EMBEDDING_MODEL,
+    },
+  });
   const completionLatencies: number[] = [];
   const captureStore = new CaptureStore({ maxEntries: 5_000 });
   const captureServer = await startIngestServer({
@@ -230,6 +242,28 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'PUT' && pathname === '/v1/workspace/semantic-index/file') {
+    try {
+      const input = parseJSONBody<{ file?: string }>(await readBody(req));
+      if (typeof input.file !== 'string' || !input.file.trim()) throw new Error('file is required');
+      sendJSON(res, 200, await context.semanticIndex.updateFile(input.file));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname === '/v1/workspace/semantic-index/file') {
+    try {
+      const input = parseJSONBody<{ file?: string }>(await readBody(req));
+      if (typeof input.file !== 'string' || !input.file.trim()) throw new Error('file is required');
+      sendJSON(res, 200, await context.semanticIndex.removeFile(input.file));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/workspace/semantic-index') {
     const stats = context.semanticIndex.stats();
     if (!stats) {
@@ -248,7 +282,7 @@ async function handleRequest(
       await context.semanticIndex.ensureBuilt();
       sendJSON(res, 200, {
         query,
-        results: context.semanticIndex.search(query, input.limit),
+        results: await context.semanticIndex.searchHybrid(query, input.limit),
         stats: context.semanticIndex.stats(),
       });
     } catch (err) {
@@ -263,6 +297,18 @@ async function handleRequest(
       const completion = await createInlineCompletion(input, context.semanticIndex);
       context.recordCompletionLatency(completion.latencyMs);
       sendJSON(res, 200, completion);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/edit-prediction') {
+    try {
+      const input = parseJSONBody<EditPredictionRequest>(await readBody(req));
+      const prediction = await createEditPrediction(input, context.semanticIndex);
+      context.recordCompletionLatency(prediction.latencyMs);
+      sendJSON(res, 200, prediction);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -342,6 +388,16 @@ async function handleRequest(
     try {
       const input = parseJSONBody<AiParallelBatchRequest>(await readBody(req));
       sendJSON(res, 201, await context.aiSessions.createParallelBatch(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/batches/merge') {
+    try {
+      const input = parseJSONBody<AiMergeBatchRequest>(await readBody(req));
+      sendJSON(res, 201, await context.aiSessions.mergeBatch(input));
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -499,6 +555,32 @@ async function handleRequest(
       if (input.approved !== true)
         throw new Error('Operator approval is required to cancel a task.');
       sendJSON(res, 200, await context.aiSessions.cancel(decodeURIComponent(aiCancelMatch[1])));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiPauseMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/pause$/);
+  if (req.method === 'POST' && aiPauseMatch?.[1]) {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      if (input.approved !== true)
+        throw new Error('Operator approval is required to pause a task.');
+      sendJSON(res, 200, await context.aiSessions.pause(decodeURIComponent(aiPauseMatch[1])));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiResumeMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/resume$/);
+  if (req.method === 'POST' && aiResumeMatch?.[1]) {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      if (input.approved !== true)
+        throw new Error('Operator approval is required to resume a task.');
+      sendJSON(res, 202, await context.aiSessions.resume(decodeURIComponent(aiResumeMatch[1])));
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }

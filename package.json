@@ -1,6 +1,6 @@
 {
   "name": "@hawk/ide",
-  "version": "0.1.0-dev",
+  "version": "0.3.0",
   "description": "Hawk is a security-native AI development environment for evidence-driven code review and authorized testing.",
   "type": "module",
   "workspaces": [
@@ -32,8 +32,12 @@
     "build:extension": "npm run build && npm --workspace hawk-security-ide run build",
     "desktop:refresh-portable": "node desktop/refresh-portable.mjs",
     "preview:ui": "node scripts/render-ui-preview.cjs",
+    "test:update-real": "node scripts/test-private-update.mjs --from 0.2.0 --to v0.2.1",
+    "benchmark:beta-index": "tsx scripts/beta-index-benchmark.ts --clone",
     "check:extension": "npm --workspace hawk-security-ide run check",
     "check:integrations": "node scripts/check-integrations.mjs",
+    "generate:browser-icons": "node scripts/generate-browser-icons.mjs",
+    "publish:browser-store": "node scripts/publish-browser-store.mjs",
     "package:extension": "npm run build && npm --workspace hawk-security-ide run package",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -82,7 +86,8 @@
     "undici": "^6.21.0",
     "write-file-atomic": "^6.0.0",
     "zod": "^3.23.8",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.2",
+    "typescript": "^5.7.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
@@ -94,7 +99,6 @@
     "react-devtools-core": "^4.28.5",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
     "vitest": "^4.1.10"
   }
 }

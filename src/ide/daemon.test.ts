@@ -25,7 +25,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 5 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 6 });
 
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);

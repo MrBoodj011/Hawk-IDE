@@ -17,7 +17,7 @@ license files.
 | Hawk desktop | Branded Windows and Linux Code-OSS application | Workspace trust and local daemon token |
 | Mission Control | Routes, signals, traffic, supply-chain posture, evidence, and MCP status | Signals are never auto-labelled as vulnerabilities |
 | Hawk AI | Streaming tasks, context, plans, history, diff preview, tests, Apply/Reject/Revert | File changes remain review-gated |
-| Hawk Coding Core | Inline completion, semantic code search, checkpoints, task terminals, parallel lanes, model fallback, benchmarks | Source stays local; paid routes are explicit BYOK configuration |
+| Hawk Coding Core | Multiline Next Edit, persistent AST/type search, checkpoints, task terminals, durable parallel lanes, smart synthesis, debugger agent, model fallback, benchmarks | Source stays local; optional vectors use loopback Ollama; paid routes are explicit BYOK configuration |
 | Hawk Local AI | Verified Ollama runtime bootstrap, hardware-aware coding model selection, model pull, health check, automatic loopback configuration | Official GitHub digest and Windows signer required; model download stays approval-gated |
 | Browser companion | Redacted Fetch/XHR/WebSocket and webRequest metadata | Disabled by default; explicit regex scope and rate limit |
 | Burp companion | Redacted proxy traffic sent to the local Hawk evidence plane | Burp scope by default; explicit pairing and bounded queue |
@@ -56,6 +56,9 @@ The native AI workspace includes:
 - named patch checkpoints and restore;
 - an integrated terminal rooted in the isolated review worktree;
 - three-lane architecture, implementation, and verification runs;
+- Pause/Resume, restart recovery, and background auto-resume;
+- test-aware intelligent synthesis of review-ready parallel candidates;
+- native debugger snapshots and isolated automatic fix loops;
 - detected test gates with explicit approval;
 - Apply, Reject, Revert, Cancel, and Git refresh actions;
 - workspace trust checks and bounded local state.
@@ -65,11 +68,18 @@ Sensitive workflows are compiled separately into Smart MCP goals and plans.
 
 ## Hawk Coding Core
 
-Hawk Tab registers an editor-native inline completion provider. Each request is
-cancellable and bounded to a prefix, suffix, and the highest-ranked local code
-regions. The semantic index combines paths, identifiers, symbols, comments,
-and nearby code with local BM25-style ranking; it never uploads the repository
-to an embedding service.
+Hawk Tab registers an editor-native inline provider for both insertion
+completion and safe multiline Next Edit. Each prediction is cancellable and
+bounded to a prefix, suffix, recent edit history, diagnostics, and the
+highest-ranked local code regions. A multiline prediction can replace only an
+exact prefix of the text after the cursor, so stale model output is discarded.
+
+The semantic index persists outside the repository, reuses unchanged files,
+and updates saved/deleted/renamed files incrementally. TypeScript and JavaScript
+use the compiler AST for declarations, type annotations, imports, exports, and
+calls; other languages use bounded structural parsing. Local BM25/structural
+ranking always works. Optional vector reranking uses only a validated loopback
+Ollama `/api/embed` endpoint and gracefully falls back when unavailable.
 
 Model routing supports one primary provider plus up to eight explicit BYOK
 fallback routes tagged `fast`, `reasoning`, `security`, or `general`. Missing
@@ -178,13 +188,14 @@ The release workflow builds:
 - Browser companion ZIP and Burp companion JAR;
 - SHA-256 checksums.
 
-Windows signing is optional when a personal certificate is configured.
-Otherwise the workflow labels the artifacts as unsigned and still publishes
-them to the private repository. Hawk checks that private release feed directly
-and verifies downloads against `SHA256SUMS`; there is no separate update
-server. There is no Apple build, Hawk
-account, team/RBAC layer, billing, licensing, cloud sync, telemetry collector,
-or store-publishing automation.
+Dry-run Windows signing is optional, but publication is blocked unless a
+trusted RSA code-signing PFX is configured. Hawk.exe, EXE, and MSI are signed,
+RFC 3161 timestamped, and verified with the Windows Authenticode policy. Hawk
+checks the private release feed directly and verifies downloads against
+`SHA256SUMS`; there is no separate update server. Browser store upload and
+PortSwigger submission packs are present, while actual publication remains an
+owner-account and third-party-review action. There is no Apple build, Hawk
+account, team/RBAC layer, billing, licensing, cloud sync, or telemetry collector.
 
 ## Solo local boundary
 

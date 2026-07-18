@@ -48,11 +48,13 @@ Version tags run the release automatically. A manual run builds the same
 artifacts without publishing unless its **publish** input is explicitly
 enabled.
 
-Windows Authenticode signing is optional. If
-`WINDOWS_CERTIFICATE_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD` are present,
-the workflow signs Hawk; otherwise it publishes an explicitly unsigned
-personal artifact. Releases are installed or updated manually from the
-private GitHub repository.
+Windows Authenticode signing is optional only for an unpublished dry run.
+Publishing is blocked unless `WINDOWS_CERTIFICATE_BASE64` and
+`WINDOWS_CERTIFICATE_PASSWORD` contain a trusted RSA code-signing identity, or
+the documented Azure Artifact Signing account/profile secrets are configured.
+The release gate validates Code Signing EKU, key type, expiry, RFC 3161
+timestamp, Windows trust, and the final signer on Hawk.exe, EXE, and MSI.
+The private updater separately verifies every installer against `SHA256SUMS`.
 
 The NSIS EXE includes a selected **Hawk Local AI runtime (Ollama)** component.
 It does not embed the roughly gigabyte-scale third-party runtime. Instead, the

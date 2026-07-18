@@ -4,6 +4,7 @@ dist/
 /extensions/pentesterflow-ide/resources/hawk-mark.png
 /extensions/pentesterflow-ide/resources/pentesterflow-mark.png
 /coverage/
+/artifacts/
 /integrations/burp/build/
 /integrations/burp/.gradle/
 .DS_Store

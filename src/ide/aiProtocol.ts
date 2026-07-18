@@ -1,6 +1,7 @@
 export type AiSessionStatus =
   | 'preparing'
   | 'running'
+  | 'paused'
   | 'testing'
   | 'awaiting-review'
   | 'applied'
@@ -72,6 +73,9 @@ export interface AiSessionSummary {
   updatedAt: string;
   provider?: string;
   model?: string;
+  background: boolean;
+  autoResume: boolean;
+  resumeCount: number;
   error?: string;
   diff?: AiDiffSummary;
   checkpoints: AiCheckpointSummary[];
@@ -82,6 +86,8 @@ export interface AiSessionSummary {
   canReject: boolean;
   canRevert: boolean;
   canCheckpoint: boolean;
+  canPause: boolean;
+  canResume: boolean;
   canOpenTerminal: boolean;
 }
 
@@ -104,6 +110,8 @@ export interface AiDiffResponse {
 export interface AiCreateSessionRequest {
   prompt: string;
   context?: string;
+  background?: boolean;
+  autoResume?: boolean;
 }
 
 export interface AiContinueSessionRequest {
@@ -141,4 +149,21 @@ export interface AiParallelBatchResponse {
   batchId: string;
   createdAt: string;
   sessions: AiSessionSummary[];
+}
+
+export interface AiMergeBatchRequest {
+  sessionIds: string[];
+  objective?: string;
+  context?: string;
+}
+
+export interface AiMergeCandidateScore {
+  sessionId: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface AiMergeBatchResponse {
+  mergeSession: AiSessionSummary;
+  candidates: AiMergeCandidateScore[];
 }

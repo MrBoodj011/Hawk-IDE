@@ -6,7 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-18
+
 ### Added
+
+- **Hawk Next Edit and deep index** — safe multiline replacement prediction
+  plus a persistent, incremental TypeScript/JavaScript AST/type/import/call
+  index with optional loopback-only Ollama embeddings.
+- **Native Debug Agent** — breakpoint, thread, stack, scope, variable, and
+  diagnostics capture with secret redaction and an isolated fix loop.
+- **Durable coding mesh** — Pause/Resume, restart recovery, background
+  auto-resume, and test-aware intelligent synthesis across parallel candidates.
+- **Production release gates** — trusted RSA Authenticode signing and
+  verification, a real private-feed updater test, Chrome/PortSwigger submission
+  packs, an external pentest scope, and large-project beta benchmarks.
 
 - **Saved memory (`#` quick-add)** — a curated, human-readable memory layer
   modeled on Claude Code. `#<text>` saves a durable fact (one Markdown file per

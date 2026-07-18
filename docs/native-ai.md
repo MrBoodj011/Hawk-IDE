@@ -61,6 +61,15 @@ file.
   so streamed commands cannot change the operator workspace before Apply.
 - **Run 3 lanes** starts architecture, implementation, and verification agents
   in independent worktrees. Each candidate remains a separate review session.
+- **Pause** stops the worker while retaining its worktree and saved agent
+  memory. **Resume** continues it without recreating the task.
+- Background lanes recover after daemon restart and auto-resume when enabled.
+- **Smart Synthesis** scores review-ready lanes from test results and review
+  size, then gives every bounded candidate patch to a fresh merge agent. The
+  result remains an ordinary review-gated diff.
+- **Hawk: Diagnose and Fix Stopped Debugger** captures native DAP threads,
+  frames, scopes, variables, breakpoints, and diagnostics, redacts secret-like
+  values, and starts an isolated fix task.
 
 ## Persistence
 
@@ -73,8 +82,9 @@ are stored outside the repository under:
 
 No daemon token is sent to the webview. The extension host owns that token and
 proxies every authenticated request to the loopback-only daemon. A daemon
-restart marks interrupted work as failed but preserves reviewable sessions and
-their event history.
+restart restores interrupted work as paused/recoverable. Background sessions
+with auto-resume enabled continue from saved agent memory; interrupted test
+gates are never assumed to have passed.
 
 ## Local API
 
@@ -83,6 +93,7 @@ The token-gated daemon exposes:
 ```text
 POST /v1/ai/sessions
 POST /v1/ai/batches
+POST /v1/ai/batches/merge
 GET  /v1/ai/sessions
 GET  /v1/ai/sessions/:id
 GET  /v1/ai/sessions/:id/events?after=<event-id>
@@ -95,8 +106,13 @@ POST /v1/ai/sessions/:id/checkpoints/restore
 POST /v1/ai/sessions/:id/reject
 POST /v1/ai/sessions/:id/revert
 POST /v1/ai/sessions/:id/cancel
+POST /v1/ai/sessions/:id/pause
+POST /v1/ai/sessions/:id/resume
 POST /v1/ai/inline-completion
+POST /v1/ai/edit-prediction
 POST /v1/workspace/semantic-index
+PUT  /v1/workspace/semantic-index/file
+DELETE /v1/workspace/semantic-index/file
 POST /v1/workspace/search
 POST /v1/diagnostics/coding-core
 ```

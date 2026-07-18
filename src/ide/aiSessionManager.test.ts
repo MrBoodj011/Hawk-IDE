@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -210,6 +210,71 @@ describe('AiSessionManager', () => {
         allowFailingTests: true,
       });
       expect(applied.status).toBe('applied');
+    } finally {
+      await manager.dispose();
+    }
+  }, 15_000);
+
+  it('pauses and resumes an isolated background task without losing its worktree', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ai-resume-'));
+    temporaryRoots.push(root);
+    await git(root, ['init']);
+    await git(root, ['config', 'user.name', 'Hawk Test']);
+    await git(root, ['config', 'user.email', 'hawk-test@localhost']);
+    await writeFile(join(root, 'app.txt'), 'base\n', 'utf8');
+    await git(root, ['add', 'app.txt']);
+    await git(root, ['commit', '-m', 'base']);
+    const worker = join(root, 'resume-worker.cjs');
+    await writeFile(
+      worker,
+      [
+        "const fs = require('node:fs');",
+        'process.stdin.resume();',
+        "process.stdin.once('data', () => {",
+        "  if (!fs.existsSync('.resume-marker')) {",
+        "    fs.writeFileSync('.resume-marker', 'ready');",
+        '    setInterval(() => {}, 1000);',
+        '    return;',
+        '  }',
+        "  fs.appendFileSync('app.txt', 'resumed\\n');",
+        "  console.log(JSON.stringify({ type: 'worker-result', ok: true }));",
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+    const manager = new AiSessionManager({
+      workspaceRoot: root,
+      storageRoot: join(root, '.test-storage'),
+      workerLaunch: { command: process.execPath, args: [worker] },
+    });
+    await manager.initialize();
+    try {
+      const created = await manager.create({
+        prompt: 'Complete the background edit',
+        background: true,
+        autoResume: true,
+      });
+      expect(created.background).toBe(true);
+      const marker = join(created.sandboxPath ?? '', '.resume-marker');
+      const markerDeadline = Date.now() + 5_000;
+      while (
+        !(await stat(marker)
+          .then(() => true)
+          .catch(() => false))
+      ) {
+        if (Date.now() > markerDeadline) throw new Error('worker did not create resume marker');
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+      }
+      const paused = await manager.pause(created.id);
+      expect(paused.status).toBe('paused');
+      expect(paused.canResume).toBe(true);
+      const resumed = await manager.resume(created.id);
+      expect(resumed.status).toBe('running');
+      expect(resumed.resumeCount).toBe(1);
+      const review = await waitForStatus(manager, created.id, 'awaiting-review');
+      expect(review.diff).toBeDefined();
+      expect(review.canApply).toBe(true);
+      await manager.reject(created.id);
     } finally {
       await manager.dispose();
     }
