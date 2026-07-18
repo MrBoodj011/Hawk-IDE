@@ -209,6 +209,18 @@ jobs:
             sleep $((attempt * 15))
           done
 
+      - name: Expose Windows SDK signing tools
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (!$signtool) { throw 'signtool.exe was not found in the Windows SDK.' }
+          $signtool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Build Windows desktop
         if: matrix.platform == 'win32'
         working-directory: ${{ runner.temp }}/hawk-codeoss
