@@ -272,13 +272,18 @@ jobs:
         working-directory: ${{ runner.temp }}/hawk-codeoss
         shell: pwsh
         run: |
-          $target = "vscode-win32-${{ matrix.arch }}-system-setup"
-          foreach ($attempt in 1..2) {
-            npm run gulp $target
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($attempt -eq 2) { throw "$target failed after $attempt attempts." }
-            Write-Warning "$target failed on attempt $attempt; retrying."
-            Start-Sleep -Seconds 20
+          $targets = @(
+            "vscode-win32-${{ matrix.arch }}-inno-updater",
+            "vscode-win32-${{ matrix.arch }}-system-setup"
+          )
+          foreach ($target in $targets) {
+            foreach ($attempt in 1..2) {
+              npm run gulp $target
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 2) { throw "$target failed after $attempt attempts." }
+              Write-Warning "$target failed on attempt $attempt; retrying."
+              Start-Sleep -Seconds 20
+            }
           }
           choco install wixtoolset --yes --no-progress
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
