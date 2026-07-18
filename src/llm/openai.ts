@@ -105,6 +105,7 @@ export class OpenAIClient implements Client, StreamingClient, Pinger {
   private readonly extraHeaders: Record<string, string>;
   private readonly temperature?: number;
   private readonly maxTokens?: number;
+  private readonly reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
   constructor(
     baseURL: string,
@@ -112,7 +113,11 @@ export class OpenAIClient implements Client, StreamingClient, Pinger {
     model: string,
     label = 'openai-compat',
     extraHeaders: Record<string, string> = {},
-    genOpts: { temperature?: number; maxTokens?: number } = {},
+    genOpts: {
+      temperature?: number;
+      maxTokens?: number;
+      reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    } = {},
   ) {
     this.baseURL = baseURL;
     this.apiKey = apiKey;
@@ -121,6 +126,7 @@ export class OpenAIClient implements Client, StreamingClient, Pinger {
     this.extraHeaders = extraHeaders;
     this.temperature = genOpts.temperature;
     this.maxTokens = genOpts.maxTokens;
+    this.reasoningEffort = genOpts.reasoningEffort;
   }
 
   static lmStudio(baseURL: string, model: string): OpenAIClient {
@@ -395,6 +401,7 @@ export class OpenAIClient implements Client, StreamingClient, Pinger {
       temperature?: number;
       max_tokens?: number;
       max_completion_tokens?: number;
+      reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     } = {
       model: this.modelID,
       stream,
@@ -443,13 +450,21 @@ export class OpenAIClient implements Client, StreamingClient, Pinger {
     // Temperature is sent only when configured AND the model accepts it —
     // kimi-k2.6 / k2.5 lock it to 1 and 400 on anything else, so we skip it
     // for them rather than error.
-    if (this.temperature !== undefined && !kimiLocksTemperature(this.modelID)) {
+    if (
+      this.temperature !== undefined &&
+      !kimiLocksTemperature(this.modelID) &&
+      !(this.label === 'openai' && this.modelID.startsWith('gpt-5'))
+    ) {
       body.temperature = this.temperature;
+    }
+    if (this.label === 'openai' && this.reasoningEffort !== undefined) {
+      body.reasoning_effort = this.reasoningEffort;
     }
     // Per-response cap bounds latency / runaway generations when configured.
     if (this.maxTokens !== undefined && this.maxTokens > 0) {
-      if (this.label === 'kimi') body.max_completion_tokens = this.maxTokens;
-      else body.max_tokens = this.maxTokens;
+      if (this.label === 'kimi' || this.label === 'openai') {
+        body.max_completion_tokens = this.maxTokens;
+      } else body.max_tokens = this.maxTokens;
     }
     return body;
   }

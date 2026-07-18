@@ -1,3 +1,7 @@
+export const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+export const OPENAI_DEFAULT_MODEL = 'gpt-5.6-sol';
+export const OPENAI_RECOMMENDED_MODELS = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+
 export const KIMI_DEFAULT_BASE_URL = 'https://api.moonshot.ai/v1';
 export const KIMI_DEFAULT_MODEL = 'kimi-k2.6';
 export const KIMI_MODELS = [

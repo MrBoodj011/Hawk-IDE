@@ -1,0 +1,22 @@
+name = "hawk-control-plane"
+main = "worker.mjs"
+compatibility_date = "2026-07-18"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+HAWK_ENV = "production"
+CORS_ORIGINS = "${HAWK_CORS_ORIGINS}"
+OAUTH_REDIRECT_URIS = "${HAWK_OAUTH_REDIRECT_URIS}"
+BILLING_RETURN_ORIGINS = "${HAWK_BILLING_RETURN_ORIGINS}"
+STRIPE_PRICE_PRO = "${STRIPE_PRICE_PRO}"
+STRIPE_PRICE_TEAM = "${STRIPE_PRICE_TEAM}"
+STRIPE_PRICE_ENTERPRISE = "${STRIPE_PRICE_ENTERPRISE}"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hawk-control-plane"
+database_id = "${CLOUDFLARE_D1_DATABASE_ID}"
+migrations_dir = "migrations"

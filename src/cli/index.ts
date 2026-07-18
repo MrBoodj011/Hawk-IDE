@@ -21,6 +21,7 @@ import { EngagementStore } from '../engagement/store.js';
 import { findingRequestForBurp } from '../findings/httpRequest.js';
 import { Store as FindingsStore } from '../findings/store.js';
 import { IntelligenceStore } from '../intelligence/store.js';
+import { resolveProviderCredential } from '../llm/credentials.js';
 import * as llmFactory from '../llm/factory.js';
 import { modelReliabilityWarning } from '../llm/modelWarnings.js';
 import { OllamaClient } from '../llm/ollama.js';
@@ -30,12 +31,14 @@ import {
   GEMINI_DEFAULT_BASE_URL,
   GROQ_DEFAULT_BASE_URL,
   KIMI_DEFAULT_BASE_URL,
+  OPENAI_DEFAULT_BASE_URL,
   OPENROUTER_DEFAULT_BASE_URL,
   kimiAutoCompactThreshold,
 } from '../llm/providers.js';
 import * as logger from '../logger/logger.js';
 import { createSessionDebugLog } from '../logger/sessionDebug.js';
 import { MemoryStore } from '../memory/store.js';
+import { TelemetryClient } from '../observability/telemetry.js';
 import { YoloPrompter } from '../permission/permission.js';
 import * as sessionStore from '../session/store.js';
 import { skillSearchDirs } from '../skills/discovery.js';
@@ -73,6 +76,7 @@ import { BridgedPrompter } from '../ui/permBridge.js';
 import { VERSION, describe } from '../version/version.js';
 
 const GROQ_AUTO_COMPACT_THRESHOLD = 5500;
+let activeTelemetry: TelemetryClient | undefined;
 
 interface ParsedFlags {
   showVersion: boolean;
@@ -245,24 +249,17 @@ async function main(): Promise<number> {
   if (flags.baseURL) cfg.base_url = flags.baseURL;
   if (flags.apiKey) cfg.api_key = flags.apiKey;
   if (flags.skillsDirs.length) cfg.skills_dirs = [...cfg.skills_dirs, ...flags.skillsDirs];
-  if (cfg.backend === 'kimi' && !cfg.api_key) {
-    cfg.api_key = process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY || '';
+  if (!cfg.installation_id) {
+    cfg.installation_id = randomBytes(16).toString('hex');
+    await config.save(cfg);
   }
-  if (cfg.backend === 'groq' && !cfg.api_key) {
-    cfg.api_key = process.env.GROQ_API_KEY || '';
-  }
-  if (cfg.backend === 'openrouter' && !cfg.api_key) {
-    cfg.api_key = process.env.OPENROUTER_API_KEY || '';
-  }
-  if (cfg.backend === 'deepseek' && !cfg.api_key) {
-    cfg.api_key = process.env.DEEPSEEK_API_KEY || '';
-  }
-  if (cfg.backend === 'gemini' && !cfg.api_key) {
-    cfg.api_key = process.env.GEMINI_API_KEY || '';
-  }
-  if (cfg.backend === 'anthropic' && !cfg.api_key) {
-    cfg.api_key = process.env.ANTHROPIC_API_KEY || '';
-  }
+  activeTelemetry = TelemetryClient.fromConfig(cfg, VERSION);
+  void activeTelemetry.capture('app_started', {
+    backend: cfg.backend || 'ollama',
+    releaseChannel: cfg.release_channel,
+  });
+  const credential = resolveProviderCredential(cfg);
+  const runtimeConfig = cfg.api_key ? cfg : { ...cfg, api_key: credential.apiKey };
 
   // Browser MCP is opt-in PER SESSION via --browser, and never persisted:
   // a user must pass --browser each time they want it. We build a
@@ -282,7 +279,7 @@ async function main(): Promise<number> {
   // LLM client.
   let client: ReturnType<typeof llmFactory.newFromConfig>;
   try {
-    client = llmFactory.newFromConfig(cfg);
+    client = llmFactory.newFromConfig(runtimeConfig);
   } catch (err) {
     process.stderr.write(`${(err as Error).message}\n`);
     return 1;
@@ -703,7 +700,7 @@ async function main(): Promise<number> {
         readConfig: () => ({
           backend: cfg.backend,
           baseURL: cfg.base_url,
-          apiKey: cfg.api_key,
+          apiKey: cfg.api_key || resolveProviderCredential(cfg).apiKey,
           model: cfg.model,
         }),
         persistDisabledSkills: async (names: string[]) => {
@@ -759,6 +756,7 @@ async function main(): Promise<number> {
     if (reloadTimer) clearTimeout(reloadTimer);
     await Promise.all(mcpSessions.map((s) => s.close()));
     await closeBurpBridge();
+    await activeTelemetry?.capture('app_stopped');
   }
   return 0;
 }
@@ -774,6 +772,8 @@ function providerLabel(b: string): string {
       return 'LM Studio';
     case 'openai-compat':
       return 'OpenAI-compatible';
+    case 'openai':
+      return 'OpenAI';
     case 'kimi':
       return 'Kimi';
     case 'groq':
@@ -784,6 +784,8 @@ function providerLabel(b: string): string {
       return 'DeepSeek';
     case 'gemini':
       return 'Gemini';
+    case 'anthropic':
+      return 'Claude';
     default:
       return b;
   }
@@ -791,11 +793,13 @@ function providerLabel(b: string): string {
 
 function localityFor(b: string): string {
   return b === 'openai-compat' ||
+    b === 'openai' ||
     b === 'kimi' ||
     b === 'groq' ||
     b === 'openrouter' ||
     b === 'deepseek' ||
-    b === 'gemini'
+    b === 'gemini' ||
+    b === 'anthropic'
     ? 'remote'
     : 'local';
 }
@@ -807,6 +811,8 @@ function defaultEndpoint(b: string): string {
       return 'http://localhost:11434';
     case 'lmstudio':
       return 'http://localhost:1234/v1';
+    case 'openai':
+      return OPENAI_DEFAULT_BASE_URL;
     case 'kimi':
       return KIMI_DEFAULT_BASE_URL;
     case 'groq':
@@ -817,6 +823,8 @@ function defaultEndpoint(b: string): string {
       return DEEPSEEK_DEFAULT_BASE_URL;
     case 'gemini':
       return GEMINI_DEFAULT_BASE_URL;
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1';
     default:
       return '';
   }
@@ -894,7 +902,7 @@ Usage:
   hawk [flags]
 
 Flags:
-  --backend ollama|lmstudio|openai-compat|kimi|groq|openrouter|deepseek|gemini
+  --backend ollama|lmstudio|openai|openai-compat|kimi|groq|openrouter|deepseek|gemini|anthropic
   --model <id>
   --base-url <url>
   --api-key <key>
@@ -920,7 +928,8 @@ Slash: /help /plan /clear /reset /exit /target /maxsteps /thinking /update
 
 main()
   .then((code) => process.exit(code))
-  .catch((err: unknown) => {
+  .catch(async (err: unknown) => {
+    await activeTelemetry?.captureCrash(err);
     process.stderr.write(`fatal: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   });

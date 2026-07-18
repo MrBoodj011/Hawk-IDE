@@ -16,6 +16,8 @@ import {
   GROQ_MODELS,
   KIMI_DEFAULT_BASE_URL,
   KIMI_MODELS,
+  OPENAI_DEFAULT_BASE_URL,
+  OPENAI_RECOMMENDED_MODELS,
   OPENROUTER_DEFAULT_BASE_URL,
   OPENROUTER_RECOMMENDED_MODELS,
 } from './providers.js';
@@ -25,6 +27,7 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_BASE_URL: Record<Exclude<Backend, ''>, string> = {
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234/v1',
+  openai: OPENAI_DEFAULT_BASE_URL,
   'openai-compat': '',
   kimi: KIMI_DEFAULT_BASE_URL,
   groq: GROQ_DEFAULT_BASE_URL,
@@ -124,6 +127,9 @@ function parseModels(backend: Exclude<Backend, ''>, body: unknown): string[] {
     .map((m) => (typeof m.id === 'string' ? m.id : ''))
     .filter((n): n is string => n.length > 0);
   if (backend === 'kimi') return preferKnownModels(ids, KIMI_MODELS);
+  if (backend === 'openai') {
+    return preferKnownModels(ids, OPENAI_RECOMMENDED_MODELS, { appendUnknown: true });
+  }
   if (backend === 'groq') return preferKnownModels(ids, GROQ_MODELS);
   if (backend === 'openrouter') {
     return preferOpenRouterModels(ids);

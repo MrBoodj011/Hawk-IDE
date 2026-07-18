@@ -205,8 +205,10 @@ The implementation follows current primary references:
 
 ## Deliberate limits
 
-- The local stdio MCP server is not a remote multi-tenant service and does not
-  pretend to provide OAuth, SSO, RBAC, billing, or cloud collaboration.
+- The local stdio MCP server remains a single-workspace local security
+  boundary. OAuth, RBAC, billing, licenses, and preference sync are provided
+  by the separate optional Hawk Cloud control plane; cloud identity never
+  turns the stdio MCP server into a remotely reachable multi-tenant service.
 - Docker bridge networking is not a host allowlist. Hawk requires exact scope,
   active-test authority, plan approval, and an extra bridge acknowledgement;
   a restricted egress proxy is still required for production active testing.

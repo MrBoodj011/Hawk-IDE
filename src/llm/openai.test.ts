@@ -308,6 +308,25 @@ describe('OpenAIClient', () => {
     expect(lastBody?.max_tokens).toBeUndefined();
   });
 
+  it('uses OpenAI reasoning fields without unsupported GPT-5 temperature', async () => {
+    const c = new OpenAIClient(
+      baseURL,
+      'sk-openai',
+      'gpt-5.6-sol',
+      'openai',
+      {},
+      {
+        temperature: 0.3,
+        maxTokens: 4096,
+        reasoningEffort: 'high',
+      },
+    );
+    await c.chat({ messages: [{ role: 'user', content: 'hello' }] });
+    expect(lastBody?.temperature).toBeUndefined();
+    expect(lastBody?.max_completion_tokens).toBe(4096);
+    expect(lastBody?.reasoning_effort).toBe('high');
+  });
+
   it('does not send temperature or max_tokens when unconfigured', async () => {
     const c = new OpenAIClient(baseURL, '', 'qwen-coder');
     await c.chat({ model: 'qwen-coder', messages: [{ role: 'user', content: 'hi' }] });

@@ -181,9 +181,50 @@ describe('UI slash commands (terminal integration)', () => {
     await submit(mounted.stdin, '/provider');
     const frame = mounted.lastFrame() ?? '';
     expect(frame).toMatch(/backend|Ollama/i);
+    expect(frame).toContain('OpenAI');
     expect(frame).toContain('Kimi');
     expect(frame).toContain('OpenRouter');
     expect(frame).toContain('DeepSeek');
+    expect(runSpy).not.toHaveBeenCalled();
+  });
+
+  it('/provider can collect and test an OpenAI API key before model selection', async () => {
+    vi.mocked(listModels).mockResolvedValueOnce(['gpt-5.6-sol', 'gpt-5.6-terra']);
+    mounted = renderApp({
+      readConfig: () => ({ backend: 'ollama', baseURL: '', apiKey: '', model: 'stub-model' }),
+    });
+    await tick();
+    await submit(mounted.stdin, '/provider');
+
+    for (let index = 0; index < 8; index += 1) {
+      mounted.stdin.write('\x1B[B');
+      await tick();
+    }
+    mounted.stdin.write('\r');
+    await tick();
+
+    expect(mounted.lastFrame()).toContain('OpenAI API');
+    mounted.stdin.write('sk-openai-test');
+    await tick();
+    mounted.stdin.write('\r');
+    await tick();
+
+    expect(listModels).toHaveBeenCalledWith(
+      'openai',
+      'https://api.openai.com/v1',
+      'sk-openai-test',
+    );
+    expect(mounted.lastFrame()).toContain('Select model for OpenAI');
+    expect(mounted.lastFrame()).toContain('gpt-5.6-sol');
+
+    mounted.stdin.write('\r');
+    await tick();
+    expect(applyProvider).toHaveBeenCalledWith({
+      backend: 'openai',
+      model: 'gpt-5.6-sol',
+      baseURL: 'https://api.openai.com/v1',
+      apiKey: 'sk-openai-test',
+    });
     expect(runSpy).not.toHaveBeenCalled();
   });
 

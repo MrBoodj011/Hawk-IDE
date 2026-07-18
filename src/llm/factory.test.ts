@@ -3,6 +3,24 @@ import { defaultConfig } from '../config/config.js';
 import { newFromConfig } from './factory.js';
 
 describe('newFromConfig', () => {
+  it('creates an OpenAI client with current official defaults', () => {
+    const cfg = defaultConfig();
+    cfg.backend = 'openai';
+    cfg.api_key = 'sk-openai';
+
+    const client = newFromConfig(cfg);
+
+    expect(client.name()).toBe('openai');
+    expect(client.model()).toBe('gpt-5.6-sol');
+  });
+
+  it('requires an OpenAI API key', () => {
+    const cfg = defaultConfig();
+    cfg.backend = 'openai';
+
+    expect(() => newFromConfig(cfg)).toThrow(/OPENAI_API_KEY/);
+  });
+
   it('creates a Kimi client with Moonshot defaults', () => {
     const cfg = defaultConfig();
     cfg.backend = 'kimi';

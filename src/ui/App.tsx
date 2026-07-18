@@ -24,6 +24,8 @@ import {
   GROQ_MODELS,
   KIMI_DEFAULT_BASE_URL,
   KIMI_MODELS,
+  OPENAI_DEFAULT_BASE_URL,
+  OPENAI_RECOMMENDED_MODELS,
   OPENROUTER_DEFAULT_BASE_URL,
   OPENROUTER_RECOMMENDED_MODELS,
 } from '../llm/providers.js';
@@ -1401,6 +1403,8 @@ function backendLabel(backend: Backend): string {
       return 'ollama';
     case 'lmstudio':
       return 'LM Studio';
+    case 'openai':
+      return 'OpenAI';
     case 'openai-compat':
       return 'OpenAI-compatible';
     case 'kimi':
@@ -1746,6 +1750,7 @@ function openProviderPicker(
   const cur = readConfig();
   const labelOllama = `Ollama${cur.backend === 'ollama' || cur.backend === '' ? ' (current)' : ''}`;
   const labelLM = `LM Studio${cur.backend === 'lmstudio' ? ' (current)' : ''}`;
+  const labelOpenAI = `OpenAI${cur.backend === 'openai' ? ' (current)' : ''}`;
   const labelOAI = `OpenAI-compatible${cur.backend === 'openai-compat' ? ' (current)' : ''}`;
   const labelKimi = `Kimi${cur.backend === 'kimi' ? ' (current)' : ''}`;
   const labelGroq = `Groq${cur.backend === 'groq' ? ' (current)' : ''}`;
@@ -1786,6 +1791,10 @@ function openProviderPicker(
           description: 'remote — api.deepseek.com OpenAI-compatible API',
         },
         {
+          label: labelOpenAI,
+          description: 'remote — official OpenAI API with GPT-5.6 models',
+        },
+        {
           label: labelOAI,
           description: 'remote — needs base URL + API key (uses current config values)',
         },
@@ -1797,19 +1806,23 @@ function openProviderPicker(
         ? 'ollama'
         : picked.startsWith('LM Studio')
           ? 'lmstudio'
-          : picked.startsWith('Kimi')
-            ? 'kimi'
-            : picked.startsWith('Groq')
-              ? 'groq'
-              : picked.startsWith('Gemini')
-                ? 'gemini'
-                : picked.startsWith('OpenRouter')
-                  ? 'openrouter'
-                  : picked.startsWith('DeepSeek')
-                    ? 'deepseek'
-                    : picked.startsWith('Claude')
-                      ? 'anthropic'
-                      : 'openai-compat';
+          : picked.startsWith('OpenAI-compatible')
+            ? 'openai-compat'
+            : picked.startsWith('OpenAI')
+              ? 'openai'
+              : picked.startsWith('Kimi')
+                ? 'kimi'
+                : picked.startsWith('Groq')
+                  ? 'groq'
+                  : picked.startsWith('Gemini')
+                    ? 'gemini'
+                    : picked.startsWith('OpenRouter')
+                      ? 'openrouter'
+                      : picked.startsWith('DeepSeek')
+                        ? 'deepseek'
+                        : picked.startsWith('Claude')
+                          ? 'anthropic'
+                          : 'openai-compat';
       const config = readConfig();
       // For openai-compat we need URL + key already in config.
       if (backend === 'openai-compat' && (!config.baseURL || !config.apiKey)) {
@@ -1822,6 +1835,37 @@ function openProviderPicker(
               'or pre-set them in ~/.hawk/config.json, then run /provider again.',
           },
         });
+        return;
+      }
+      if (backend === 'openai' && (config.backend !== 'openai' || !config.apiKey)) {
+        void promptSecret({
+          header: 'OpenAI API',
+          question: 'Enter OpenAI API key (OPENAI_API_KEY)',
+          placeholder: 'sk-...',
+        })
+          .then((apiKey) => {
+            if (!apiKey) {
+              dispatch({
+                type: 'append',
+                entry: { kind: 'error', text: 'OpenAI API key cannot be empty.' },
+              });
+              return;
+            }
+            void fetchAndPickModel(
+              backend,
+              OPENAI_DEFAULT_BASE_URL,
+              apiKey,
+              dispatch,
+              applyProvider,
+              { successText: (picked) => `provider set to OpenAI · model ${picked}` },
+            );
+          })
+          .catch(() => {
+            dispatch({
+              type: 'append',
+              entry: { kind: 'system', text: 'OpenAI setup cancelled.' },
+            });
+          });
         return;
       }
       if (backend === 'kimi' && (config.backend !== 'kimi' || !config.apiKey)) {
@@ -2015,31 +2059,35 @@ function openProviderPicker(
       const baseURL =
         backend === 'openai-compat'
           ? config.baseURL
-          : backend === 'kimi'
-            ? config.backend === 'kimi'
-              ? config.baseURL || KIMI_DEFAULT_BASE_URL
-              : KIMI_DEFAULT_BASE_URL
-            : backend === 'groq'
-              ? config.backend === 'groq'
-                ? config.baseURL || GROQ_DEFAULT_BASE_URL
-                : GROQ_DEFAULT_BASE_URL
-              : backend === 'gemini'
-                ? config.backend === 'gemini'
-                  ? config.baseURL || GEMINI_DEFAULT_BASE_URL
-                  : GEMINI_DEFAULT_BASE_URL
-                : backend === 'openrouter'
-                  ? config.backend === 'openrouter'
-                    ? config.baseURL || OPENROUTER_DEFAULT_BASE_URL
-                    : OPENROUTER_DEFAULT_BASE_URL
-                  : backend === 'deepseek'
-                    ? config.backend === 'deepseek'
-                      ? config.baseURL || DEEPSEEK_DEFAULT_BASE_URL
-                      : DEEPSEEK_DEFAULT_BASE_URL
-                    : backend === 'anthropic'
-                      ? config.backend === 'anthropic'
-                        ? config.baseURL || ANTHROPIC_DEFAULT_BASE_URL
-                        : ANTHROPIC_DEFAULT_BASE_URL
-                      : '';
+          : backend === 'openai'
+            ? config.backend === 'openai'
+              ? config.baseURL || OPENAI_DEFAULT_BASE_URL
+              : OPENAI_DEFAULT_BASE_URL
+            : backend === 'kimi'
+              ? config.backend === 'kimi'
+                ? config.baseURL || KIMI_DEFAULT_BASE_URL
+                : KIMI_DEFAULT_BASE_URL
+              : backend === 'groq'
+                ? config.backend === 'groq'
+                  ? config.baseURL || GROQ_DEFAULT_BASE_URL
+                  : GROQ_DEFAULT_BASE_URL
+                : backend === 'gemini'
+                  ? config.backend === 'gemini'
+                    ? config.baseURL || GEMINI_DEFAULT_BASE_URL
+                    : GEMINI_DEFAULT_BASE_URL
+                  : backend === 'openrouter'
+                    ? config.backend === 'openrouter'
+                      ? config.baseURL || OPENROUTER_DEFAULT_BASE_URL
+                      : OPENROUTER_DEFAULT_BASE_URL
+                    : backend === 'deepseek'
+                      ? config.backend === 'deepseek'
+                        ? config.baseURL || DEEPSEEK_DEFAULT_BASE_URL
+                        : DEEPSEEK_DEFAULT_BASE_URL
+                      : backend === 'anthropic'
+                        ? config.backend === 'anthropic'
+                          ? config.baseURL || ANTHROPIC_DEFAULT_BASE_URL
+                          : ANTHROPIC_DEFAULT_BASE_URL
+                        : '';
       const apiKey = backend === 'openai-compat' || config.backend === backend ? config.apiKey : '';
       void fetchAndPickModel(backend, baseURL, apiKey, dispatch, applyProvider);
     },
@@ -2159,6 +2207,7 @@ function modelDescription(
 ): string | undefined {
   const parts: string[] = [];
   if (currentModel && model === currentModel) parts.push('current / used before');
+  if (backend === 'openai' && OPENAI_RECOMMENDED_MODELS.includes(model)) parts.push('OpenAI');
   if (backend === 'kimi' && KIMI_MODELS.includes(model)) parts.push('Kimi/Moonshot');
   if (backend === 'groq' && GROQ_MODELS.includes(model)) parts.push('Groq');
   if (backend === 'openrouter' && OPENROUTER_RECOMMENDED_MODELS.includes(model)) {

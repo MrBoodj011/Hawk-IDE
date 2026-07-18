@@ -136,10 +136,16 @@ describe('prepare-code-oss', () => {
       overrides,
       '--version',
       '0.2.0-rc.8',
+      '--privacy-url',
+      'https://hawk.example/privacy',
+      '--terms-url',
+      'https://hawk.example/terms',
     ]);
 
     const product = JSON.parse(await readFile(join(out, 'product.json'), 'utf8')) as {
       nameShort: string;
+      privacyStatementUrl: string;
+      termsOfUseUrl: string;
       defaultChatAgent: { extensionId: string };
       trustedExtensionAuthAccess: { github: string[] };
       tunnelApplicationName?: string;
@@ -148,6 +154,8 @@ describe('prepare-code-oss', () => {
       builtInExtensions: Array<{ name: string }>;
     };
     expect(product.nameShort).toBe('Hawk');
+    expect(product.privacyStatementUrl).toBe('https://hawk.example/privacy');
+    expect(product.termsOfUseUrl).toBe('https://hawk.example/terms');
     expect(product.defaultChatAgent).toEqual({ extensionId: 'GitHub.copilot' });
     expect(product.trustedExtensionAuthAccess).toEqual({ github: ['GitHub.copilot-chat'] });
     expect(product.tunnelApplicationName).toBeUndefined();

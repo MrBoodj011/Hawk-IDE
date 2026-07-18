@@ -12,6 +12,7 @@ if (!directoryArg || !tagArg || !repositoryArg) {
 const directory = resolve(directoryArg);
 const tag = tagArg.startsWith('v') ? tagArg : `v${tagArg}`;
 const version = tag.slice(1);
+const channel = /-(?:beta|rc)(?:[.-]\d+)?$/i.test(tag) ? 'beta' : 'stable';
 const files = await filesUnder(directory);
 const assets = [];
 for (const file of files) {
@@ -30,6 +31,7 @@ const manifest = {
   product: 'hawk-security-ide',
   version,
   tag,
+  channel,
   publishedAt: new Date().toISOString(),
   commit: commitArg && /^[0-9a-f]{40}$/i.test(commitArg) ? commitArg : undefined,
   assets,

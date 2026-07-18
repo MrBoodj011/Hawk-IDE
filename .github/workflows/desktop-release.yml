@@ -33,6 +33,9 @@ jobs:
       upstream_ref: ${{ steps.upstream.outputs.ref }}
       node: ${{ steps.upstream.outputs.node }}
       publish: ${{ steps.meta.outputs.publish }}
+      channel: ${{ steps.meta.outputs.channel }}
+      quality: ${{ steps.meta.outputs.quality }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - id: meta
@@ -53,6 +56,15 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          if [[ "$tag" =~ -(beta|rc)([.-][0-9]+)?$ ]]; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+            echo "quality=insider" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "quality=stable" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
       - id: upstream
         shell: bash
         run: |
@@ -76,8 +88,49 @@ jobs:
       - run: npm ci
       - run: npm run ci
 
+  release-readiness:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce signed production release configuration
+        env:
+          HAWK_PUBLISH: ${{ needs.prepare.outputs.publish }}
+          HAWK_UPDATE_URL: ${{ secrets.HAWK_UPDATE_URL }}
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          HAWK_LEGAL_ENTITY: ${{ vars.HAWK_LEGAL_ENTITY }}
+          HAWK_LEGAL_CONTACT: ${{ vars.HAWK_LEGAL_CONTACT }}
+          HAWK_PRIVACY_URL: ${{ vars.HAWK_PRIVACY_URL }}
+          HAWK_TERMS_URL: ${{ vars.HAWK_TERMS_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$HAWK_PUBLISH" != "true" ]]; then
+            echo "Dry run: signing credentials are optional."
+            exit 0
+          fi
+          missing=0
+          for name in \
+            HAWK_UPDATE_URL \
+            WINDOWS_CERTIFICATE_BASE64 WINDOWS_CERTIFICATE_PASSWORD \
+            APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID \
+            HAWK_LEGAL_ENTITY HAWK_LEGAL_CONTACT HAWK_PRIVACY_URL HAWK_TERMS_URL; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required production secret is missing: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
   integrations:
-    needs: [prepare, verify]
+    needs: [prepare, verify, release-readiness]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +194,9 @@ jobs:
       HAWK_VERSION: ${{ needs.prepare.outputs.version }}
       HAWK_TAG: ${{ needs.prepare.outputs.tag }}
       HAWK_UPDATE_URL: ${{ secrets.HAWK_UPDATE_URL }}
+      HAWK_PUBLISH: ${{ needs.prepare.outputs.publish }}
+      HAWK_PRIVACY_URL: ${{ vars.HAWK_PRIVACY_URL }}
+      HAWK_TERMS_URL: ${{ vars.HAWK_TERMS_URL }}
       BUILD_SOURCEVERSION: ${{ github.sha }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
@@ -173,11 +229,17 @@ jobs:
             --out "$RUNNER_TEMP/hawk-codeoss"
             --extension "$GITHUB_WORKSPACE/extensions/pentesterflow-ide"
             --version "$HAWK_VERSION"
-            --quality stable
+            --quality "${{ needs.prepare.outputs.quality }}"
             --force
           )
           if [[ -n "${HAWK_UPDATE_URL:-}" ]]; then
             args+=(--update-url "$HAWK_UPDATE_URL")
+          fi
+          if [[ -n "${HAWK_PRIVACY_URL:-}" ]]; then
+            args+=(--privacy-url "$HAWK_PRIVACY_URL")
+          fi
+          if [[ -n "${HAWK_TERMS_URL:-}" ]]; then
+            args+=(--terms-url "$HAWK_TERMS_URL")
           fi
           node desktop/prepare-code-oss.mjs "${args[@]}"
           node -e "require('fs').rmSync(process.argv[1], { recursive: true, force: true })" \
@@ -247,6 +309,9 @@ jobs:
         shell: pwsh
         run: |
           if (!$env:WINDOWS_CERTIFICATE_BASE64) {
+            if ($env:HAWK_PUBLISH -eq 'true') {
+              throw 'Published Windows builds must be signed.'
+            }
             'Windows signing secret is not configured; producing an unsigned verification artifact.'
             exit 0
           }
@@ -309,7 +374,12 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         shell: pwsh
         run: |
-          if (!$env:WINDOWS_CERTIFICATE_BASE64) { exit 0 }
+          if (!$env:WINDOWS_CERTIFICATE_BASE64) {
+            if ($env:HAWK_PUBLISH -eq 'true') {
+              throw 'Published Windows installers must be signed.'
+            }
+            exit 0
+          }
           $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
             -Recurse -Filter signtool.exe |
@@ -388,6 +458,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" ]]; then
+            if [[ "$HAWK_PUBLISH" == "true" ]]; then
+              echo "::error::Published macOS builds must be signed."
+              exit 1
+            fi
             echo "Apple signing secret is not configured; producing an unsigned verification artifact."
             exit 0
           fi
@@ -430,6 +504,10 @@ jobs:
               --wait
             xcrun stapler staple "$dmg"
           else
+            if [[ "$HAWK_PUBLISH" == "true" ]]; then
+              echo "::error::Published macOS builds must be notarized."
+              exit 1
+            fi
             echo "Apple notarization secrets are not configured; skipping notarization."
           fi
 
@@ -467,6 +545,7 @@ jobs:
           set -euo pipefail
           node scripts/generate-release-manifest.mjs \
             dist "${{ needs.prepare.outputs.tag }}" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+          cp PRIVACY.md TERMS.md EULA.md RESPONSIBLE_USE.md SECURITY.md dist/
           (
             cd dist
             find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 |
@@ -483,5 +562,6 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           overwrite_files: true
-          make_latest: true
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+          make_latest: ${{ needs.prepare.outputs.prerelease == 'false' }}
           files: dist/*

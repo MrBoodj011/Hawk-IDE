@@ -22,7 +22,11 @@ export async function route(request, env) {
     return new Response('method not allowed', { status: 405 });
   }
   if (url.pathname === '/health') {
-    return json({ ok: true, service: 'hawk-update-service' });
+    return json({
+      ok: true,
+      service: 'hawk-update-service',
+      channels: configuredChannels(env),
+    });
   }
 
   const update = parseUpdatePath(url.pathname);
@@ -33,11 +37,15 @@ export async function route(request, env) {
 }
 
 async function updateResponse(request, env, requestInfo) {
-  if (requestInfo.quality !== (env.UPDATE_CHANNEL || 'stable')) {
+  const channel = normalizeChannel(requestInfo.quality);
+  if (!channel || !configuredChannels(env).includes(channel)) {
     return new Response(null, { status: 204 });
   }
-  const release = await latestRelease(env);
+  const release = await releaseForChannel(env, channel);
   const manifest = await releaseManifest(env, release);
+  if (manifest.channel && manifest.channel !== channel) {
+    throw new Error(`release manifest channel mismatch for ${channel}`);
+  }
   if (manifest.commit && manifest.commit.toLowerCase() === requestInfo.commit.toLowerCase()) {
     return new Response(null, { status: 204 });
   }
@@ -122,11 +130,15 @@ export function selectAssetName(platform, manifest) {
   return desired && manifest.assets.some((asset) => asset.name === desired) ? desired : undefined;
 }
 
-async function latestRelease(env) {
-  return await githubJSON(
-    `${API_ROOT}/repos/${repository(env)}/releases/latest`,
+async function releaseForChannel(env, channel) {
+  const releases = await githubJSON(
+    `${API_ROOT}/repos/${repository(env)}/releases?per_page=30`,
     env,
   );
+  if (!Array.isArray(releases)) throw new Error('invalid GitHub releases response');
+  const release = releases.find((candidate) => releaseMatchesChannel(candidate, channel));
+  if (!release) throw new Error(`no Hawk ${channel} release is available`);
+  return release;
 }
 
 async function releaseByTag(env, tag) {
@@ -158,6 +170,7 @@ function validateManifest(value) {
     value.product !== 'hawk-security-ide' ||
     typeof value.version !== 'string' ||
     typeof value.tag !== 'string' ||
+    (value.channel !== undefined && !['stable', 'beta'].includes(value.channel)) ||
     !Array.isArray(value.assets)
   ) {
     throw new Error('invalid Hawk update manifest');
@@ -171,6 +184,34 @@ function validateManifest(value) {
       throw new Error('invalid Hawk update asset declaration');
     }
   }
+}
+
+export function releaseMatchesChannel(release, channel) {
+  if (!release || release.draft || typeof release.tag_name !== 'string') return false;
+  const hasManifest = release.assets?.some((asset) => asset.name === 'update.json');
+  if (!hasManifest) return false;
+  if (channel === 'stable') {
+    return !release.prerelease && /^v\d+\.\d+\.\d+$/.test(release.tag_name);
+  }
+  return (
+    channel === 'beta' &&
+    release.prerelease === true &&
+    /^v\d+\.\d+\.\d+-(?:beta|rc)(?:[.-]\d+)?$/i.test(release.tag_name)
+  );
+}
+
+export function normalizeChannel(quality) {
+  if (quality === 'stable') return 'stable';
+  if (quality === 'beta' || quality === 'insider') return 'beta';
+  return undefined;
+}
+
+function configuredChannels(env) {
+  const channels = String(env.UPDATE_CHANNELS || env.UPDATE_CHANNEL || 'stable,beta')
+    .split(',')
+    .map((channel) => normalizeChannel(channel.trim()))
+    .filter(Boolean);
+  return [...new Set(channels)];
 }
 
 async function githubJSON(url, env) {

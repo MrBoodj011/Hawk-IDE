@@ -55,6 +55,8 @@ const brandedProduct = filterUpstreamAiDownloads({
   ...overrides,
   ...(args.quality ? { quality: args.quality } : {}),
   ...(args.updateUrl ? { updateUrl: args.updateUrl } : {}),
+  ...(args.privacyUrl ? { privacyStatementUrl: args.privacyUrl } : {}),
+  ...(args.termsUrl ? { termsOfUseUrl: args.termsUrl } : {}),
 });
 if (!Object.hasOwn(overrides, 'tunnelApplicationName')) {
   delete brandedProduct.tunnelApplicationName;
@@ -359,6 +361,8 @@ function parseArgs(argv) {
     else if (flag === '--version') output.version = value();
     else if (flag === '--quality') output.quality = value();
     else if (flag === '--update-url') output.updateUrl = value();
+    else if (flag === '--privacy-url') output.privacyUrl = value();
+    else if (flag === '--terms-url') output.termsUrl = value();
     else if (flag === '--force') output.force = true;
     else if (flag === '--help' || flag === '-h') output.help = true;
     else fail(`unknown flag: ${flag}`);
@@ -367,7 +371,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`Prepare a branded Code-OSS checkout with Hawk Security IDE built in.\n\nUsage:\n  node desktop/prepare-code-oss.mjs --source <code-oss-checkout> --out <new-directory> [--version <semver>] [--quality stable] [--update-url <url>] [--force]\n`);
+  process.stdout.write(`Prepare a branded Code-OSS checkout with Hawk Security IDE built in.\n\nUsage:\n  node desktop/prepare-code-oss.mjs --source <code-oss-checkout> --out <new-directory> [--version <semver>] [--quality stable] [--update-url <url>] [--privacy-url <url>] [--terms-url <url>] [--force]\n`);
 }
 
 async function stampProductVersion(root, version) {

@@ -121,6 +121,11 @@ describe('listModels', () => {
     expect(models.length).toBe(10);
   });
 
+  it('floats current OpenAI models to the top while retaining available models', async () => {
+    const models = await listModels('openai', `http://127.0.0.1:${port}/v1`, 'sk-openai');
+    expect(models).toContain('gpt-4o-mini');
+  });
+
   it('parses Kimi /v1/models with bearer auth', async () => {
     const models = await listModels('kimi', `http://127.0.0.1:${port}/v1`, 'sk-kimi');
     expect(models).toEqual(['kimi-k2.6']);

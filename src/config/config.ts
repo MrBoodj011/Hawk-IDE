@@ -14,6 +14,7 @@ const Backend = z.enum([
   '',
   'ollama',
   'lmstudio',
+  'openai',
   'openai-compat',
   'kimi',
   'groq',
@@ -48,6 +49,10 @@ export type PluginConfig = z.infer<typeof PluginConfig>;
 
 const ToolingProfile = z.enum(['minimal', 'full']);
 export type ToolingProfile = z.infer<typeof ToolingProfile>;
+const ReleaseChannel = z.enum(['stable', 'beta']);
+export type ReleaseChannel = z.infer<typeof ReleaseChannel>;
+const ReasoningEffort = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
 
 /** Schema default for auto_compact_threshold. Exported so backend-specific
  *  overrides (e.g. large-context Kimi models) can detect "user is on the
@@ -59,6 +64,18 @@ const ConfigSchema = z.object({
   model: z.string().default(''),
   base_url: z.string().default(''),
   api_key: z.string().default(''),
+  // Optional environment-variable indirection for BYOK credentials. When set,
+  // Hawk reads the key at runtime and never persists its value in config.json.
+  api_key_env: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+    .or(z.literal(''))
+    .default(''),
+  installation_id: z
+    .string()
+    .regex(/^[0-9a-f]{32}$/)
+    .or(z.literal(''))
+    .default(''),
   skills_dirs: z.array(z.string()).default([]),
   // Skill names the user has disabled via /skills. Hidden from the system
   // prompt and refused by load_skill until re-enabled. Persisted so the
@@ -93,6 +110,18 @@ const ConfigSchema = z.object({
   // value caps it. Unset → leave the API default (no thinkingConfig sent, so
   // models without the knob aren't affected).
   gemini_thinking_budget: z.number().int().nonnegative().optional(),
+  reasoning_effort: ReasoningEffort.optional(),
+  release_channel: ReleaseChannel.default('stable'),
+  // Observability is private by default. No event is sent until the user
+  // explicitly enables the relevant switch and configures an HTTPS endpoint.
+  telemetry_enabled: z.boolean().default(false),
+  crash_reporting_enabled: z.boolean().default(false),
+  telemetry_endpoint: z
+    .string()
+    .refine((value) => value === '' || isHttpsURL(value), {
+      message: 'telemetry_endpoint must be an https URL',
+    })
+    .default(''),
   // Tooling profile: which tools the agent reaches for by default.
   //   'minimal' — curl + Unix only (jq, grep, awk, sed, head, sort, uniq).
   //   'full'    — adds ffuf, nuclei, sqlmap, gobuster, subfinder, httpx,
@@ -107,6 +136,14 @@ function noShellMeta(s: string): boolean {
   // Rejection set: any of these in a command path
   // is almost always an injection attempt rather than a real binary name.
   return !/[|&;<>$`\\\n]/.test(s) && !s.includes('$(') && !s.includes('${');
+}
+
+function isHttpsURL(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 // ---------- Paths ----------

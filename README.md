@@ -85,6 +85,17 @@ local-first Code-OSS-compatible Hawk security workspace.
   portable ZIP, Linux deb/AppImage/tar, and macOS x64/arm64 ZIP/DMG. Signing,
   notarization, SHA-256 manifests, and the private-repository update gateway are
   activated through deployment secrets rather than credentials in source.
+- An optional Hawk Cloud control plane with GitHub sign-in, organizations,
+  owner/admin/member/viewer RBAC, invitations, conflict-safe preference sync,
+  Stripe subscriptions, plan entitlements, seat-bound device licenses, and an
+  organization audit log. Source code, captures, evidence, prompts, responses,
+  and provider keys are excluded from cloud sync.
+- Privacy-first observability: telemetry and crash reporting are independent,
+  disabled by default, allowlisted on both client and server, and stripped of
+  code, prompts, paths, URLs, headers, tokens, and secrets.
+- Separate signed Stable and Beta update channels, production health probes,
+  CodeQL/dependency assurance, Chrome Web Store API v2 publishing, and a
+  PortSwigger-reviewed BApp submission workflow.
 
 ## Use the Code-OSS extension
 
@@ -107,6 +118,10 @@ Run **Hawk: Pair Browser / Burp Capture** to copy the short-lived loopback URL
 and token used by either capture companion.
 Use **Hawk: Plan Governed Smart MCP Mission** to inspect a security DAG before
 approval, and **Hawk: Build Sanitized Evidence Pack** for portable reports.
+After the production control plane is configured, use **Hawk: Sign In to
+Cloud**, **Hawk: Create Team**, **Hawk: Select Cloud Workspace**, and **Hawk:
+Sync Cloud Preferences**. GitHub and Hawk session tokens remain in VS Code
+SecretStorage.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -154,6 +169,11 @@ contracts.
 
 See [native Hawk AI sessions](docs/native-ai.md) for the worktree, streaming,
 test-gate, Apply/Reject/Revert, persistence, and security contracts.
+
+See the [production release runbook](docs/release/PRODUCTION_RELEASE.md),
+[Beta program](docs/BETA_PROGRAM.md), [threat model](docs/security/THREAT_MODEL.md),
+[Privacy Notice](PRIVACY.md), [Terms](TERMS.md), [EULA](EULA.md), and
+[Responsible Use Policy](RESPONSIBLE_USE.md) for launch operations.
 
 ## Hawk health report liaison
 

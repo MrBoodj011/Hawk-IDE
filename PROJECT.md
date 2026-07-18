@@ -149,6 +149,35 @@ Unsigned dry runs remain useful for verifying reproducible packaging. The
 private update worker translates Code-OSS update checks into private GitHub
 Release assets without exposing the repository token to desktop clients.
 
+Published Stable/Beta artifacts are fail-closed: Windows signing, Apple
+signing/notarization, the update origin, and production legal metadata are all
+mandatory. Unsigned dry runs remain available but cannot create an official
+GitHub Release.
+
+## Hawk Cloud and commercial control plane
+
+`deploy/control-plane` is a Cloudflare Worker backed by D1. It implements
+GitHub identity, organizations, RBAC, invitations, cloud preference sync,
+Stripe Checkout/Portal/webhooks, plan entitlements, seats, short-lived
+device-bound license grants, audit logs, and opt-in telemetry. The desktop
+extension stores its cloud session in SecretStorage and exposes account, team,
+workspace, sync, upgrade, and billing commands.
+
+Cloud workspace state accepts only bounded Hawk preferences. Provider keys,
+source code, prompts, responses, evidence, captures, findings, and tool output
+stay outside the service.
+
+The production automation also includes:
+
+- Cloudflare control-plane and update-service deployment workflows;
+- Stable and Beta native update routing;
+- scheduled health monitoring and incident issue creation;
+- CodeQL and high-severity production dependency auditing;
+- Chrome Web Store API v2 upload/review submission;
+- PortSwigger BApp Store review submission from a public companion source;
+- a real-user Beta program, independent pentest scope, threat model, privacy,
+  terms, EULA, responsible-use, and security-disclosure documents.
+
 ## Important local paths
 
 | Path | Contents |

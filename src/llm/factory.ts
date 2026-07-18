@@ -18,6 +18,8 @@ import {
   KIMI_DEFAULT_BASE_URL,
   KIMI_DEFAULT_MAX_TOKENS,
   KIMI_DEFAULT_MODEL,
+  OPENAI_DEFAULT_BASE_URL,
+  OPENAI_DEFAULT_MODEL,
   OPENROUTER_DEFAULT_BASE_URL,
   OPENROUTER_DEFAULT_MODEL,
 } from './providers.js';
@@ -25,7 +27,11 @@ import {
 export function newFromConfig(cfg: Config): Client {
   // Generation knobs shared by the OpenAI-compatible backends. temperature is
   // sent only to models that accept it (see OpenAIClient.encodeRequest).
-  const gen = { temperature: cfg.temperature, maxTokens: cfg.max_tokens };
+  const gen = {
+    temperature: cfg.temperature,
+    maxTokens: cfg.max_tokens,
+    reasoningEffort: cfg.reasoning_effort,
+  };
   switch (cfg.backend) {
     case 'ollama':
     case '':
@@ -35,6 +41,18 @@ export function newFromConfig(cfg: Config): Client {
       return new OllamaClient(cfg.base_url, cfg.model, undefined, gen);
     case 'lmstudio':
       return OpenAIClient.lmStudio(cfg.base_url, cfg.model);
+    case 'openai':
+      if (!cfg.api_key) {
+        throw new Error('openai backend requires api_key or OPENAI_API_KEY');
+      }
+      return new OpenAIClient(
+        cfg.base_url || OPENAI_DEFAULT_BASE_URL,
+        cfg.api_key,
+        cfg.model || OPENAI_DEFAULT_MODEL,
+        'openai',
+        {},
+        gen,
+      );
     case 'openai-compat':
       if (!cfg.base_url) {
         throw new Error('openai-compat backend requires base_url');
