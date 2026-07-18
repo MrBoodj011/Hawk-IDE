@@ -17,8 +17,7 @@ on:
         default: false
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: hawk-desktop-${{ github.ref_name }}-${{ inputs.tag || '' }}
@@ -119,6 +118,8 @@ jobs:
 
   desktop:
     needs: [prepare, verify]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -141,6 +142,7 @@ jobs:
       HAWK_TAG: ${{ needs.prepare.outputs.tag }}
       HAWK_UPDATE_URL: ${{ secrets.HAWK_UPDATE_URL }}
       BUILD_SOURCEVERSION: ${{ github.sha }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -193,8 +195,6 @@ jobs:
       - name: Install Code-OSS dependencies
         working-directory: ${{ runner.temp }}/hawk-codeoss
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
@@ -397,6 +397,8 @@ jobs:
     needs: [prepare, integrations, desktop]
     if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
