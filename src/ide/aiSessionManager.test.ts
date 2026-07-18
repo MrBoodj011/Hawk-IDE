@@ -57,6 +57,18 @@ describe('AiSessionManager', () => {
 
       const diff = await manager.diff(created.id);
       expect(diff.patch).toContain('+hawk');
+      const checkpointed = await manager.checkpoint(created.id, { label: 'working patch' });
+      expect(checkpointed.checkpoints).toEqual([
+        expect.objectContaining({ label: 'working patch', patchHash: diff.summary.patchHash }),
+      ]);
+      expect(checkpointed.canOpenTerminal).toBe(true);
+      await writeFile(join(checkpointed.sandboxPath ?? '', 'app.txt'), 'discard me\n', 'utf8');
+      const restored = await manager.restoreCheckpoint(created.id, {
+        approved: true,
+        checkpointId: checkpointed.checkpoints[0]?.id ?? '',
+      });
+      expect(restored.diff?.patchHash).toBe(diff.summary.patchHash);
+      expect((await manager.diff(created.id)).patch).toContain('+hawk');
       const events = await manager.events(created.id);
       expect(events.events).toEqual(
         expect.arrayContaining([

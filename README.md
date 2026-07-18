@@ -18,9 +18,13 @@ local-first Code-OSS-compatible Hawk security workspace.
   view, local security signals, a living route graph, traffic correlation,
   findings triage, organization posture, evidence actions, and MCP status.
 - Native Hawk AI engineering room with active-file, selection, open-tab,
-  git-diff, and diagnostics context; durable session history; in-panel model,
+  git-diff, diagnostics, and semantic-index context; durable session history; in-panel model,
   plan, tool, and response streaming; and isolated coding turns powered by the
   existing multi-provider Hawk agent runtime.
+- Hawk Coding Core: private inline completion, bounded local symbol-aware
+  workspace indexing, natural-language code search, isolated task terminals,
+  named patch checkpoints, three-lane parallel coding tournaments, explicit
+  BYOK model fallbacks, and built-in latency/RAM benchmarks.
 - Exact patch review with a visual diff, SHA-256-bound Apply, Reject, approved
   typecheck/lint/test/build gates, workspace-drift detection, and Revert that
   refuses to overwrite any file changed after apply.
@@ -83,7 +87,9 @@ local-first Code-OSS-compatible Hawk security workspace.
   evidence-backed findings workflow.
 - A personal desktop release pipeline for Windows portable ZIP/EXE/MSI and
   Linux deb/AppImage/tar, plus locally installed Browser and Burp companions.
-  Releases include SHA-256 checksums; Windows signing is optional.
+  Releases include SHA-256 checksums; Windows signing is optional. The desktop
+  can check the private GitHub release feed, verify an installer against
+  `SHA256SUMS`, and launch it only after explicit approval.
 - A deliberately solo/local architecture: no Hawk account, team system,
   Stripe/billing, licenses, cloud synchronization, telemetry collector, Apple
   build, or extension-store publication. Provider keys and engagement data
@@ -112,6 +118,9 @@ Run **Hawk: Pair Browser / Burp Capture** to copy the short-lived loopback URL
 and token used by either capture companion.
 Use **Hawk: Plan Governed Smart MCP Mission** to inspect a security DAG before
 approval, and **Hawk: Build Sanitized Evidence Pack** for portable reports.
+Use **Hawk: Search Workspace Semantically**, **Hawk: Run Coding Core
+Benchmark**, and **Hawk: Check for Private Release Updates** for the coding
+layer. `Alt+\` explicitly requests a Hawk Tab completion.
 Hawk does not require a Hawk login. Optional GitHub health-report tokens remain
 in Hawk encrypted local secret storage; LLM keys can be read from local environment
 variables and are not synchronized anywhere.

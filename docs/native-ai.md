@@ -43,6 +43,14 @@ file.
   touched file still matches the post-apply hash, so it cannot silently erase
   later operator edits.
 - **Stop task** terminates the worker or approved gate process.
+- **Save checkpoint** copies the exact hash-verified isolated patch into the
+  durable session store.
+- **Restore checkpoint** resets only the temporary worktree, verifies the
+  retained SHA-256, and regenerates the review diff.
+- **Open isolated terminal** opens the editor terminal in the review worktree,
+  so streamed commands cannot change the operator workspace before Apply.
+- **Run 3 lanes** starts architecture, implementation, and verification agents
+  in independent worktrees. Each candidate remains a separate review session.
 
 ## Persistence
 
@@ -64,6 +72,7 @@ The token-gated daemon exposes:
 
 ```text
 POST /v1/ai/sessions
+POST /v1/ai/batches
 GET  /v1/ai/sessions
 GET  /v1/ai/sessions/:id
 GET  /v1/ai/sessions/:id/events?after=<event-id>
@@ -71,9 +80,15 @@ POST /v1/ai/sessions/:id/messages
 GET  /v1/ai/sessions/:id/diff
 POST /v1/ai/sessions/:id/tests
 POST /v1/ai/sessions/:id/apply
+POST /v1/ai/sessions/:id/checkpoints
+POST /v1/ai/sessions/:id/checkpoints/restore
 POST /v1/ai/sessions/:id/reject
 POST /v1/ai/sessions/:id/revert
 POST /v1/ai/sessions/:id/cancel
+POST /v1/ai/inline-completion
+POST /v1/workspace/semantic-index
+POST /v1/workspace/search
+POST /v1/diagnostics/coding-core
 ```
 
 All mutating review endpoints require an explicit approval field. Apply also

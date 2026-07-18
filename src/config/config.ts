@@ -51,6 +51,21 @@ const ToolingProfile = z.enum(['minimal', 'full']);
 export type ToolingProfile = z.infer<typeof ToolingProfile>;
 const ReasoningEffort = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
+const ModelPurpose = z.enum(['general', 'fast', 'reasoning', 'security']);
+export type ModelPurpose = z.infer<typeof ModelPurpose>;
+const FallbackModel = z.object({
+  name: z.string().max(80).default(''),
+  backend: Backend,
+  model: z.string().max(200).default(''),
+  base_url: z.string().max(2_000).default(''),
+  api_key_env: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+    .or(z.literal(''))
+    .default(''),
+  purpose: ModelPurpose.default('general'),
+});
+export type FallbackModel = z.infer<typeof FallbackModel>;
 
 /** Schema default for auto_compact_threshold. Exported so backend-specific
  *  overrides (e.g. large-context Kimi models) can detect "user is on the
@@ -104,6 +119,9 @@ const ConfigSchema = z.object({
   // models without the knob aren't affected).
   gemini_thinking_budget: z.number().int().nonnegative().optional(),
   reasoning_effort: ReasoningEffort.optional(),
+  // Optional BYOK fallback routes. Secrets are referenced by environment
+  // variable name and never persisted in the route definition.
+  fallback_models: z.array(FallbackModel).max(8).default([]),
   // Tooling profile: which tools the agent reaches for by default.
   //   'minimal' — curl + Unix only (jq, grep, awk, sed, head, sort, uniq).
   //   'full'    — adds ffuf, nuclei, sqlmap, gobuster, subfinder, httpx,

@@ -4,11 +4,20 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import { join, resolve } from 'node:path';
 import { startIngestServer } from '../browser/server.js';
 import { CaptureStore } from '../browser/store.js';
-import type { AiApplyRequest, AiCreateSessionRequest, AiRunTestsRequest } from './aiProtocol.js';
+import type {
+  AiApplyRequest,
+  AiCheckpointRequest,
+  AiCreateSessionRequest,
+  AiParallelBatchRequest,
+  AiRestoreCheckpointRequest,
+  AiRunTestsRequest,
+} from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
+import { runCodingCoreBenchmark } from './codingBenchmark.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
+import { type InlineCompletionRequest, createInlineCompletion } from './inlineCompletion.js';
 import {
   type DaemonHealth,
   type EvidencePackReport,
@@ -26,6 +35,7 @@ import {
   type WorkspaceScanTemplatesResponse,
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import { SemanticWorkspaceIndex } from './semanticIndex.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import { importHarTraffic, importLiveTraffic, mergeTrafficInventories } from './traffic.js';
 import {
@@ -72,6 +82,8 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const aiSessions = new AiSessionManager({ workspaceRoot, now });
   await aiSessions.initialize();
+  const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot);
+  const completionLatencies: number[] = [];
   const captureStore = new CaptureStore({ maxEntries: 5_000 });
   const captureServer = await startIngestServer({
     store: captureStore,
@@ -106,6 +118,12 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         hawkHealth = value;
       },
       aiSessions,
+      semanticIndex,
+      completionLatencies: () => [...completionLatencies],
+      recordCompletionLatency: (latencyMs) => {
+        completionLatencies.push(latencyMs);
+        if (completionLatencies.length > 100) completionLatencies.shift();
+      },
     });
   });
 
@@ -148,6 +166,9 @@ interface RequestContext {
   hawkHealth(): HawkHealthReport | null;
   setHawkHealth(value: HawkHealthReport): Promise<void>;
   aiSessions: AiSessionManager;
+  semanticIndex: SemanticWorkspaceIndex;
+  completionLatencies(): number[];
+  recordCompletionLatency(latencyMs: number): void;
 }
 
 async function handleRequest(
@@ -180,7 +201,10 @@ async function handleRequest(
   if (req.method === 'POST' && pathname === '/v1/workspace/index') {
     try {
       await consumeBody(req);
-      const scan = await scanWorkspaceRoutes(context.workspaceRoot);
+      const [scan] = await Promise.all([
+        scanWorkspaceRoutes(context.workspaceRoot),
+        context.semanticIndex.build(),
+      ]);
       const inventory: WorkspaceInventory = {
         protocolVersion: IDE_PROTOCOL_VERSION,
         root: context.workspaceRoot,
@@ -190,6 +214,69 @@ async function handleRequest(
       };
       context.setInventory(inventory);
       sendJSON(res, 200, inventory);
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/workspace/semantic-index') {
+    try {
+      await consumeBody(req);
+      sendJSON(res, 200, await context.semanticIndex.build());
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/workspace/semantic-index') {
+    const stats = context.semanticIndex.stats();
+    if (!stats) {
+      sendJSON(res, 404, { ok: false, error: 'semantic workspace index has not been built yet' });
+      return;
+    }
+    sendJSON(res, 200, stats);
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/workspace/search') {
+    try {
+      const input = parseJSONBody<{ query?: string; limit?: number }>(await readBody(req));
+      const query = typeof input.query === 'string' ? input.query.trim() : '';
+      if (!query) throw new Error('query is required');
+      await context.semanticIndex.ensureBuilt();
+      sendJSON(res, 200, {
+        query,
+        results: context.semanticIndex.search(query, input.limit),
+        stats: context.semanticIndex.stats(),
+      });
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/inline-completion') {
+    try {
+      const input = parseJSONBody<InlineCompletionRequest>(await readBody(req));
+      const completion = await createInlineCompletion(input, context.semanticIndex);
+      context.recordCompletionLatency(completion.latencyMs);
+      sendJSON(res, 200, completion);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/diagnostics/coding-core') {
+    try {
+      await consumeBody(req);
+      sendJSON(
+        res,
+        200,
+        await runCodingCoreBenchmark(context.semanticIndex, context.completionLatencies()),
+      );
     } catch (err) {
       sendJSON(res, 500, { ok: false, error: errorMessage(err) });
     }
@@ -245,6 +332,16 @@ async function handleRequest(
     try {
       const input = parseJSONBody<AiCreateSessionRequest>(await readBody(req));
       sendJSON(res, 201, await context.aiSessions.create(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/batches') {
+    try {
+      const input = parseJSONBody<AiParallelBatchRequest>(await readBody(req));
+      sendJSON(res, 201, await context.aiSessions.createParallelBatch(input));
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -327,6 +424,41 @@ async function handleRequest(
         res,
         200,
         await context.aiSessions.apply(decodeURIComponent(aiApplyMatch[1]), input),
+      );
+    } catch (err) {
+      sendJSON(res, 409, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiCheckpointMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/checkpoints$/);
+  if (req.method === 'POST' && aiCheckpointMatch?.[1]) {
+    try {
+      const input = parseJSONBody<AiCheckpointRequest>(await readBody(req));
+      sendJSON(
+        res,
+        201,
+        await context.aiSessions.checkpoint(decodeURIComponent(aiCheckpointMatch[1]), input),
+      );
+    } catch (err) {
+      sendJSON(res, 409, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiRestoreCheckpointMatch = pathname.match(
+    /^\/v1\/ai\/sessions\/([^/]+)\/checkpoints\/restore$/,
+  );
+  if (req.method === 'POST' && aiRestoreCheckpointMatch?.[1]) {
+    try {
+      const input = parseJSONBody<AiRestoreCheckpointRequest>(await readBody(req));
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.restoreCheckpoint(
+          decodeURIComponent(aiRestoreCheckpointMatch[1]),
+          input,
+        ),
       );
     } catch (err) {
       sendJSON(res, 409, { ok: false, error: errorMessage(err) });

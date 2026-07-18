@@ -55,6 +55,14 @@ export interface AiTestResult {
   output: string;
 }
 
+export interface AiCheckpointSummary {
+  id: string;
+  label: string;
+  createdAt: string;
+  patchHash: string;
+  files: number;
+}
+
 export interface AiSessionSummary {
   id: string;
   title: string;
@@ -66,11 +74,15 @@ export interface AiSessionSummary {
   model?: string;
   error?: string;
   diff?: AiDiffSummary;
+  checkpoints: AiCheckpointSummary[];
+  sandboxPath?: string;
   testGates: AiTestGate[];
   testResults: AiTestResult[];
   canApply: boolean;
   canReject: boolean;
   canRevert: boolean;
+  canCheckpoint: boolean;
+  canOpenTerminal: boolean;
 }
 
 export interface AiSessionList {
@@ -108,4 +120,25 @@ export interface AiApplyRequest {
   approved: true;
   patchHash: string;
   allowFailingTests?: boolean;
+}
+
+export interface AiCheckpointRequest {
+  label?: string;
+}
+
+export interface AiRestoreCheckpointRequest {
+  checkpointId: string;
+  approved: true;
+}
+
+export interface AiParallelBatchRequest {
+  objective: string;
+  context?: string;
+  lanes?: number;
+}
+
+export interface AiParallelBatchResponse {
+  batchId: string;
+  createdAt: string;
+  sessions: AiSessionSummary[];
 }

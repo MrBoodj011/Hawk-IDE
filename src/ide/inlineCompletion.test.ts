@@ -1,0 +1,51 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { Client } from '../llm/client.js';
+import { createInlineCompletion } from './inlineCompletion.js';
+import { SemanticWorkspaceIndex } from './semanticIndex.js';
+
+describe('createInlineCompletion', () => {
+  const roots: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  });
+
+  it('uses local semantic context and strips Markdown fences from the insertion', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-inline-'));
+    roots.push(root);
+    await writeFile(
+      join(root, 'auth.ts'),
+      'export function validateToken(token: string) { return token.length > 10; }\n',
+    );
+    let prompt = '';
+    const client: Client = {
+      name: () => 'test',
+      model: () => 'completion-test',
+      chat: async (request) => {
+        prompt = request.messages.at(-1)?.content ?? '';
+        return {
+          message: { role: 'assistant', content: '```ts\nreturn validateToken(token);\n```' },
+          finishReason: 'stop',
+        };
+      },
+    };
+    const result = await createInlineCompletion(
+      {
+        file: 'handler.ts',
+        languageId: 'typescript',
+        prefix: 'function allow(token: string) {\n  ',
+        suffix: '\n}',
+      },
+      new SemanticWorkspaceIndex(root),
+      { client },
+    );
+
+    expect(result.text).toBe('return validateToken(token);');
+    expect(result.contextFiles).toContain('auth.ts');
+    expect(prompt).toContain('validateToken');
+    expect(result.provider).toBe('test');
+  });
+});

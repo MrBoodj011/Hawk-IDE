@@ -168,6 +168,7 @@ jobs:
         shell: bash
         run: |
           npm ci
+          node desktop/stamp-extension-version.mjs "$HAWK_VERSION"
           npm run build:extension
       - name: Prepare branded Code-OSS source
         shell: bash

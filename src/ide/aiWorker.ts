@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import { Agent } from '../agent/agent.js';
 import type { AgentEvent } from '../agent/events.js';
 import * as config from '../config/config.js';
-import * as llmFactory from '../llm/factory.js';
+import { createRoutedClient, purposeForTask } from '../llm/routing.js';
 import type { Decision, Prompter, Request } from '../permission/permission.js';
 import { Store } from '../session/store.js';
 import { skillSearchDirs } from '../skills/discovery.js';
@@ -46,8 +46,8 @@ interface WorkerEnvelope {
 export async function runAiWorkerCli(): Promise<void> {
   const request = await readWorkerRequest();
   const root = await realpath(resolve(request.workspaceRoot));
-  const cfg = loadWorkerConfig();
-  const client = llmFactory.newFromConfig(cfg);
+  const cfg = config.load();
+  const client = createRoutedClient(cfg, purposeForTask(request.prompt));
   emit({ type: 'worker-info', provider: client.name(), model: client.model() });
 
   const prompter = new WorkspacePrompter(root);
@@ -242,20 +242,6 @@ function buildWorkerPrompt(prompt: string, context = ''): string {
   ]
     .filter(Boolean)
     .join('\n');
-}
-
-function loadWorkerConfig(): config.Config {
-  const cfg = config.load();
-  const envKey: Partial<Record<config.Backend, string>> = {
-    kimi: process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY || '',
-    groq: process.env.GROQ_API_KEY || '',
-    openrouter: process.env.OPENROUTER_API_KEY || '',
-    deepseek: process.env.DEEPSEEK_API_KEY || '',
-    gemini: process.env.GEMINI_API_KEY || '',
-    anthropic: process.env.ANTHROPIC_API_KEY || '',
-  };
-  if (!cfg.api_key && envKey[cfg.backend]) cfg.api_key = envKey[cfg.backend] ?? '';
-  return cfg;
 }
 
 function serializeEvent(event: AgentEvent): {

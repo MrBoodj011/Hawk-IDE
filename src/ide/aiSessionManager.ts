@@ -21,10 +21,15 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type {
   AiApplyRequest,
+  AiCheckpointRequest,
+  AiCheckpointSummary,
   AiCreateSessionRequest,
   AiDiffResponse,
   AiDiffSummary,
   AiEventPage,
+  AiParallelBatchRequest,
+  AiParallelBatchResponse,
+  AiRestoreCheckpointRequest,
   AiRunTestsRequest,
   AiSessionEvent,
   AiSessionStatus,
@@ -59,6 +64,10 @@ interface TouchedFile {
   afterHash: string | null;
 }
 
+interface StoredCheckpoint extends AiCheckpointSummary {
+  patchPath: string;
+}
+
 interface StoredAiSession {
   version: number;
   id: string;
@@ -80,6 +89,7 @@ interface StoredAiSession {
   model?: string;
   error?: string;
   diff?: AiDiffSummary;
+  checkpoints?: StoredCheckpoint[];
   touchedFiles: TouchedFile[];
   testGates: AiTestGate[];
   testResults: AiTestResult[];
@@ -196,6 +206,7 @@ export class AiSessionManager {
       patchPath: join(this.patchesRoot, `${id}.patch`),
       agentSessionPath: join(this.agentSessionsRoot, `${id}.json`),
       lastEventId: 0,
+      checkpoints: [],
       touchedFiles: [],
       testGates: await detectTestGates(prepared.workerRoot),
       testResults: [],
@@ -204,6 +215,57 @@ export class AiSessionManager {
     await this.addEvent(session, 'status', 'Isolated worktree ready. Starting Hawk AI.');
     await this.startWorker(session, prompt, input.context ?? '');
     return publicSession(session);
+  }
+
+  async createParallelBatch(input: AiParallelBatchRequest): Promise<AiParallelBatchResponse> {
+    const objective = validatePrompt(input.objective);
+    const laneCount = Math.max(2, Math.min(6, Math.floor(input.lanes ?? 3)));
+    const roles = [
+      {
+        name: 'Architecture',
+        instruction:
+          'Map the relevant system, identify root causes and implement the smallest coherent solution.',
+      },
+      {
+        name: 'Implementation',
+        instruction:
+          'Implement a production-ready solution with strong typing, error handling and maintainability.',
+      },
+      {
+        name: 'Verification',
+        instruction:
+          'Approach the task as an adversarial reviewer, implement the safest solution and strengthen regression coverage.',
+      },
+      {
+        name: 'Performance',
+        instruction:
+          'Optimize for latency, memory and large-repository behavior without weakening correctness.',
+      },
+      {
+        name: 'Security',
+        instruction:
+          'Trace trust boundaries and implement the solution with secure defaults and explicit approvals.',
+      },
+      {
+        name: 'Minimal patch',
+        instruction:
+          'Produce the smallest reviewable patch that fully meets the objective and preserves compatibility.',
+      },
+    ].slice(0, laneCount);
+    const sessions: AiSessionSummary[] = [];
+    for (const role of roles) {
+      sessions.push(
+        await this.create({
+          prompt: `[${role.name} lane] ${objective}\n\nLane focus: ${role.instruction}`,
+          context: input.context,
+        }),
+      );
+    }
+    return {
+      batchId: randomUUID(),
+      createdAt: this.timestamp(),
+      sessions,
+    };
   }
 
   async continue(id: string, input: AiCreateSessionRequest): Promise<AiSessionSummary> {
@@ -330,6 +392,69 @@ export class AiSessionManager {
       await this.save(session);
       await this.addEvent(session, 'status', testSummary(session.testResults));
     }
+    return publicSession(session);
+  }
+
+  async checkpoint(id: string, request: AiCheckpointRequest = {}): Promise<AiSessionSummary> {
+    const session = await this.load(id);
+    if (session.status !== 'awaiting-review' || !session.diff) {
+      throw new Error('Create a checkpoint only when a reviewable Hawk diff is ready.');
+    }
+    await ensureWorktree(session);
+    const checkpointId = randomUUID();
+    const checkpointDirectory = join(this.patchesRoot, 'checkpoints');
+    await mkdir(checkpointDirectory, { recursive: true, mode: 0o700 });
+    const checkpointPath = join(checkpointDirectory, `${session.id}-${checkpointId}.patch`);
+    await copyFile(session.patchPath, checkpointPath);
+    const checkpoint: StoredCheckpoint = {
+      id: checkpointId,
+      label: boundText(
+        request.label?.trim() || `Checkpoint ${(session.checkpoints?.length ?? 0) + 1}`,
+        120,
+      ),
+      createdAt: this.timestamp(),
+      patchHash: session.diff.patchHash,
+      files: session.diff.files,
+      patchPath: checkpointPath,
+    };
+    session.checkpoints = [...(session.checkpoints ?? []), checkpoint].slice(-20);
+    session.updatedAt = this.timestamp();
+    await this.save(session);
+    await this.addEvent(session, 'status', `Checkpoint saved: ${checkpoint.label}.`);
+    return publicSession(session);
+  }
+
+  async restoreCheckpoint(
+    id: string,
+    request: AiRestoreCheckpointRequest,
+  ): Promise<AiSessionSummary> {
+    if (request.approved !== true) {
+      throw new Error('Operator approval is required to restore a checkpoint.');
+    }
+    const session = await this.load(id);
+    if (session.status !== 'awaiting-review' && session.status !== 'failed') {
+      throw new Error(`A ${session.status} session cannot restore a checkpoint.`);
+    }
+    const checkpoint = (session.checkpoints ?? []).find(
+      (candidate) => candidate.id === request.checkpointId,
+    );
+    if (!checkpoint) throw new Error('Hawk checkpoint not found.');
+    await ensureWorktree(session);
+    const patch = await readFile(checkpoint.patchPath);
+    const patchHash = createHash('sha256').update(patch).digest('hex');
+    if (patchHash !== checkpoint.patchHash) {
+      throw new Error('Checkpoint integrity verification failed.');
+    }
+    await git(session.workerRoot, ['reset', '--hard', session.snapshotCommit]);
+    await git(session.workerRoot, ['clean', '-fd', '--', '.']);
+    await gitWithInput(session.workerRoot, ['apply', '--whitespace=nowarn', '-'], patch);
+    session.error = undefined;
+    session.testResults = [];
+    await this.captureDiff(session);
+    session.status = 'awaiting-review';
+    session.updatedAt = this.timestamp();
+    await this.save(session);
+    await this.addEvent(session, 'status', `Checkpoint restored: ${checkpoint.label}.`);
     return publicSession(session);
   }
 
@@ -817,6 +942,10 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
     model: session.model,
     error: session.error,
     diff: session.diff,
+    checkpoints: (session.checkpoints ?? []).map(
+      ({ patchPath: _patchPath, ...checkpoint }) => checkpoint,
+    ),
+    sandboxPath: session.workerRoot,
     testGates: session.testGates,
     testResults: session.testResults,
     canApply: session.status === 'awaiting-review' && Boolean(session.diff),
@@ -825,6 +954,8 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
       session.status === 'failed' ||
       session.status === 'cancelled',
     canRevert: session.status === 'applied',
+    canCheckpoint: session.status === 'awaiting-review' && Boolean(session.diff),
+    canOpenTerminal: session.status === 'awaiting-review',
   };
 }
 

@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Hawk Coding Core** — editor-native inline completion, a bounded local
+  symbol-aware semantic index, natural-language workspace search, named
+  checkpoints, isolated task terminals, three-lane parallel coding sessions,
+  explicit BYOK model fallback routes, performance benchmarks, and a private
+  GitHub Release updater with SHA-256 verification.
 - **Saved memory (`#` quick-add)** — a curated, human-readable memory layer
   modeled on Claude Code. `#<text>` saves a durable fact (one Markdown file per
   fact with frontmatter, under `.pentesterflow/memory/`); `#!<text>` saves it to

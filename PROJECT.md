@@ -17,6 +17,7 @@ license files.
 | Hawk desktop | Branded Windows and Linux Code-OSS application | Workspace trust and local daemon token |
 | Mission Control | Routes, signals, traffic, supply-chain posture, evidence, and MCP status | Signals are never auto-labelled as vulnerabilities |
 | Hawk AI | Streaming tasks, context, plans, history, diff preview, tests, Apply/Reject/Revert | File changes remain review-gated |
+| Hawk Coding Core | Inline completion, semantic code search, checkpoints, task terminals, parallel lanes, model fallback, benchmarks | Source stays local; paid routes are explicit BYOK configuration |
 | Browser companion | Redacted Fetch/XHR/WebSocket and webRequest metadata | Disabled by default; explicit regex scope and rate limit |
 | Burp companion | Redacted proxy traffic sent to the local Hawk evidence plane | Burp scope by default; explicit pairing and bounded queue |
 | Smart MCP Brain | Typed goals, capability DAGs, model routing, exact-plan approval, durable runs | Scope, actions, budgets, and SHA-256 plan hashes are immutable contracts |
@@ -48,15 +49,34 @@ sent into webviews. Capture companions receive a separate pairing token.
 The native AI workspace includes:
 
 - streamed assistant and tool events;
-- active file, selection, open-tab, diagnostics, and Git-diff context;
+- active file, selection, open-tab, diagnostics, Git-diff, and semantic context;
 - persistent task history and plan events;
 - patch summary and full diff preview;
+- named patch checkpoints and restore;
+- an integrated terminal rooted in the isolated review worktree;
+- three-lane architecture, implementation, and verification runs;
 - detected test gates with explicit approval;
 - Apply, Reject, Revert, Cancel, and Git refresh actions;
 - workspace trust checks and bounded local state.
 
 The AI worker does not receive an unrestricted security-testing authority.
 Sensitive workflows are compiled separately into Smart MCP goals and plans.
+
+## Hawk Coding Core
+
+Hawk Tab registers an editor-native inline completion provider. Each request is
+cancellable and bounded to a prefix, suffix, and the highest-ranked local code
+regions. The semantic index combines paths, identifiers, symbols, comments,
+and nearby code with local BM25-style ranking; it never uploads the repository
+to an embedding service.
+
+Model routing supports one primary provider plus up to eight explicit BYOK
+fallback routes tagged `fast`, `reasoning`, `security`, or `general`. Missing
+credentials leave a route dormant. A fallback is attempted only before the
+primary route emits streamed output, preventing duplicated partial answers.
+
+The coding benchmark measures index time, search p50/p95, recent Hawk Tab
+latency, heap/RSS, and fixed performance gates for large-repository tuning.
 
 ## Governed security workflows
 
@@ -145,7 +165,9 @@ The release workflow builds:
 
 Windows signing is optional when a personal certificate is configured.
 Otherwise the workflow labels the artifacts as unsigned and still publishes
-them to the private repository. There is no Apple build, update server, Hawk
+them to the private repository. Hawk checks that private release feed directly
+and verifies downloads against `SHA256SUMS`; there is no separate update
+server. There is no Apple build, Hawk
 account, team/RBAC layer, billing, licensing, cloud sync, telemetry collector,
 or store-publishing automation.
 
