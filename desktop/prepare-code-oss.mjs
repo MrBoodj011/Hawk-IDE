@@ -56,6 +56,11 @@ const brandedProduct = filterUpstreamAiDownloads({
   ...(args.quality ? { quality: args.quality } : {}),
   ...(args.updateUrl ? { updateUrl: args.updateUrl } : {}),
 });
+if (!Object.hasOwn(overrides, 'tunnelApplicationName')) {
+  delete brandedProduct.tunnelApplicationName;
+  delete brandedProduct.win32TunnelServiceMutex;
+  delete brandedProduct.win32TunnelMutex;
+}
 await writeFile(resolve(out, 'product.json'), `${JSON.stringify(brandedProduct, null, 2)}\n`);
 if (args.version) await stampProductVersion(out, args.version);
 await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));

@@ -61,6 +61,9 @@ describe('prepare-code-oss', () => {
         applicationName: 'code-oss',
         defaultChatAgent: { extensionId: 'GitHub.copilot' },
         trustedExtensionAuthAccess: { github: ['GitHub.copilot-chat'] },
+        tunnelApplicationName: 'code-tunnel-oss',
+        win32TunnelServiceMutex: 'code-tunnel-service',
+        win32TunnelMutex: 'code-tunnel',
         builtInExtensions: [{ name: 'GitHub.copilot-chat' }, { name: 'ms-vscode.js-debug' }],
       }),
     );
@@ -127,11 +130,17 @@ describe('prepare-code-oss', () => {
       nameShort: string;
       defaultChatAgent: { extensionId: string };
       trustedExtensionAuthAccess: { github: string[] };
+      tunnelApplicationName?: string;
+      win32TunnelServiceMutex?: string;
+      win32TunnelMutex?: string;
       builtInExtensions: Array<{ name: string }>;
     };
     expect(product.nameShort).toBe('Hawk');
     expect(product.defaultChatAgent).toEqual({ extensionId: 'GitHub.copilot' });
     expect(product.trustedExtensionAuthAccess).toEqual({ github: ['GitHub.copilot-chat'] });
+    expect(product.tunnelApplicationName).toBeUndefined();
+    expect(product.win32TunnelServiceMutex).toBeUndefined();
+    expect(product.win32TunnelMutex).toBeUndefined();
     expect(product.builtInExtensions).toEqual([{ name: 'ms-vscode.js-debug' }]);
     await expect(readFile(join(out, 'scripts', 'code.bat'), 'utf8')).resolves.toContain(
       'title Hawk Security IDE',
