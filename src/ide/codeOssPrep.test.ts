@@ -67,6 +67,7 @@ describe('prepare-code-oss', () => {
         builtInExtensions: [{ name: 'GitHub.copilot-chat' }, { name: 'ms-vscode.js-debug' }],
       }),
     );
+    await writeFile(join(source, 'package.json'), '{"name":"code-oss-dev","version":"0.0.0"}\n');
     await writeFile(
       join(source, 'build', 'gulpfile.vscode.ts'),
       "const deps = [\n  glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),\n];\n" +
@@ -124,6 +125,8 @@ describe('prepare-code-oss', () => {
       extension,
       '--overrides',
       overrides,
+      '--version',
+      '0.2.0-rc.8',
     ]);
 
     const product = JSON.parse(await readFile(join(out, 'product.json'), 'utf8')) as {
@@ -142,6 +145,9 @@ describe('prepare-code-oss', () => {
     expect(product.win32TunnelServiceMutex).toBeUndefined();
     expect(product.win32TunnelMutex).toBeUndefined();
     expect(product.builtInExtensions).toEqual([{ name: 'ms-vscode.js-debug' }]);
+    await expect(readFile(join(out, 'package.json'), 'utf8')).resolves.toContain(
+      '"version": "0.2.0"',
+    );
     await expect(readFile(join(out, 'scripts', 'code.bat'), 'utf8')).resolves.toContain(
       'title Hawk Security IDE',
     );

@@ -317,7 +317,7 @@ async function stampProductVersion(root, version) {
   }
   const packagePath = resolve(root, 'package.json');
   const packageJSON = JSON.parse(await readFile(packagePath, 'utf8'));
-  packageJSON.version = version;
+  packageJSON.version = version.replace(/-.+$/, '');
   await writeFile(packagePath, `${JSON.stringify(packageJSON, null, 2)}\n`);
 }
 
