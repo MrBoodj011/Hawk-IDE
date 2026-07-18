@@ -1,4 +1,8 @@
-# PentesterFlow — Code Audit / Bug Findings
+# Hawk Security IDE — Historical Code Audit
+
+> This document preserves the original runtime audit and its evidence. Product
+> branding and current architecture are documented in `PROJECT.md`; upstream
+> names below remain where they identify the audited legacy surface.
 
 > Internal review of correctness + security defects across all subsystems. Each finding was
 > verified against source (and, where noted, reproduced at runtime). **Intentional pentest-tool

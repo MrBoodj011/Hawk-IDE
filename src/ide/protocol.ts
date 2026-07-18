@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 4;
+export const IDE_PROTOCOL_VERSION = 5;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -127,23 +127,56 @@ export interface HawkHealthReport {
   priorityQueue: HawkRepositoryRisk[];
 }
 
-/** A transparent, non-networked scan plan that always requires operator approval. */
+export type WorkspaceScanTemplateId = 'passive-workspace' | 'runtime-observe' | 'release-gate';
+
+export interface WorkspaceScanRateLimit {
+  maxRequestsPerSecond: number;
+  maxRequests: number;
+}
+
+/** A governed scan recipe. Templates never grant authority outside their declared policy. */
+export interface WorkspaceScanTemplate {
+  id: WorkspaceScanTemplateId;
+  title: string;
+  description: string;
+  scope: WorkspaceScanTemplateId;
+  mode: 'passive' | 'observe';
+  requiresApproval: true;
+  networkPolicy: 'offline' | 'captured-only';
+  rateLimit: WorkspaceScanRateLimit;
+  checks: string[];
+}
+
+export interface WorkspaceScanTemplatesResponse {
+  protocolVersion: number;
+  templates: WorkspaceScanTemplate[];
+}
+
+/** A transparent scan plan that is bound to an exact approval hash. */
 export interface WorkspaceScanPlan {
   protocolVersion: number;
   createdAt: string;
-  scope: 'passive-workspace';
+  templateId: WorkspaceScanTemplateId;
+  title: string;
+  scope: WorkspaceScanTemplateId;
   workspaceRoot: string;
   requiresApproval: true;
+  approvalHash: string;
+  networkPolicy: 'offline' | 'captured-only';
+  rateLimit: WorkspaceScanRateLimit;
   statement: string;
   checks: string[];
 }
 
-/** Result of an approved passive workspace scan. It is not a vulnerability verdict. */
+/** Result of an approved governed scan. It is not a vulnerability verdict. */
 export interface WorkspaceScanReport {
   protocolVersion: number;
   id: string;
   status: 'completed';
-  scope: 'passive-workspace';
+  templateId: WorkspaceScanTemplateId;
+  title: string;
+  scope: WorkspaceScanTemplateId;
+  approvalHash: string;
   createdAt: string;
   completedAt: string;
   reportPath: string;
@@ -153,6 +186,66 @@ export interface WorkspaceScanReport {
   trafficRequests: number;
   hawkOrganization?: string;
   statement: string;
+}
+
+export type EvidencePackFormat = 'markdown' | 'html' | 'json' | 'sarif';
+
+export interface EvidencePackArtifact {
+  format: EvidencePackFormat;
+  path: string;
+  bytes: number;
+  sha256: string;
+}
+
+/** Sanitized, portable evidence bundle generated only after explicit operator approval. */
+export interface EvidencePackReport {
+  protocolVersion: number;
+  id: string;
+  status: 'completed';
+  createdAt: string;
+  directoryPath: string;
+  primaryReportPath: string;
+  statement: string;
+  sourceFiles: number;
+  routes: number;
+  observedRoutes: number;
+  trafficRequests: number;
+  findings: number;
+  artifacts: EvidencePackArtifact[];
+}
+
+export type GovernedMissionProfile = 'review' | 'remediate' | 'authorized-validation';
+
+export interface GovernedMissionNode {
+  id: string;
+  title: string;
+  capabilityId: string;
+  dependsOn: string[];
+  parallelGroup: string;
+  risk: 'low' | 'medium' | 'high' | 'critical';
+  approvalRequired: boolean;
+  modelClass: string;
+}
+
+/** A persisted Smart MCP-compatible plan. Creating it never starts execution. */
+export interface GovernedMissionPlan {
+  protocolVersion: number;
+  id: string;
+  goalId: string;
+  profile: GovernedMissionProfile;
+  objective: string;
+  planHash: string;
+  decision: 'allow' | 'require-approval' | 'deny';
+  reasons: string[];
+  allowedActions: string[];
+  hosts: string[];
+  maxParallel: number;
+  estimatedMinutes: number;
+  estimatedCostUsd: number;
+  approvalRequired: boolean;
+  nodes: GovernedMissionNode[];
+  reportPath: string;
+  createdAt: string;
 }
 
 export interface DaemonHealth {

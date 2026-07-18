@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type {
@@ -5,40 +6,102 @@ import type {
   TrafficInventory,
   WorkspaceScanPlan,
   WorkspaceScanReport,
+  WorkspaceScanTemplate,
+  WorkspaceScanTemplateId,
 } from './protocol.js';
 import { IDE_PROTOCOL_VERSION } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
-const PASSIVE_SCOPE = 'passive-workspace' as const;
-const STATEMENT =
-  'Passive workspace-only analysis. Hawk reads source text and locally imported metadata; it does not start project code, call a network target, or attempt exploitation.';
-
-export function createWorkspaceScanPlan(
-  workspaceRoot: string,
-  now = new Date(),
-): WorkspaceScanPlan {
-  return {
-    protocolVersion: IDE_PROTOCOL_VERSION,
-    createdAt: now.toISOString(),
-    scope: PASSIVE_SCOPE,
-    workspaceRoot: resolve(workspaceRoot),
+const TEMPLATES: readonly WorkspaceScanTemplate[] = [
+  {
+    id: 'passive-workspace',
+    title: 'Passive workspace review',
+    description: 'Map code and flag static security signals without starting project code.',
+    scope: 'passive-workspace',
+    mode: 'passive',
     requiresApproval: true,
-    statement: STATEMENT,
+    networkPolicy: 'offline',
+    rateLimit: { maxRequestsPerSecond: 0, maxRequests: 0 },
     checks: [
       'Map statically declared API routes.',
       'Run passive source-code security rules.',
-      'Correlate already-imported HAR metadata without replaying requests.',
-      'Summarize already-imported Hawk health metadata without contacting GitHub.',
+      'Correlate already-imported traffic metadata without replaying requests.',
       'Write a local Markdown report under .hawk/reports/.',
     ],
+  },
+  {
+    id: 'runtime-observe',
+    title: 'Runtime observation',
+    description:
+      'Correlate live Browser/Burp evidence to source routes without generating traffic.',
+    scope: 'runtime-observe',
+    mode: 'observe',
+    requiresApproval: true,
+    networkPolicy: 'captured-only',
+    rateLimit: { maxRequestsPerSecond: 0, maxRequests: 1_500 },
+    checks: [
+      'Read the bounded, redacted live-capture timeline.',
+      'Map observed request paths back to statically declared source routes.',
+      'Run passive source-code rules for correlated context.',
+      'Never replay, mutate, or generate a target request.',
+    ],
+  },
+  {
+    id: 'release-gate',
+    title: 'Release security gate',
+    description: 'Create an offline pre-release posture snapshot from local evidence.',
+    scope: 'release-gate',
+    mode: 'passive',
+    requiresApproval: true,
+    networkPolicy: 'offline',
+    rateLimit: { maxRequestsPerSecond: 0, maxRequests: 0 },
+    checks: [
+      'Inventory source routes and passive security signals.',
+      'Summarize locally available runtime evidence.',
+      'Summarize imported Hawk supply-chain health without contacting GitHub.',
+      'Record a deterministic, reviewable release-gate report.',
+    ],
+  },
+] as const;
+
+export function createWorkspaceScanTemplates(): WorkspaceScanTemplate[] {
+  return TEMPLATES.map((template) => ({
+    ...template,
+    rateLimit: { ...template.rateLimit },
+    checks: [...template.checks],
+  }));
+}
+
+export function createWorkspaceScanPlan(
+  workspaceRoot: string,
+  templateId: WorkspaceScanTemplateId = 'passive-workspace',
+  now = new Date(),
+): WorkspaceScanPlan {
+  const template = findTemplate(templateId);
+  const root = resolve(workspaceRoot);
+  const statement = scanStatement(template);
+  return {
+    protocolVersion: IDE_PROTOCOL_VERSION,
+    createdAt: now.toISOString(),
+    templateId: template.id,
+    title: template.title,
+    scope: template.scope,
+    workspaceRoot: root,
+    requiresApproval: true,
+    approvalHash: planApprovalHash(root, template),
+    networkPolicy: template.networkPolicy,
+    rateLimit: { ...template.rateLimit },
+    statement,
+    checks: [...template.checks],
   };
 }
 
 export interface ApprovedWorkspaceScanOptions {
   workspaceRoot: string;
   approved: boolean;
-  scope: string;
+  templateId: string;
+  approvalHash: string;
   traffic?: TrafficInventory | null;
   hawkHealth?: HawkHealthReport | null;
   now?: Date;
@@ -47,10 +110,14 @@ export interface ApprovedWorkspaceScanOptions {
 export async function runApprovedWorkspaceScan(
   options: ApprovedWorkspaceScanOptions,
 ): Promise<WorkspaceScanReport> {
-  if (options.scope !== PASSIVE_SCOPE) throw new Error('unsupported scan scope');
   if (!options.approved) throw new Error('operator approval is required for a workspace scan');
 
   const root = resolve(options.workspaceRoot);
+  const template = findTemplate(options.templateId);
+  const expectedApproval = planApprovalHash(root, template);
+  if (options.approvalHash !== expectedApproval) {
+    throw new Error('scan approval is missing or bound to a different plan');
+  }
   const started = options.now ?? new Date();
   const [routes, audit] = await Promise.all([
     scanWorkspaceRoutes(root),
@@ -63,7 +130,10 @@ export async function runApprovedWorkspaceScan(
     protocolVersion: IDE_PROTOCOL_VERSION,
     id,
     status: 'completed',
-    scope: PASSIVE_SCOPE,
+    templateId: template.id,
+    title: template.title,
+    scope: template.scope,
+    approvalHash: expectedApproval,
     createdAt: started.toISOString(),
     completedAt: completed.toISOString(),
     reportPath,
@@ -72,7 +142,7 @@ export async function runApprovedWorkspaceScan(
     findings: audit.findings,
     trafficRequests: options.traffic?.requests.length ?? 0,
     hawkOrganization: options.hawkHealth?.organization,
-    statement: STATEMENT,
+    statement: scanStatement(template),
   };
 
   await writeWorkspaceReport(root, report, options.hawkHealth);
@@ -96,14 +166,15 @@ function renderReport(report: WorkspaceScanReport, hawkHealth?: HawkHealthReport
     '',
     `- Scan ID: \`${report.id}\``,
     `- Completed: ${report.completedAt}`,
-    `- Scope: ${report.scope}`,
+    `- Template: ${report.title} (\`${report.templateId}\`)`,
+    `- Approval hash: \`${report.approvalHash}\``,
     `- Safety statement: ${report.statement}`,
     '',
     '## Surface summary',
     '',
     `- Source files inspected: ${report.sourceFiles}`,
     `- Statically mapped API routes: ${report.routes}`,
-    `- Local HAR requests available for correlation: ${report.trafficRequests}`,
+    `- Local captured requests available for correlation: ${report.trafficRequests}`,
     `- Static signals requiring manual validation: ${report.findings.length}`,
   ];
   if (hawkHealth) {
@@ -132,4 +203,33 @@ function renderReport(report: WorkspaceScanReport, hawkHealth?: HawkHealthReport
     '',
   );
   return lines.join('\n');
+}
+
+function findTemplate(id: string): WorkspaceScanTemplate {
+  const template = TEMPLATES.find((candidate) => candidate.id === id);
+  if (!template) throw new Error('unsupported scan template');
+  return template;
+}
+
+function planApprovalHash(root: string, template: WorkspaceScanTemplate): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        root,
+        id: template.id,
+        scope: template.scope,
+        networkPolicy: template.networkPolicy,
+        rateLimit: template.rateLimit,
+        checks: template.checks,
+      }),
+    )
+    .digest('hex');
+}
+
+function scanStatement(template: WorkspaceScanTemplate): string {
+  const evidence =
+    template.networkPolicy === 'captured-only'
+      ? 'reads source text and bounded, locally captured metadata'
+      : 'reads source text and already-imported local metadata';
+  return `${template.title}: Hawk ${evidence}; it does not start project code, call a network target, replay a request, or attempt exploitation.`;
 }

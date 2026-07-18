@@ -35,6 +35,11 @@ SHA-256 plan hash. The plan also embeds the full GoalSpec hash, and policy is
 recomputed before execution. Any plan, scope, authority, or budget change
 invalidates that approval.
 
+Mission Control can persist the same compatible goal/plan/policy records
+through review, remediation, and authorized-validation profiles. This desktop
+action writes a readable DAG under `.hawk/plans/`; it deliberately does not
+approve the hash or start a run.
+
 ## Semantic capability and model routing
 
 `hawk_capabilities_search` ranks a small relevant subset of the capability
@@ -79,6 +84,11 @@ Docker runs additionally persist their validated spec. After MCP restart Hawk
 reattaches to a retained worker container, recovers its logs and exit code,
 and resumes downstream nodes. A missing container is never silently rerun
 unless an explicit retry remains.
+
+Before launch, a local image tag is resolved to its immutable Docker image ID.
+Workers run non-root with read-only source/root filesystems, quota-limited
+artifact tmpfs, and cross-run CPU/RAM/worker ceilings. Startup removes orphaned
+Hawk containers only when their workspace label matches this workspace.
 
 ## ProofGraph and verification
 

@@ -67,8 +67,18 @@ local-first Code-OSS-compatible Hawk security workspace.
 - Approval-aware Docker orchestration in `hawk-ide-mcp`: background task
   graphs, up to 32 bounded parallel workers, dependency scheduling, retries,
   timeouts, cancellation, capped logs, per-task artifacts, restart history,
-  live-container reattachment, and optional explicitly approved
-  network/credential access.
+  live-container reattachment, immutable local image identities, non-root
+  workers, global CPU/RAM governance, artifact disk quotas, workspace-scoped
+  orphan cleanup, and optional explicitly approved network/credential access.
+- Governed mission planning directly in Mission Control. Review, remediation,
+  and authorized-validation profiles compile Smart MCP-compatible goals,
+  policy decisions, model-routed DAGs, budgets, and exact plan hashes without
+  approving or executing them.
+- Three approval-gated scan templates for passive workspace review, captured
+  runtime observation, and offline release gates. Each plan declares its
+  network policy, request ceiling, checks, and deterministic approval hash.
+- A sanitized evidence builder that exports Markdown, portable HTML, JSON,
+  SARIF, and a SHA-256 manifest under `.hawk/reports/`.
 - Existing Hawk CLI, permissions, sessions, browser/Burp bridge, and
   evidence-backed findings workflow.
 - A pinned cross-platform desktop release pipeline for Windows EXE/MSI and
@@ -95,6 +105,8 @@ approved passive workspace scan, sync a health report, and compose a
 workspace-aware native AI task without opening a separate agent terminal.
 Run **Hawk: Pair Browser / Burp Capture** to copy the short-lived loopback URL
 and token used by either capture companion.
+Use **Hawk: Plan Governed Smart MCP Mission** to inspect a security DAG before
+approval, and **Hawk: Build Sanitized Evidence Pack** for portable reports.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -155,13 +167,15 @@ accepts a GitHub App private key, installation token, raw alert payload,
 source code, or pull-request body. This is a file-contract integration only:
 no GPL-3.0 Hawk code is included here.
 
-## Approved passive workspace scan
+## Governed scans and evidence
 
-**Run approved workspace scan** displays its exact plan and requires a modal
-approval. Its scope is deliberately limited to local source text, the local
-route index, and already-imported metadata. It never starts project code,
-contacts a target, replays HAR traffic, or attempts exploitation. The result
-is written to `.hawk/reports/` and every signal still needs manual validation.
+**Run governed scan** first asks for a passive-workspace, runtime-observe, or
+release-gate template. Hawk displays the exact network policy, request ceiling,
+checks, and plan hash before a modal approval. These templates never start
+project code, contact a target, replay traffic, or attempt exploitation. The
+evidence builder uses the same local boundary and writes Markdown, HTML, JSON,
+SARIF, and SHA-256 metadata under `.hawk/reports/`. Every static signal still
+needs manual validation.
 
 ## Roadmap
 

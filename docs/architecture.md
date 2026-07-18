@@ -11,20 +11,23 @@ The current local-first slice provides:
 1. Index routes from a workspace without executing project code.
 2. Run passive static-audit rules and retest the same source location after a
    change. Audit signals are not vulnerability confirmations.
-3. Expose inventory, audit results, and a redacted HAR traffic inventory from a
-   token-gated loopback daemon.
+3. Expose inventory, audit results, and a merged redacted HAR/Browser/Burp
+   traffic inventory from a token-gated loopback daemon.
 4. Connect the Code-OSS-compatible dashboard without exposing the daemon token
    to the webview.
 5. Import a separate Hawk GitHub App `health.json` into a sanitized local
    supply-chain summary: SBOM, governance, dependency, and security-SLA risk.
-6. Offer an approved passive workspace scan with an explicit plan, modal
-   confirmation, and a local Markdown report.
+6. Offer three approval-hash-bound scan templates plus sanitized Markdown,
+   HTML, JSON, SARIF, and SHA-256 evidence packs.
 7. Offer a native Hawk AI workbench with durable streaming sessions, isolated
    git worktrees, exact diff review, approved test gates, hash-bound Apply,
    Reject, and drift-safe Revert.
 8. Offer a Smart MCP server with structured passive context, governed plans,
    durable native tasks, ProofGraph evidence, verification, security
    inspection, and explicit controls for higher-risk isolated workers.
+9. Compile review, remediation, and authorized-validation missions from the
+   desktop into persisted Smart MCP goals, DAGs, and policy decisions without
+   silently approving or executing them.
 
 ## Runtime layout
 
@@ -57,9 +60,11 @@ process-scoped token; webview UI code never receives this token. Hawk report
 import contains no GitHub credential and persists only a sanitized summary
 under `.hawk/health.json`. Optional GitHub sync is restricted to GitHub raw
 and Contents API URLs; its optional token is held in VS Code SecretStorage,
-never in settings, the webview, or the daemon. HAR import
-has a bounded body size and stores only a redacted request inventory, not
-cookies, authorization headers, or request/response bodies.
+never in settings, the webview, or the daemon. HAR import has a bounded body
+size and stores only a redacted request inventory, not cookies, authorization
+headers, or request/response bodies. Live companions are disabled by default,
+use a separate loopback pairing token, enforce explicit scope/rate limits, and
+retain sensitive bodies only when the operator separately enables that option.
 
 ## ProofGraph
 

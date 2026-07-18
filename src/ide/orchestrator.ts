@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, readdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -11,6 +11,10 @@ const execFileAsync = promisify(execFile);
 const MAX_TASKS = 64;
 const MAX_PARALLEL = 32;
 const MAX_OUTPUT_BYTES = 256 * 1024;
+const MAX_GLOBAL_CPU = 64;
+const MAX_GLOBAL_MEMORY_MB = 64 * 1024;
+const MIN_ARTIFACT_MB = 32;
+const MAX_ARTIFACT_MB = 4 * 1024;
 
 export type OrchestrationStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type OrchestrationTaskStatus =
@@ -36,6 +40,7 @@ export interface OrchestrationSpec {
   maxParallel?: number;
   cpuPerWorker?: number;
   memoryMbPerWorker?: number;
+  artifactMbPerWorker?: number;
   networkMode?: 'none' | 'bridge';
   inheritEnv?: string[];
   approvedExternalAccess?: boolean;
@@ -66,7 +71,9 @@ export interface OrchestrationSnapshot {
   maxParallel: number;
   cpuPerWorker: number;
   memoryMbPerWorker: number;
+  artifactMbPerWorker: number;
   networkMode: 'none' | 'bridge';
+  resolvedImage?: string;
   inheritedEnv: string[];
   createdAt: string;
   startedAt?: string;
@@ -91,6 +98,7 @@ export interface WorkerTaskContext {
   image: string;
   cpu: number;
   memoryMb: number;
+  artifactMb: number;
   networkMode: 'none' | 'bridge';
   inheritEnv: string[];
   task: OrchestrationTaskSpec;
@@ -107,9 +115,11 @@ export interface WorkerTaskResult {
 
 export interface WorkerRuntime {
   availability(): Promise<{ available: boolean; version?: string; error?: string }>;
+  resolveImage?(image: string): Promise<string>;
   run(context: WorkerTaskContext): Promise<WorkerTaskResult>;
   recover?(context: WorkerTaskContext): Promise<WorkerTaskResult | undefined>;
   cancel(runId: string, taskId: string): Promise<void>;
+  cleanupOrphans?(workspaceRoot: string, activeWorkers: Set<string>): Promise<void>;
 }
 
 interface InternalTask extends OrchestrationTaskSnapshot {
@@ -127,6 +137,9 @@ interface InternalRun {
 export class HawkDockerOrchestrator {
   private readonly runs = new Map<string, InternalRun>();
   private readonly outputBase: string;
+  private activeWorkers = 0;
+  private activeCpu = 0;
+  private activeMemoryMb = 0;
 
   constructor(
     private readonly workspaceRoot: string,
@@ -171,7 +184,11 @@ export class HawkDockerOrchestrator {
         }
         const { summary: _summary, tasks: _tasks, ...runSnapshot } = snapshot;
         const run: InternalRun = {
-          snapshot: runSnapshot,
+          snapshot: {
+            ...runSnapshot,
+            artifactMbPerWorker: snapshot.artifactMbPerWorker ?? normalized.artifactMbPerWorker,
+            resolvedImage: snapshot.resolvedImage ?? snapshot.image,
+          },
           tasks,
           active: new Map(),
           persisting: Promise.resolve(),
@@ -181,8 +198,10 @@ export class HawkDockerOrchestrator {
         if (isTerminalRun(snapshot.status)) continue;
         for (const task of tasks.values()) {
           if (task.status !== 'running') continue;
+          this.reserveWorker(run);
           const recovery = this.recoverTask(run, task).finally(() => {
             run.active.delete(task.id);
+            this.releaseWorker(run);
           });
           run.active.set(task.id, recovery);
         }
@@ -191,6 +210,14 @@ export class HawkDockerOrchestrator {
         // A corrupt or obsolete run remains on disk for operator inspection but is never executed.
       }
     }
+    const activeWorkers = new Set(
+      [...this.runs.values()].flatMap((run) =>
+        [...run.tasks.values()]
+          .filter((task) => task.status === 'running')
+          .map((task) => containerNameFor(run.snapshot.id, task.id)),
+      ),
+    );
+    await this.runtime.cleanupOrphans?.(this.workspaceRoot, activeWorkers).catch(() => undefined);
   }
 
   async start(spec: OrchestrationSpec): Promise<OrchestrationSnapshot> {
@@ -201,6 +228,9 @@ export class HawkDockerOrchestrator {
         `Docker worker runtime is unavailable: ${availability.error ?? 'start Docker Desktop or the Docker daemon'}`,
       );
     }
+    const resolvedImage = this.runtime.resolveImage
+      ? await this.runtime.resolveImage(normalized.image)
+      : normalized.image;
     const id = `run-${randomUUID()}`;
     const outputRoot = join(this.outputBase, id);
     await mkdir(outputRoot, { recursive: true });
@@ -228,7 +258,9 @@ export class HawkDockerOrchestrator {
         maxParallel: normalized.maxParallel,
         cpuPerWorker: normalized.cpuPerWorker,
         memoryMbPerWorker: normalized.memoryMbPerWorker,
+        artifactMbPerWorker: normalized.artifactMbPerWorker,
         networkMode: normalized.networkMode,
+        resolvedImage,
         inheritedEnv: normalized.inheritEnv,
         createdAt,
         cancelRequested: false,
@@ -315,17 +347,27 @@ export class HawkDockerOrchestrator {
           task.status === 'pending' &&
           task.dependsOn.every((dependency) => run.tasks.get(dependency)?.status === 'succeeded'),
       );
-      while (ready.length > 0 && run.active.size < run.snapshot.maxParallel) {
+      while (
+        ready.length > 0 &&
+        run.active.size < run.snapshot.maxParallel &&
+        this.canReserveWorker(run)
+      ) {
         const task = ready.shift();
         if (!task) break;
+        this.reserveWorker(run);
         const execution = this.executeTask(run, task).finally(() => {
           run.active.delete(task.id);
+          this.releaseWorker(run);
         });
         run.active.set(task.id, execution);
       }
 
       const pending = [...run.tasks.values()].filter((task) => task.status === 'pending');
       if (run.active.size === 0) {
+        if (ready.length > 0 && !this.canReserveWorker(run)) {
+          await resourceDelay();
+          continue;
+        }
         if (pending.length > 0) {
           for (const task of pending) {
             task.status = 'skipped';
@@ -346,6 +388,26 @@ export class HawkDockerOrchestrator {
     await this.persist(run);
   }
 
+  private canReserveWorker(run: InternalRun): boolean {
+    return (
+      this.activeWorkers < MAX_PARALLEL &&
+      this.activeCpu + run.snapshot.cpuPerWorker <= MAX_GLOBAL_CPU &&
+      this.activeMemoryMb + run.snapshot.memoryMbPerWorker <= MAX_GLOBAL_MEMORY_MB
+    );
+  }
+
+  private reserveWorker(run: InternalRun): void {
+    this.activeWorkers += 1;
+    this.activeCpu += run.snapshot.cpuPerWorker;
+    this.activeMemoryMb += run.snapshot.memoryMbPerWorker;
+  }
+
+  private releaseWorker(run: InternalRun): void {
+    this.activeWorkers = Math.max(0, this.activeWorkers - 1);
+    this.activeCpu = Math.max(0, this.activeCpu - run.snapshot.cpuPerWorker);
+    this.activeMemoryMb = Math.max(0, this.activeMemoryMb - run.snapshot.memoryMbPerWorker);
+  }
+
   private async executeTask(run: InternalRun, task: InternalTask): Promise<void> {
     task.status = 'running';
     task.startedAt ??= this.now().toISOString();
@@ -357,9 +419,10 @@ export class HawkDockerOrchestrator {
       runId: run.snapshot.id,
       workspaceRoot: this.workspaceRoot,
       outputDirectory: task.artifactDirectory,
-      image: run.snapshot.image,
+      image: run.snapshot.resolvedImage ?? run.snapshot.image,
       cpu: run.snapshot.cpuPerWorker,
       memoryMb: run.snapshot.memoryMbPerWorker,
+      artifactMb: run.snapshot.artifactMbPerWorker,
       networkMode: run.snapshot.networkMode,
       inheritEnv: run.snapshot.inheritedEnv,
       task: task.spec,
@@ -399,9 +462,10 @@ export class HawkDockerOrchestrator {
       runId: run.snapshot.id,
       workspaceRoot: this.workspaceRoot,
       outputDirectory: task.artifactDirectory,
-      image: run.snapshot.image,
+      image: run.snapshot.resolvedImage ?? run.snapshot.image,
       cpu: run.snapshot.cpuPerWorker,
       memoryMb: run.snapshot.memoryMbPerWorker,
+      artifactMb: run.snapshot.artifactMbPerWorker,
       networkMode: run.snapshot.networkMode,
       inheritEnv: run.snapshot.inheritedEnv,
       task: task.spec,
@@ -494,6 +558,29 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     }
   }
 
+  async resolveImage(image: string): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync(
+        'docker',
+        ['image', 'inspect', '--format', '{{.Id}}', image],
+        {
+          encoding: 'utf8',
+          timeout: 10_000,
+          windowsHide: true,
+        },
+      );
+      const identity = stdout.trim();
+      if (!/^sha256:[a-f0-9]{64}$/.test(identity)) {
+        throw new Error('Docker returned an invalid image identity');
+      }
+      return identity;
+    } catch (error) {
+      throw new Error(
+        `Hawk requires an existing local Docker image and never pulls implicitly: ${errorMessage(error)}`,
+      );
+    }
+  }
+
   async run(context: WorkerTaskContext): Promise<WorkerTaskResult> {
     const containerName = containerNameFor(context.runId, context.task.id);
     const timeoutSeconds = context.task.timeoutSeconds ?? 3600;
@@ -506,9 +593,15 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       `hawk.run=${context.runId}`,
       '--label',
       `hawk.task=${context.task.id}`,
+      '--label',
+      'hawk.managed=true',
+      '--label',
+      `hawk.workspace=${workspaceLabel(context.workspaceRoot)}`,
       '--network',
       context.networkMode,
       '--read-only',
+      '--user',
+      '65532:65532',
       '--cap-drop',
       'ALL',
       '--security-opt',
@@ -519,12 +612,14 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       String(context.cpu),
       '--memory',
       `${context.memoryMb}m`,
+      '--ulimit',
+      'nofile=1024:1024',
       '--tmpfs',
-      '/tmp:rw,noexec,nosuid,size=128m',
+      '/tmp:rw,noexec,nosuid,size=128m,uid=65532,gid=65532,mode=0700',
+      '--tmpfs',
+      `/output:rw,noexec,nosuid,size=${context.artifactMb}m,uid=65532,gid=65532,mode=0700`,
       '--mount',
       `type=bind,source=${context.workspaceRoot},target=/workspace,readonly`,
-      '--mount',
-      `type=bind,source=${context.outputDirectory},target=/output`,
       '--workdir',
       '/workspace',
       '--env',
@@ -588,15 +683,20 @@ export class DockerWorkerRuntime implements WorkerRuntime {
         });
       });
       child.once('close', (code) => {
-        void this.removeContainer(containerName).finally(() => {
-          finish({
-            exitCode: code ?? -1,
-            output: '',
-            outputTruncated,
-            timedOut,
-            cancelled: false,
+        void this.copyArtifacts(containerName, context.outputDirectory)
+          .then(() => undefined)
+          .catch((error) => `Hawk could not collect worker artifacts: ${errorMessage(error)}`)
+          .then(async (artifactError) => {
+            await this.removeContainer(containerName);
+            finish({
+              exitCode: artifactError ? -1 : (code ?? -1),
+              output: '',
+              outputTruncated,
+              timedOut,
+              cancelled: false,
+              ...(artifactError ? { error: artifactError } : {}),
+            });
           });
-        });
       });
     });
   }
@@ -645,6 +745,12 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       output = `Hawk could not recover complete worker logs: ${errorMessage(error)}`;
       outputTruncated = true;
     }
+    try {
+      await this.copyArtifacts(containerName, context.outputDirectory);
+    } catch (error) {
+      exitCode = -1;
+      output = `${output}\nHawk could not collect worker artifacts: ${errorMessage(error)}`.trim();
+    }
     await this.removeContainer(containerName);
     return {
       exitCode,
@@ -666,6 +772,45 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     } catch {
       // The worker may have completed between status inspection and cancellation.
     }
+  }
+
+  async cleanupOrphans(workspaceRoot: string, activeWorkers: Set<string>): Promise<void> {
+    try {
+      const { stdout } = await execFileAsync(
+        'docker',
+        [
+          'ps',
+          '--all',
+          '--filter',
+          'label=hawk.managed=true',
+          '--filter',
+          `label=hawk.workspace=${workspaceLabel(workspaceRoot)}`,
+          '--format',
+          '{{.Names}}',
+        ],
+        {
+          encoding: 'utf8',
+          timeout: 10_000,
+          windowsHide: true,
+        },
+      );
+      const orphans = stdout
+        .split(/\r?\n/)
+        .map((name) => name.trim())
+        .filter((name) => name.startsWith('hawk-') && !activeWorkers.has(name));
+      await Promise.all(orphans.map((name) => this.removeContainer(name)));
+    } catch {
+      // Docker may be offline during startup. A later initialization reconciles retained workers.
+    }
+  }
+
+  private async copyArtifacts(containerName: string, outputDirectory: string): Promise<void> {
+    await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
+    await execFileAsync('docker', ['cp', `${containerName}:/output/.`, outputDirectory], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      windowsHide: true,
+    });
   }
 
   private async removeContainer(containerName: string): Promise<void> {
@@ -691,6 +836,7 @@ function normalizeSpec(
     | 'maxParallel'
     | 'cpuPerWorker'
     | 'memoryMbPerWorker'
+    | 'artifactMbPerWorker'
     | 'networkMode'
     | 'inheritEnv'
     | 'approvedExternalAccess'
@@ -739,6 +885,22 @@ function normalizeSpec(
   const memoryMbPerWorker = spec.memoryMbPerWorker ?? 1024;
   if (!Number.isInteger(memoryMbPerWorker) || memoryMbPerWorker < 128 || memoryMbPerWorker > 16_384)
     throw new Error('memoryMbPerWorker must be between 128 and 16384');
+  const artifactMbPerWorker = spec.artifactMbPerWorker ?? 512;
+  if (
+    !Number.isInteger(artifactMbPerWorker) ||
+    artifactMbPerWorker < MIN_ARTIFACT_MB ||
+    artifactMbPerWorker > MAX_ARTIFACT_MB
+  ) {
+    throw new Error(
+      `artifactMbPerWorker must be between ${MIN_ARTIFACT_MB} and ${MAX_ARTIFACT_MB}`,
+    );
+  }
+  if (maxParallel * cpuPerWorker > MAX_GLOBAL_CPU) {
+    throw new Error(`Parallel CPU reservation cannot exceed ${MAX_GLOBAL_CPU} cores`);
+  }
+  if (maxParallel * memoryMbPerWorker > MAX_GLOBAL_MEMORY_MB) {
+    throw new Error(`Parallel memory reservation cannot exceed ${MAX_GLOBAL_MEMORY_MB} MB`);
+  }
   const networkMode = spec.networkMode ?? 'none';
   if (networkMode !== 'none' && networkMode !== 'bridge')
     throw new Error('networkMode must be none or bridge');
@@ -768,6 +930,7 @@ function normalizeSpec(
     maxParallel,
     cpuPerWorker,
     memoryMbPerWorker,
+    artifactMbPerWorker,
     networkMode,
     inheritEnv,
     approvedExternalAccess,
@@ -796,6 +959,16 @@ function snapshotOf(run: InternalRun): OrchestrationSnapshot {
 function containerNameFor(runId: string, taskId: string): string {
   const safe = `hawk-${runId.slice(4, 12)}-${taskId}`.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
   return safe.slice(0, 63);
+}
+
+function workspaceLabel(workspaceRoot: string): string {
+  return createHash('sha256').update(resolve(workspaceRoot)).digest('hex').slice(0, 24);
+}
+
+async function resourceDelay(): Promise<void> {
+  await new Promise<void>((resolveDelay) => {
+    setTimeout(resolveDelay, 25);
+  });
 }
 
 function isSafeImageName(value: string): boolean {

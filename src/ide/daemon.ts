@@ -6,9 +6,14 @@ import { startIngestServer } from '../browser/server.js';
 import { CaptureStore } from '../browser/store.js';
 import type { AiApplyRequest, AiCreateSessionRequest, AiRunTestsRequest } from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
+import { buildEvidencePack } from './evidenceReport.js';
+import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import {
   type DaemonHealth,
+  type EvidencePackReport,
+  type GovernedMissionPlan,
+  type GovernedMissionProfile,
   type HawkHealthReport,
   IDE_PROTOCOL_VERSION,
   type RetestResult,
@@ -17,11 +22,17 @@ import {
   type WorkspaceInventory,
   type WorkspaceScanPlan,
   type WorkspaceScanReport,
+  type WorkspaceScanTemplateId,
+  type WorkspaceScanTemplatesResponse,
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import { importHarTraffic, importLiveTraffic, mergeTrafficInventories } from './traffic.js';
-import { createWorkspaceScanPlan, runApprovedWorkspaceScan } from './workspaceScan.js';
+import {
+  createWorkspaceScanPlan,
+  createWorkspaceScanTemplates,
+  runApprovedWorkspaceScan,
+} from './workspaceScan.js';
 
 const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
 
@@ -398,9 +409,29 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/scans/templates') {
+    const response: WorkspaceScanTemplatesResponse = {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      templates: createWorkspaceScanTemplates(),
+    };
+    sendJSON(res, 200, response);
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/scans/plan') {
-    const plan: WorkspaceScanPlan = createWorkspaceScanPlan(context.workspaceRoot, context.now());
-    sendJSON(res, 200, plan);
+    try {
+      const templateId = parseTemplateId(
+        requestURL.searchParams.get('templateId') ?? 'passive-workspace',
+      );
+      const plan: WorkspaceScanPlan = createWorkspaceScanPlan(
+        context.workspaceRoot,
+        templateId,
+        context.now(),
+      );
+      sendJSON(res, 200, plan);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
     return;
   }
 
@@ -409,7 +440,8 @@ async function handleRequest(
       const input = parseScanRequest(await readBody(req));
       const report: WorkspaceScanReport = await runApprovedWorkspaceScan({
         workspaceRoot: context.workspaceRoot,
-        scope: input.scope,
+        templateId: input.templateId,
+        approvalHash: input.approvalHash,
         approved: input.approved,
         traffic: context.traffic(),
         hawkHealth: context.hawkHealth(),
@@ -417,6 +449,40 @@ async function handleRequest(
       });
       context.setFindings(report.findings);
       sendJSON(res, 200, report);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/reports/evidence') {
+    try {
+      const input = parseEvidencePackRequest(await readBody(req));
+      const report: EvidencePackReport = await buildEvidencePack({
+        workspaceRoot: context.workspaceRoot,
+        approved: input.approved,
+        traffic: context.traffic(),
+        hawkHealth: context.hawkHealth(),
+        now: context.now(),
+      });
+      sendJSON(res, 200, report);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/missions/plan') {
+    try {
+      const input = parseMissionRequest(await readBody(req));
+      const mission: GovernedMissionPlan = await createGovernedMission({
+        workspaceRoot: context.workspaceRoot,
+        objective: input.objective,
+        profile: input.profile,
+        hosts: input.hosts,
+        now: context.now(),
+      });
+      sendJSON(res, 200, mission);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -535,7 +601,11 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function parseScanRequest(body: Buffer): { approved: boolean; scope: string } {
+function parseScanRequest(body: Buffer): {
+  approved: boolean;
+  templateId: WorkspaceScanTemplateId;
+  approvalHash: string;
+} {
   let value: unknown;
   try {
     value = JSON.parse(body.toString('utf8'));
@@ -546,8 +616,62 @@ function parseScanRequest(body: Buffer): { approved: boolean; scope: string } {
   const request = value as Record<string, unknown>;
   if (request.approved !== true)
     throw new Error('operator approval is required for a workspace scan');
-  if (request.scope !== 'passive-workspace') throw new Error('unsupported scan scope');
-  return { approved: true, scope: request.scope };
+  if (typeof request.templateId !== 'string') throw new Error('scan template id is required');
+  if (typeof request.approvalHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.approvalHash)) {
+    throw new Error('a valid scan approval hash is required');
+  }
+  return {
+    approved: true,
+    templateId: parseTemplateId(request.templateId),
+    approvalHash: request.approvalHash,
+  };
+}
+
+function parseEvidencePackRequest(body: Buffer): { approved: true } {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (request.approved !== true) {
+    throw new Error('operator approval is required to build an evidence pack');
+  }
+  return { approved: true };
+}
+
+function parseMissionRequest(body: Buffer): {
+  objective: string;
+  profile: GovernedMissionProfile;
+  hosts: string[];
+} {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (typeof request.objective !== 'string' || !request.objective.trim()) {
+    throw new Error('mission objective is required');
+  }
+  if (request.objective.length > 1_000) throw new Error('mission objective is too long');
+  if (
+    request.profile !== 'review' &&
+    request.profile !== 'remediate' &&
+    request.profile !== 'authorized-validation'
+  ) {
+    throw new Error('unsupported mission profile');
+  }
+  const hosts = request.hosts ?? [];
+  if (
+    !Array.isArray(hosts) ||
+    hosts.length > 128 ||
+    !hosts.every((host) => typeof host === 'string' && host.length <= 2_048)
+  ) {
+    throw new Error('mission hosts must be a bounded string list');
+  }
+  return {
+    objective: request.objective.trim(),
+    profile: request.profile,
+    hosts: hosts as string[],
+  };
+}
+
+function parseTemplateId(value: string): WorkspaceScanTemplateId {
+  if (value !== 'passive-workspace' && value !== 'runtime-observe' && value !== 'release-gate') {
+    throw new Error('unsupported scan template');
+  }
+  return value;
 }
 
 function parseJSONBody<T>(body: Buffer): T {

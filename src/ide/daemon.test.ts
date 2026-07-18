@@ -25,7 +25,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 4 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 5 });
 
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);
@@ -133,25 +133,84 @@ describe('startIdeDaemon', () => {
         status: 200,
       });
 
-      const scanPlan = await fetch(`${daemon.url}/v1/scans/plan`, { headers });
+      const scanTemplates = await fetch(`${daemon.url}/v1/scans/templates`, { headers });
+      expect(scanTemplates.status).toBe(200);
+      await expect(scanTemplates.json()).resolves.toMatchObject({
+        templates: [
+          expect.objectContaining({ id: 'passive-workspace' }),
+          expect.objectContaining({ id: 'runtime-observe' }),
+          expect.objectContaining({ id: 'release-gate' }),
+        ],
+      });
+      const scanPlan = await fetch(`${daemon.url}/v1/scans/plan?templateId=passive-workspace`, {
+        headers,
+      });
       expect(scanPlan.status).toBe(200);
-      const plan = (await scanPlan.json()) as { scope: string; requiresApproval: boolean };
-      expect(plan).toMatchObject({ scope: 'passive-workspace', requiresApproval: true });
+      const plan = (await scanPlan.json()) as {
+        templateId: string;
+        approvalHash: string;
+        requiresApproval: boolean;
+      };
+      expect(plan).toMatchObject({
+        templateId: 'passive-workspace',
+        requiresApproval: true,
+        approvalHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
       const rejectedScan = await fetch(`${daemon.url}/v1/scans/run`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved: false, scope: plan.scope }),
+        body: JSON.stringify({
+          approved: false,
+          templateId: plan.templateId,
+          approvalHash: plan.approvalHash,
+        }),
       });
       expect(rejectedScan.status).toBe(400);
       const completedScan = await fetch(`${daemon.url}/v1/scans/run`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved: true, scope: plan.scope }),
+        body: JSON.stringify({
+          approved: true,
+          templateId: plan.templateId,
+          approvalHash: plan.approvalHash,
+        }),
       });
       expect(completedScan.status).toBe(200);
       await expect(completedScan.json()).resolves.toMatchObject({
         scope: 'passive-workspace',
         reportPath: expect.stringMatching(/^\.hawk\/reports\//),
+      });
+      const evidence = await fetch(`${daemon.url}/v1/reports/evidence`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: true }),
+      });
+      expect(evidence.status).toBe(200);
+      await expect(evidence.json()).resolves.toMatchObject({
+        status: 'completed',
+        primaryReportPath: expect.stringMatching(/^\.hawk\/reports\/evidence-.+\/report\.md$/),
+        artifacts: expect.arrayContaining([
+          expect.objectContaining({
+            format: 'sarif',
+            sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          }),
+        ]),
+      });
+      const mission = await fetch(`${daemon.url}/v1/missions/plan`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          objective: 'Review authentication routes and preserve evidence',
+          profile: 'review',
+          hosts: [],
+        }),
+      });
+      expect(mission.status).toBe(200);
+      await expect(mission.json()).resolves.toMatchObject({
+        profile: 'review',
+        allowedActions: ['read-workspace'],
+        planHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        reportPath: expect.stringMatching(/^\.hawk\/plans\/plan-.+\.md$/),
       });
     } finally {
       await daemon.close();

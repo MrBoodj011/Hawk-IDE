@@ -88,6 +88,55 @@ describe('HawkDockerOrchestrator', () => {
         tasks: [{ id: '../escape', title: 'Invalid', command: ['scan'] }],
       }),
     ).rejects.toThrow('Invalid task id');
+    await expect(
+      orchestrator.start({
+        image: 'hawk-worker:test',
+        maxParallel: 32,
+        cpuPerWorker: 8,
+        tasks: [{ id: 'valid', title: 'Too much CPU', command: ['scan'] }],
+      }),
+    ).rejects.toThrow('CPU reservation');
+    await expect(
+      orchestrator.start({
+        image: 'hawk-worker:test',
+        artifactMbPerWorker: 8,
+        tasks: [{ id: 'valid', title: 'Tiny output quota', command: ['scan'] }],
+      }),
+    ).rejects.toThrow('artifactMbPerWorker');
+  });
+
+  it('governs resources across concurrent runs and pins the resolved image identity', async () => {
+    const root = await temporaryWorkspace();
+    const runtime = new ResolvingRuntime();
+    const orchestrator = new HawkDockerOrchestrator(root, runtime);
+    const tasks = Array.from({ length: 4 }, (_, index) => ({
+      id: `task-${index}`,
+      title: `Task ${index}`,
+      command: ['scan'],
+    }));
+    const first = await orchestrator.start({
+      image: 'hawk-worker:mutable',
+      maxParallel: 4,
+      memoryMbPerWorker: 16_384,
+      tasks,
+    });
+    const second = await orchestrator.start({
+      image: 'hawk-worker:mutable',
+      maxParallel: 4,
+      memoryMbPerWorker: 16_384,
+      tasks,
+    });
+    await Promise.all([
+      waitForTerminal(orchestrator, first.id),
+      waitForTerminal(orchestrator, second.id),
+    ]);
+    expect(runtime.maxActive).toBeLessThanOrEqual(4);
+    expect(runtime.images).toEqual(expect.arrayContaining([`sha256:${'a'.repeat(64)}`]));
+    expect(orchestrator.get(first.id)).toMatchObject({
+      image: 'hawk-worker:mutable',
+      resolvedImage: `sha256:${'a'.repeat(64)}`,
+      artifactMbPerWorker: 512,
+    });
   });
 
   it('restores history and reattaches a running worker after an MCP restart', async () => {
@@ -108,6 +157,8 @@ describe('HawkDockerOrchestrator', () => {
     expect(completed.tasks[0]).toMatchObject({ id: 'long-task', status: 'succeeded' });
     expect(recoveryRuntime.recovered).toEqual(['long-task']);
     expect(recoveryRuntime.started).toEqual([]);
+    expect(recoveryRuntime.cleanupCalls).toHaveLength(1);
+    expect([...(recoveryRuntime.cleanupCalls[0] ?? [])]).toEqual([expect.stringMatching(/^hawk-/)]);
   });
 });
 
@@ -155,6 +206,7 @@ class HangingRuntime implements WorkerRuntime {
 
 class RecoveryRuntime extends FakeRuntime {
   readonly recovered: string[] = [];
+  readonly cleanupCalls: Array<Set<string>> = [];
 
   override async recover(context: WorkerTaskContext): Promise<WorkerTaskResult> {
     this.recovered.push(context.task.id);
@@ -165,6 +217,23 @@ class RecoveryRuntime extends FakeRuntime {
       timedOut: false,
       cancelled: false,
     };
+  }
+
+  async cleanupOrphans(_workspaceRoot: string, activeWorkers: Set<string>): Promise<void> {
+    this.cleanupCalls.push(new Set(activeWorkers));
+  }
+}
+
+class ResolvingRuntime extends FakeRuntime {
+  readonly images: string[] = [];
+
+  async resolveImage(): Promise<string> {
+    return `sha256:${'a'.repeat(64)}`;
+  }
+
+  override async run(context: WorkerTaskContext): Promise<WorkerTaskResult> {
+    this.images.push(context.image);
+    return await super.run(context);
   }
 }
 

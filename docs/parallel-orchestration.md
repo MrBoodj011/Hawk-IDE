@@ -13,12 +13,16 @@ operation merely by starting ten identical containers.
 
 Every worker:
 
-- uses an image that already exists locally (`--pull=never`);
+- uses an image that already exists locally (`--pull=never`) and resolves its
+  tag to an immutable `sha256:` identity before scheduling;
 - gets the workspace mounted read-only at `/workspace`;
-- gets a unique writable artifact directory at `/output`;
+- gets a unique quota-limited tmpfs at `/output`; Hawk copies it into the
+  durable per-task artifact directory only after the worker stops;
 - runs with a read-only root filesystem, all Linux capabilities dropped,
-  `no-new-privileges`, and a 256-process limit;
-- receives explicit CPU, memory, retry, and timeout limits;
+  `no-new-privileges`, a non-root UID/GID, a 256-process limit, and a bounded
+  open-file limit;
+- receives explicit CPU, memory, artifact, retry, and timeout limits, plus
+  global CPU/RAM/worker ceilings shared across concurrent runs;
 - has no network by default; and
 - is explicitly removed by Hawk after its exit code and capped logs are
   collected. A retained container can be reattached after an MCP restart.
@@ -74,6 +78,7 @@ Example arguments for `hawk_parallel_start`:
   "max_parallel": 4,
   "cpu_per_worker": 1,
   "memory_mb_per_worker": 1024,
+  "artifact_mb_per_worker": 512,
   "tasks": [
     {
       "id": "auth-surface",
@@ -143,8 +148,10 @@ can contain up to 64 tasks with at most 32 active workers.
 Hawk atomically writes both a redacted `run.json` and a private `spec.json`. On MCP
 restart it restores run history and reattaches to a retained Docker container
 by its `hawk.run` and `hawk.task` identity. It waits for the original
-container, recovers its exit code and capped logs, then continues the
-dependency graph.
+container, recovers its exit code, capped logs, and quota-limited artifacts,
+then continues the dependency graph. Initialization also removes retained
+Hawk-managed containers that belong to this workspace but no longer map to an
+active durable task.
 
 If a running container disappeared before recovery, Hawk retries only when
 the task explicitly declared an available retry. Otherwise it fails the task

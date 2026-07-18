@@ -193,6 +193,8 @@ jobs:
       - name: Install Code-OSS dependencies
         working-directory: ${{ runner.temp }}/hawk-codeoss
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: npm install --no-audit --no-fund
 
       - name: Build Windows desktop

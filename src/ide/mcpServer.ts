@@ -357,6 +357,13 @@ async function main(): Promise<void> {
         max_parallel: z.number().int().min(1).max(32).optional(),
         cpu_per_worker: z.number().min(0.25).max(8).optional(),
         memory_mb_per_worker: z.number().int().min(128).max(16_384).optional(),
+        artifact_mb_per_worker: z
+          .number()
+          .int()
+          .min(32)
+          .max(4_096)
+          .optional()
+          .describe('Hard tmpfs ceiling for one worker artifact directory. Defaults to 512 MB.'),
         network_mode: z
           .enum(['none', 'bridge'])
           .optional()
@@ -393,6 +400,7 @@ async function main(): Promise<void> {
           maxParallel: input.max_parallel,
           cpuPerWorker: input.cpu_per_worker,
           memoryMbPerWorker: input.memory_mb_per_worker,
+          artifactMbPerWorker: input.artifact_mb_per_worker,
           networkMode: input.network_mode,
           inheritEnv: input.inherit_env,
           approvedExternalAccess: input.approved_external_access,
