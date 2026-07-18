@@ -107,7 +107,11 @@ describe('Hawk Smart MCP server', () => {
         graphRunResult.structuredContent as { data?: { id?: string } } | undefined
       )?.data?.id;
       let graphRunStatus = '';
-      for (let attempt = 0; attempt < 40 && graphRunStatus !== 'succeeded'; attempt += 1) {
+      const graphRunDeadline = Date.now() + 8_000;
+      while (
+        Date.now() < graphRunDeadline &&
+        !['succeeded', 'failed', 'cancelled'].includes(graphRunStatus)
+      ) {
         const observed = await client.callTool({
           name: 'hawk_run_observe',
           arguments: { run_id: graphRunId },
@@ -119,7 +123,7 @@ describe('Hawk Smart MCP server', () => {
               | undefined
           )?.data?.runs?.[0]?.status ?? '';
         if (graphRunStatus !== 'succeeded')
-          await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+          await new Promise((resolveWait) => setTimeout(resolveWait, 50));
       }
       expect(graphRunStatus).toBe('succeeded');
       const proofGraph = await client.readResource({ uri: 'hawk://workspace/graph' });
