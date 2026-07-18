@@ -18,6 +18,7 @@ license files.
 | Mission Control | Routes, signals, traffic, supply-chain posture, evidence, and MCP status | Signals are never auto-labelled as vulnerabilities |
 | Hawk AI | Streaming tasks, context, plans, history, diff preview, tests, Apply/Reject/Revert | File changes remain review-gated |
 | Hawk Coding Core | Inline completion, semantic code search, checkpoints, task terminals, parallel lanes, model fallback, benchmarks | Source stays local; paid routes are explicit BYOK configuration |
+| Hawk Local AI | Verified Ollama runtime bootstrap, hardware-aware coding model selection, model pull, health check, automatic loopback configuration | Official GitHub digest and Windows signer required; model download stays approval-gated |
 | Browser companion | Redacted Fetch/XHR/WebSocket and webRequest metadata | Disabled by default; explicit regex scope and rate limit |
 | Burp companion | Redacted proxy traffic sent to the local Hawk evidence plane | Burp scope by default; explicit pairing and bounded queue |
 | Smart MCP Brain | Typed goals, capability DAGs, model routing, exact-plan approval, durable runs | Scope, actions, budgets, and SHA-256 plan hashes are immutable contracts |
@@ -77,6 +78,20 @@ primary route emits streamed output, preventing duplicated partial answers.
 
 The coding benchmark measures index time, search p50/p95, recent Hawk Tab
 latency, heap/RSS, and fixed performance gates for large-repository tuning.
+
+## Hawk Local AI
+
+The Windows EXE installer offers the official Ollama runtime as a selected
+component without embedding its large binary into Hawk. The bootstrap resolves
+the latest `ollama/ollama` GitHub release, accepts only `OllamaSetup.exe` from
+the official release path, requires its published SHA-256 digest, validates the
+download size, and requires a valid Ollama Authenticode signer.
+
+On first run, Hawk detects the loopback API and installed models. If a model is
+still needed, the native picker recommends a Qwen coding model from system RAM,
+shows the approximate model size, and waits for explicit approval. Hawk then
+pulls the model with visible progress, configures the provider and base URL,
+and restarts the workspace daemon.
 
 ## Governed security workflows
 

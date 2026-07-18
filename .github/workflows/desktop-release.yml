@@ -275,31 +275,17 @@ jobs:
         working-directory: ${{ runner.temp }}/hawk-codeoss
         shell: pwsh
         run: |
-          $targets = @(
-            "vscode-win32-${{ matrix.arch }}-inno-updater",
-            "vscode-win32-${{ matrix.arch }}-system-setup"
-          )
-          foreach ($target in $targets) {
-            foreach ($attempt in 1..2) {
-              npm run gulp $target
-              if ($LASTEXITCODE -eq 0) { break }
-              if ($attempt -eq 2) { throw "$target failed after $attempt attempts." }
-              Write-Warning "$target failed on attempt $attempt; retrying."
-              Start-Sleep -Seconds 20
-            }
-          }
-          choco install wixtoolset --yes --no-progress
+          choco install nsis wixtoolset --yes --no-progress
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
           New-Item -ItemType Directory -Force $artifacts | Out-Null
           $portable = Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}"
           Compress-Archive -Path "$portable\*" `
             -DestinationPath "$artifacts\Hawk-windows-${{ matrix.arch }}-$env:HAWK_VERSION-portable.zip" `
             -CompressionLevel Optimal
-          $setup = Get-ChildItem '.build\win32-${{ matrix.arch }}\system-setup' `
-            -Filter *.exe | Sort-Object Length -Descending | Select-Object -First 1
-          if (!$setup) { throw 'The Hawk EXE installer was not produced.' }
-          Copy-Item -LiteralPath $setup.FullName `
-            -Destination "$artifacts\HawkSetup-windows-${{ matrix.arch }}-$env:HAWK_VERSION.exe"
+          & "$env:GITHUB_WORKSPACE\desktop\windows\package-installer.ps1" `
+            -SourceDir $portable `
+            -Version $env:HAWK_VERSION `
+            -Output "$artifacts\HawkSetup-windows-${{ matrix.arch }}-$env:HAWK_VERSION.exe"
           & "$env:GITHUB_WORKSPACE\desktop\windows\package-msi.ps1" `
             -SourceDir $portable `
             -Version $env:HAWK_VERSION `

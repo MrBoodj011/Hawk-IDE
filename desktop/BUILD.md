@@ -54,6 +54,14 @@ the workflow signs Hawk; otherwise it publishes an explicitly unsigned
 personal artifact. Releases are installed or updated manually from the
 private GitHub repository.
 
+The NSIS EXE includes a selected **Hawk Local AI runtime (Ollama)** component.
+It does not embed the roughly gigabyte-scale third-party runtime. Instead, the
+installer runs `desktop/windows/install-ollama.ps1`, which downloads only the
+latest official `ollama/ollama` Windows release, verifies its published
+SHA-256 digest and Authenticode signer, and performs the per-user installation.
+The coding model is chosen later inside Hawk so its additional disk usage is
+never accepted implicitly.
+
 For a personal Windows build outside GitHub Actions, the checked-in packaging
 scripts accept portable tool directories and do not require a machine-wide
 installation:
@@ -61,6 +69,6 @@ installation:
 ```powershell
 $env:HAWK_NSIS_BIN = 'C:\tools\nsis'
 $env:HAWK_WIX_BIN = 'C:\tools\wix314'
-.\desktop\windows\package-installer.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.0 -Output artifacts\HawkSetup-windows-x64-0.2.0.exe
-.\desktop\windows\package-msi.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.0 -Output artifacts\Hawk-windows-x64-0.2.0.msi
+.\desktop\windows\package-installer.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.1 -Output artifacts\HawkSetup-windows-x64-0.2.1.exe
+.\desktop\windows\package-msi.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.1 -Output artifacts\Hawk-windows-x64-0.2.1.msi
 ```

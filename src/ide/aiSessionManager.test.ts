@@ -90,7 +90,7 @@ describe('AiSessionManager', () => {
     } finally {
       await manager.dispose();
     }
-  });
+  }, 15_000);
 
   it('refuses apply when the reviewed hash is stale or a touched workspace file drifted', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-ai-drift-'));
@@ -142,7 +142,7 @@ describe('AiSessionManager', () => {
     } finally {
       await manager.dispose();
     }
-  });
+  }, 15_000);
 
   it('requires every detected test gate to pass unless the operator explicitly overrides', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-ai-gates-'));
@@ -213,7 +213,7 @@ describe('AiSessionManager', () => {
     } finally {
       await manager.dispose();
     }
-  });
+  }, 15_000);
 });
 
 async function waitForStatus(

@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory = $true)][string]$SourceDir,
   [Parameter(Mandatory = $true)][string]$Version,
   [Parameter(Mandatory = $true)][string]$Output,
-  [string]$NsisBin = $env:HAWK_NSIS_BIN
+  [string]$NsisBin = $env:HAWK_NSIS_BIN,
+  [string]$OllamaBootstrap = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +18,12 @@ if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)') {
   throw "Invalid installer version: $Version"
 }
 $numericVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+$bootstrapInput = if ($OllamaBootstrap) {
+  $OllamaBootstrap
+} else {
+  Join-Path $PSScriptRoot 'install-ollama.ps1'
+}
+$ollamaBootstrapPath = (Resolve-Path -LiteralPath $bootstrapInput).Path
 
 $makensis = @(
   if ($NsisBin) { Join-Path $NsisBin 'makensis.exe' }
@@ -43,6 +50,7 @@ SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
 !include "x64.nsh"
+!include "LogicLib.nsh"
 
 Name "Hawk Security IDE"
 OutFile "__OUTPUT__"
@@ -63,6 +71,7 @@ VIAddVersionKey /LANG=1033 "FileVersion" "__VERSION__"
 VIAddVersionKey /LANG=1033 "ProductVersion" "__VERSION__"
 
 !insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -71,6 +80,7 @@ VIAddVersionKey /LANG=1033 "ProductVersion" "__VERSION__"
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Hawk Security IDE" SEC_MAIN
+  SectionIn RO
   SetShellVarContext all
   SetOutPath "$INSTDIR"
   File /r "__SOURCE__\*.*"
@@ -86,6 +96,25 @@ Section "Hawk Security IDE" SEC_MAIN
   CreateShortcut "$SMPROGRAMS\Hawk Security IDE\Uninstall Hawk.lnk" "$INSTDIR\Uninstall Hawk.exe"
   CreateShortcut "$DESKTOP\Hawk Security IDE.lnk" "$INSTDIR\Hawk.exe"
 SectionEnd
+
+Section "Hawk Local AI runtime (Ollama)" SEC_OLLAMA
+  SetOutPath "$PLUGINSDIR"
+  File /oname=Hawk-Ollama-Bootstrap.ps1 "__OLLAMA_BOOTSTRAP__"
+  DetailPrint "Downloading and verifying the official Ollama runtime..."
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Hawk-Ollama-Bootstrap.ps1" -Quiet'
+  Pop $0
+  Delete "$PLUGINSDIR\Hawk-Ollama-Bootstrap.ps1"
+  ${If} $0 != 0
+    MessageBox MB_ICONEXCLAMATION|MB_OK "Hawk Security IDE installed successfully, but Ollama setup did not finish. Open Hawk and choose 'Set up local AI' to retry securely."
+  ${EndIf}
+SectionEnd
+
+LangString DESC_SEC_MAIN ${LANG_ENGLISH} "The complete Hawk Security IDE desktop application."
+LangString DESC_SEC_OLLAMA ${LANG_ENGLISH} "Recommended: install the official verified Ollama runtime for private local AI. The coding model is chosen inside Hawk."
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_MAIN} $(DESC_SEC_MAIN)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_OLLAMA} $(DESC_SEC_OLLAMA)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
   SetShellVarContext all
@@ -105,6 +134,7 @@ $script = $template.
   Replace('__SOURCE__', (& $escaped $source)).
   Replace('__OUTPUT__', (& $escaped $outputPath)).
   Replace('__ICON__', (& $escaped $icon)).
+  Replace('__OLLAMA_BOOTSTRAP__', (& $escaped $ollamaBootstrapPath)).
   Replace('__NUMERIC_VERSION__', $numericVersion).
   Replace('__VERSION__', $Version)
 [IO.File]::WriteAllText($scriptPath, $script, [Text.UTF8Encoding]::new($false))

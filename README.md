@@ -25,6 +25,10 @@ local-first Code-OSS-compatible Hawk security workspace.
   workspace indexing, natural-language code search, isolated task terminals,
   named patch checkpoints, three-lane parallel coding tournaments, explicit
   BYOK model fallbacks, and built-in latency/RAM benchmarks.
+- Hawk Local AI setup: the Windows installer can add the official Ollama
+  runtime, while the native first-run wizard verifies the release digest and
+  Windows signer, recommends a coding model from available RAM, downloads it
+  only after approval, configures the loopback provider, and restarts Hawk.
 - Exact patch review with a visual diff, SHA-256-bound Apply, Reject, approved
   typecheck/lint/test/build gates, workspace-drift detection, and Revert that
   refuses to overwrite any file changed after apply.

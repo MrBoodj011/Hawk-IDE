@@ -22,6 +22,16 @@ The native worker has no shell, browser, HTTP, or target-access tool. Sensitive
 file gates remain active, symlinks are resolved before access, and paths or
 glob patterns that escape the isolated root are rejected.
 
+## Local model bootstrap
+
+**Hawk: Set Up Local AI with Ollama** provides a Windows-native setup path for
+operators without an API provider. It detects the per-user Ollama install and
+loopback API, or downloads the latest official `OllamaSetup.exe` after checking
+its GitHub SHA-256 digest, bounded size, final download host, and Authenticode
+signer. The model picker is sized from local RAM and shows the approximate
+download before approval. A successful pull updates Hawk's provider, model,
+and `http://127.0.0.1:11434` base URL, then restarts the daemon.
+
 The real workspace is unchanged while the model works. At the end of a turn,
 Hawk stages only the isolated workspace changes, produces a bounded binary-safe
 patch, records its SHA-256 hash, and stores preimage hashes for every touched

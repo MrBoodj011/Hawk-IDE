@@ -46,6 +46,17 @@ All notable changes to this project are documented here. The format is based on
 - Closed out the internal code audit: 35 of 39 findings fixed, 3 accepted as
   intentional, 1 hardened (see `AUDIT.md`).
 
+## [0.2.1] - 2026-07-18
+
+### Added
+
+- **Verified Hawk Local AI setup** — the Windows EXE offers Ollama as a
+  selected component; the installer and native first-run wizard require the
+  official GitHub release path, bounded size, published SHA-256 digest, and
+  valid Ollama Windows signer. Hawk recommends a coding model from local RAM,
+  discloses its approximate size, pulls it only after approval, configures the
+  loopback provider, and restarts the workspace daemon.
+
 ## [0.2.0] - 2026-07-18
 
 Hardening, model tuning, and a transcript/status overhaul, plus Claude
