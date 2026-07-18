@@ -49,7 +49,8 @@ describe('prepare-code-oss', () => {
     );
     await writeFile(
       join(source, 'build', 'gulpfile.vscode.ts'),
-      "const deps = [\n  glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),\n];\n",
+      "const deps = [\n  glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),\n];\n" +
+        "function prepareCopilotRipgrepShimTask() {\n\t\tconst builtInCopilotExtensionDir = path.join(appBase, 'extensions', 'copilot');\n\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);\n}\n",
     );
     await writeFile(
       join(source, 'build', 'npm', 'dirs.ts'),
@@ -171,6 +172,9 @@ describe('prepare-code-oss', () => {
     );
     await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(
       "'**/vendor/audio-capture/*-darwin/**'",
+    );
+    await expect(readFile(join(out, 'build', 'gulpfile.vscode.ts'), 'utf8')).resolves.toContain(
+      'if (!fs.existsSync(builtInCopilotExtensionDir)) {\n\t\t\treturn;',
     );
     await expect(access(join(out, 'resources', 'win32', 'code.ico'))).resolves.toBeUndefined();
     await expect(access(join(out, 'resources', 'linux', 'code.png'))).resolves.toBeUndefined();

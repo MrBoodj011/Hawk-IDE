@@ -59,6 +59,7 @@ const brandedProduct = filterUpstreamAiDownloads({
 await writeFile(resolve(out, 'product.json'), `${JSON.stringify(brandedProduct, null, 2)}\n`);
 if (args.version) await stampProductVersion(out, args.version);
 await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
+await patchRemovedCopilotPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
 await patchWindowsSetupContextMenu(resolve(out, 'build', 'gulpfile.vscode.win32.ts'));
 const gettingStartedConfiguration = resolve(
   out,
@@ -176,6 +177,25 @@ async function patchWindowsPackagingTask(gulpfilePath) {
     fail(`could not apply the Windows packaging compatibility patch: ${gulpfilePath}`);
   }
 
+  await writeFile(gulpfilePath, original.replace(target, replacement));
+}
+
+async function patchRemovedCopilotPackagingTask(gulpfilePath) {
+  const original = await readFile(gulpfilePath, 'utf8');
+  const target =
+    "\t\tconst builtInCopilotExtensionDir = path.join(appBase, 'extensions', 'copilot');\n" +
+    '\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);';
+  const replacement =
+    "\t\tconst builtInCopilotExtensionDir = path.join(appBase, 'extensions', 'copilot');\n" +
+    '\t\tif (!fs.existsSync(builtInCopilotExtensionDir)) {\n' +
+    '\t\t\treturn;\n' +
+    '\t\t}\n' +
+    '\t\tprepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);';
+
+  if (original.includes(replacement)) return;
+  if (!original.includes(target)) {
+    fail(`could not guard the removed Copilot packaging task: ${gulpfilePath}`);
+  }
   await writeFile(gulpfilePath, original.replace(target, replacement));
 }
 
