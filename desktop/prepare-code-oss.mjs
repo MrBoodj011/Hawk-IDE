@@ -264,17 +264,24 @@ async function patchOptionalWindowsTunnelDefinitions(gulpfilePath) {
 }
 
 async function patchOptionalLinuxTunnelDependency(dependenciesPath) {
-  const original = await readFile(dependenciesPath, 'utf8');
+  let source = await readFile(dependenciesPath, 'utf8');
   const target = "\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));";
   const replacement =
     '\tif (product.tunnelApplicationName) {\n' +
     "\t\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));\n" +
     '\t}';
-  if (original.includes(replacement)) return;
-  if (!original.includes(target)) {
+  if (!source.includes(replacement) && !source.includes(target)) {
     fail(`could not guard the optional Linux tunnel dependency: ${dependenciesPath}`);
   }
-  await writeFile(dependenciesPath, original.replace(target, replacement));
+  source = source.replace(target, replacement);
+
+  const strictReference = 'const FAIL_BUILD_FOR_NEW_DEPENDENCIES: boolean = true;';
+  const derivativeReference = 'const FAIL_BUILD_FOR_NEW_DEPENDENCIES: boolean = false;';
+  if (!source.includes(derivativeReference) && !source.includes(strictReference)) {
+    fail(`could not configure derivative Linux dependency validation: ${dependenciesPath}`);
+  }
+  source = source.replace(strictReference, derivativeReference);
+  await writeFile(dependenciesPath, source);
 }
 
 async function patchSettingDefault(configurationPath, setting, currentDefault, hawkDefault) {

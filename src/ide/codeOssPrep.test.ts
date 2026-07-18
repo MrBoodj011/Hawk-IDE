@@ -84,7 +84,7 @@ describe('prepare-code-oss', () => {
     );
     await writeFile(
       join(source, 'build', 'linux', 'dependencies-generator.ts'),
-      "// Add the tunnel binary.\n\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));\n",
+      "const FAIL_BUILD_FOR_NEW_DEPENDENCIES: boolean = true;\n// Add the tunnel binary.\n\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));\n",
     );
     await writeFile(
       join(
@@ -171,6 +171,9 @@ describe('prepare-code-oss', () => {
     await expect(
       readFile(join(out, 'build', 'linux', 'dependencies-generator.ts'), 'utf8'),
     ).resolves.toContain('if (product.tunnelApplicationName)');
+    await expect(
+      readFile(join(out, 'build', 'linux', 'dependencies-generator.ts'), 'utf8'),
+    ).resolves.toContain('const FAIL_BUILD_FOR_NEW_DEPENDENCIES: boolean = false;');
     const windowsSetupSource = await readFile(
       join(out, 'build', 'gulpfile.vscode.win32.ts'),
       'utf8',
