@@ -17,6 +17,14 @@
   "win32arm64UserAppId": "{{F5C9853D-BC7E-4F49-A3C0-DF6DDA1F9B62}",
   "win32AppUserModelId": "MrBoodj011.HawkSecurityIDE",
   "win32ShellNameShort": "&Hawk",
+  "win32ContextMenu": {
+    "x64": {
+      "clsid": "{5900B0BF-70D7-428E-8F0A-82654B4EFD1C}"
+    },
+    "arm64": {
+      "clsid": "{0F706403-93F5-4D3B-B65B-9E1116CC8115}"
+    }
+  },
   "win32TunnelServiceMutex": "hawk-tunnel-service",
   "win32TunnelMutex": "hawk-tunnel",
   "darwinBundleIdentifier": "com.mrboodj011.hawk",

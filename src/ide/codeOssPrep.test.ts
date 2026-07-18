@@ -10,6 +10,7 @@ const execFile = promisify(execFileCallback);
 const temporaryRoots: string[] = [];
 const sourceDirectory = dirname(fileURLToPath(import.meta.url));
 const prepareScript = resolve(sourceDirectory, '..', '..', 'desktop', 'prepare-code-oss.mjs');
+const productOverrides = resolve(sourceDirectory, '..', '..', 'desktop', 'product-overrides.json');
 
 afterEach(async () => {
   await Promise.all(
@@ -18,6 +19,20 @@ afterEach(async () => {
 });
 
 describe('prepare-code-oss', () => {
+  it('defines stable Hawk shell identities for every supported Windows architecture', async () => {
+    const product = JSON.parse(await readFile(productOverrides, 'utf8')) as {
+      win32ContextMenu: Record<string, { clsid: string }>;
+    };
+    const identifiers = ['x64', 'arm64'].map((arch) => product.win32ContextMenu[arch]?.clsid);
+    expect(identifiers).toHaveLength(2);
+    expect(new Set(identifiers).size).toBe(2);
+    for (const identifier of identifiers) {
+      expect(identifier).toMatch(
+        /^\{[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}\}$/,
+      );
+    }
+  });
+
   it('copies a clean Code-OSS source tree, brands product.json, and embeds the compiled extension', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-codeoss-'));
     temporaryRoots.push(root);
