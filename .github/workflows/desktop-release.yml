@@ -305,9 +305,8 @@ jobs:
           tar -C "$RUNNER_TEMP" -czf \
             "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.tar.gz" \
             "VSCode-linux-${{ matrix.arch }}"
-          npm run gulp \
-            "vscode-linux-${{ matrix.arch }}-prepare-deb" \
-            "vscode-linux-${{ matrix.arch }}-build-deb"
+          npm run gulp "vscode-linux-${{ matrix.arch }}-prepare-deb"
+          npm run gulp "vscode-linux-${{ matrix.arch }}-build-deb"
           deb="$(find ".build/linux/deb" -type f -name '*.deb' -size +0c | head -n 1)"
           test -n "$deb"
           cp "$deb" "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.deb"
