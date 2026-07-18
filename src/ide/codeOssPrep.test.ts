@@ -181,6 +181,9 @@ describe('prepare-code-oss', () => {
     expect(windowsSetupSource).toContain(
       'TunnelApplicationName: product.tunnelApplicationName ?? `${product.applicationName}-tunnel-disabled`',
     );
+    expect(windowsSetupSource).toContain(
+      "fs.existsSync(path.join(sourcePath, 'appx', appxPackage))",
+    );
     const gettingStartedSource = await readFile(
       join(
         out,

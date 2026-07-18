@@ -214,25 +214,32 @@ async function patchWindowsSetupContextMenu(gulpfilePath) {
   const condition = "if (quality === 'stable' || quality === 'insider') {";
   const contextMenu =
     "const ctxMenu = (product as { win32ContextMenu?: Record<string, { clsid: string }> }).win32ContextMenu;";
+  const appxPackage =
+    "const appxPackage = `${quality === 'stable' ? 'code' : 'code_insider'}_${arch}.appx`;";
   const guarded =
-    "if ((quality === 'stable' || quality === 'insider') && ctxMenu?.[arch]) {";
+    "if ((quality === 'stable' || quality === 'insider') && ctxMenu?.[arch] && fs.existsSync(path.join(sourcePath, 'appx', appxPackage))) {";
   if (original.includes(guarded)) return;
   if (!original.includes(condition) || !original.includes(contextMenu)) {
     fail(`could not apply the Windows setup context-menu guard: ${gulpfilePath}`);
   }
   const withDeclaration = original.replace(
     condition,
-    `${contextMenu}\n\t\t${guarded}`,
+    `${contextMenu}\n\t\t${appxPackage}\n\t\t${guarded}`,
   );
   const declarationAfterCondition = withDeclaration.indexOf(contextMenu, withDeclaration.indexOf(guarded));
   if (declarationAfterCondition < 0) {
     fail(`could not remove the duplicate Windows context-menu declaration: ${gulpfilePath}`);
   }
-  await writeFile(
-    gulpfilePath,
+  const withoutDuplicateDeclaration =
     `${withDeclaration.slice(0, declarationAfterCondition)}${withDeclaration.slice(
       declarationAfterCondition + contextMenu.length,
-    )}`,
+    )}`;
+  await writeFile(
+    gulpfilePath,
+    withoutDuplicateDeclaration.replace(
+      "definitions['AppxPackage'] = `${quality === 'stable' ? 'code' : 'code_insider'}_${arch}.appx`;",
+      "definitions['AppxPackage'] = appxPackage;",
+    ),
   );
 }
 
