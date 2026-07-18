@@ -26,7 +26,7 @@ describe('prepare-code-oss', () => {
     const extension = join(root, 'extension');
     const overrides = join(root, 'overrides.json');
     await mkdir(join(source, 'node_modules'), { recursive: true });
-    await mkdir(join(source, 'build'), { recursive: true });
+    await mkdir(join(source, 'build', 'npm'), { recursive: true });
     await mkdir(join(source, 'extensions', 'copilot'), { recursive: true });
     await mkdir(join(source, 'src', 'vs', 'workbench', 'browser'), { recursive: true });
     await mkdir(join(source, 'src', 'vs', 'workbench', 'contrib', 'chat', 'browser'), {
@@ -50,6 +50,10 @@ describe('prepare-code-oss', () => {
     await writeFile(
       join(source, 'build', 'gulpfile.vscode.ts'),
       "const deps = [\n  glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),\n];\n",
+    );
+    await writeFile(
+      join(source, 'build', 'npm', 'dirs.ts'),
+      "export const dirs = [\n\t'',\n\t'extensions/copilot',\n\t'extensions/git',\n];\n",
     );
     await writeFile(
       join(
@@ -119,6 +123,9 @@ describe('prepare-code-oss', () => {
     ).resolves.toContain('module.exports');
     await expect(access(join(out, 'node_modules', 'ignored.txt'))).rejects.toThrow();
     await expect(access(join(out, 'extensions', 'copilot', 'package.json'))).rejects.toThrow();
+    await expect(readFile(join(out, 'build', 'npm', 'dirs.ts'), 'utf8')).resolves.toBe(
+      "export const dirs = [\n\t'',\n\t'extensions/git',\n];\n",
+    );
     const gettingStartedSource = await readFile(
       join(
         out,

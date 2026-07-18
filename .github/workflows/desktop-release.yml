@@ -195,7 +195,19 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: npm install --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm install --no-audit --no-fund; then
+              exit 0
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              echo "::error::Code-OSS dependency installation failed after $attempt attempts."
+              exit 1
+            fi
+            echo "::warning::Code-OSS dependency installation failed on attempt $attempt; retrying."
+            sleep $((attempt * 15))
+          done
 
       - name: Build Windows desktop
         if: matrix.platform == 'win32'

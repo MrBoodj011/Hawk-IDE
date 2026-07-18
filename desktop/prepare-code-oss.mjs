@@ -140,6 +140,18 @@ function filterUpstreamAiDownloads(product) {
 }
 
 async function removeUpstreamAiExtensions(root) {
+  const installDirectories = resolve(root, 'build', 'npm', 'dirs.ts');
+  if (await exists(installDirectories)) {
+    const original = await readFile(installDirectories, 'utf8');
+    const filtered = original.replace(
+      /^\s*['"]extensions\/(?:copilot|copilot-chat)['"],?\r?\n/gm,
+      '',
+    );
+    if (filtered !== original) {
+      await writeFile(installDirectories, filtered);
+    }
+  }
+
   await Promise.all(
     ['copilot', 'copilot-chat'].map((name) =>
       rm(resolve(root, 'extensions', name), { recursive: true, force: true }),
