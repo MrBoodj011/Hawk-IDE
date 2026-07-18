@@ -66,6 +66,10 @@ if (args.version) await stampProductVersion(out, args.version);
 await patchWindowsPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
 await patchRemovedCopilotPackagingTask(resolve(out, 'build', 'gulpfile.vscode.ts'));
 await patchWindowsSetupContextMenu(resolve(out, 'build', 'gulpfile.vscode.win32.ts'));
+await patchOptionalWindowsTunnelDefinitions(resolve(out, 'build', 'gulpfile.vscode.win32.ts'));
+await patchOptionalLinuxTunnelDependency(
+  resolve(out, 'build', 'linux', 'dependencies-generator.ts'),
+);
 const gettingStartedConfiguration = resolve(
   out,
   'src',
@@ -230,6 +234,47 @@ async function patchWindowsSetupContextMenu(gulpfilePath) {
       declarationAfterCondition + contextMenu.length,
     )}`,
   );
+}
+
+async function patchOptionalWindowsTunnelDefinitions(gulpfilePath) {
+  if (!(await exists(gulpfilePath))) return;
+  let source = await readFile(gulpfilePath, 'utf8');
+  const replacements = [
+    [
+      'TunnelMutex: product.win32TunnelMutex,',
+      "TunnelMutex: product.win32TunnelMutex ?? `${product.applicationName}-tunnel-disabled`,",
+    ],
+    [
+      'TunnelServiceMutex: product.win32TunnelServiceMutex,',
+      "TunnelServiceMutex: product.win32TunnelServiceMutex ?? `${product.applicationName}-tunnel-service-disabled`,",
+    ],
+    [
+      'TunnelApplicationName: product.tunnelApplicationName,',
+      "TunnelApplicationName: product.tunnelApplicationName ?? `${product.applicationName}-tunnel-disabled`,",
+    ],
+  ];
+  for (const [target, replacement] of replacements) {
+    if (source.includes(replacement)) continue;
+    if (!source.includes(target)) {
+      fail(`could not guard an optional Windows tunnel definition: ${gulpfilePath}`);
+    }
+    source = source.replace(target, replacement);
+  }
+  await writeFile(gulpfilePath, source);
+}
+
+async function patchOptionalLinuxTunnelDependency(dependenciesPath) {
+  const original = await readFile(dependenciesPath, 'utf8');
+  const target = "\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));";
+  const replacement =
+    '\tif (product.tunnelApplicationName) {\n' +
+    "\t\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));\n" +
+    '\t}';
+  if (original.includes(replacement)) return;
+  if (!original.includes(target)) {
+    fail(`could not guard the optional Linux tunnel dependency: ${dependenciesPath}`);
+  }
+  await writeFile(dependenciesPath, original.replace(target, replacement));
 }
 
 async function patchSettingDefault(configurationPath, setting, currentDefault, hawkDefault) {

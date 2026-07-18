@@ -44,6 +44,7 @@ describe('prepare-code-oss', () => {
     const overrides = join(root, 'overrides.json');
     await mkdir(join(source, 'node_modules'), { recursive: true });
     await mkdir(join(source, 'build', 'npm'), { recursive: true });
+    await mkdir(join(source, 'build', 'linux'), { recursive: true });
     await mkdir(join(source, 'extensions', 'copilot'), { recursive: true });
     await mkdir(join(source, 'src', 'vs', 'workbench', 'browser'), { recursive: true });
     await mkdir(join(source, 'src', 'vs', 'workbench', 'contrib', 'chat', 'browser'), {
@@ -76,6 +77,14 @@ describe('prepare-code-oss', () => {
     await writeFile(
       join(source, 'build', 'npm', 'dirs.ts'),
       "export const dirs = [\n\t'',\n\t'extensions/copilot',\n\t'extensions/git',\n];\n",
+    );
+    await writeFile(
+      join(source, 'build', 'gulpfile.vscode.win32.ts'),
+      "const definitions = {\n\tTunnelMutex: product.win32TunnelMutex,\n\tTunnelServiceMutex: product.win32TunnelServiceMutex,\n\tTunnelApplicationName: product.tunnelApplicationName,\n};\nif (quality === 'stable' || quality === 'insider') {\n\tconst ctxMenu = (product as { win32ContextMenu?: Record<string, { clsid: string }> }).win32ContextMenu;\n}\n",
+    );
+    await writeFile(
+      join(source, 'build', 'linux', 'dependencies-generator.ts'),
+      "// Add the tunnel binary.\n\tfiles.push(path.join(buildDir, 'bin', product.tunnelApplicationName));\n",
     );
     await writeFile(
       join(
@@ -158,6 +167,16 @@ describe('prepare-code-oss', () => {
     await expect(access(join(out, 'extensions', 'copilot', 'package.json'))).rejects.toThrow();
     await expect(readFile(join(out, 'build', 'npm', 'dirs.ts'), 'utf8')).resolves.toBe(
       "export const dirs = [\n\t'',\n\t'extensions/git',\n];\n",
+    );
+    await expect(
+      readFile(join(out, 'build', 'linux', 'dependencies-generator.ts'), 'utf8'),
+    ).resolves.toContain('if (product.tunnelApplicationName)');
+    const windowsSetupSource = await readFile(
+      join(out, 'build', 'gulpfile.vscode.win32.ts'),
+      'utf8',
+    );
+    expect(windowsSetupSource).toContain(
+      'TunnelApplicationName: product.tunnelApplicationName ?? `${product.applicationName}-tunnel-disabled`',
     );
     const gettingStartedSource = await readFile(
       join(
