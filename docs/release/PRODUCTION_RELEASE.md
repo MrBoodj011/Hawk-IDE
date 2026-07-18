@@ -8,6 +8,8 @@ Hawk cannot create or purchase these identities automatically:
 - Apple Developer ID Application certificate, signing identity, team ID, Apple
   ID, and app-specific password
 - Cloudflare account/API token and D1 database
+- GitHub Actions billing or a spending limit that can run private-repository
+  release jobs
 - GitHub OAuth app
 - Stripe account, webhook, and Price IDs
 - Chrome Web Store publisher/service account
