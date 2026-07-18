@@ -28,7 +28,6 @@ export async function writeBrandAssets(codeOssRoot) {
     ['resources/server/code-192.png', images.get(192)],
     ['resources/server/code-512.png', images.get(512)],
     ['resources/server/favicon.ico', createIco([16, 32, 48], images)],
-    ['resources/darwin/code.icns', createIcns(images.get(512))],
   ];
 
   await Promise.all(
@@ -194,15 +193,4 @@ function createIco(sizes, images) {
     offset += image.length;
   });
   return Buffer.concat([header, ...entries]);
-}
-
-function createIcns(image) {
-  const chunkSize = image.length + 8;
-  const output = Buffer.alloc(chunkSize + 8);
-  output.write('icns', 0, 'ascii');
-  output.writeUInt32BE(output.length, 4);
-  output.write('ic10', 8, 'ascii');
-  output.writeUInt32BE(chunkSize, 12);
-  image.copy(output, 16);
-  return output;
 }

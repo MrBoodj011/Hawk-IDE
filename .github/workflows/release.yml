@@ -1,8 +1,7 @@
 name: Hawk CLI Artifact Dry Run
 
-# Standalone CLI artifact verification. Official GitHub Releases are owned by
-# desktop-release.yml so an unsigned CLI workflow can never publish before the
-# Windows and Apple signing/notarization gates have passed.
+# Standalone CLI artifact verification. Personal GitHub Releases are owned by
+# desktop-release.yml; this workflow never publishes a competing release.
 #
 # Pipeline: verify (full CI) -> cross-platform standalone binaries (Bun) ->
 # GitHub Release with SHA256SUMS + auto-generated notes -> npm publish
@@ -80,7 +79,7 @@ jobs:
       - run: npm run ci # typecheck -> lint -> test -> build
 
   # One artifact per OS/arch. Bun cross-compiles every target from a single
-  # Linux host, so the whole matrix runs without macOS/Windows runners.
+  # Linux host, so the whole matrix runs without dedicated platform runners.
   binaries:
     name: build ${{ matrix.name }}
     needs: [prepare, verify]
@@ -89,10 +88,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: bun-darwin-arm64, name: hawk-darwin-arm64 }
-          # Keep x64 asset names stable, but use Bun's baseline runtime so
-          # older x86_64 CPUs do not crash with SIGILL before startup.
-          - { target: bun-darwin-x64-baseline, name: hawk-darwin-x64 }
           - { target: bun-linux-x64-baseline, name: hawk-linux-x64 }
           - { target: bun-linux-arm64, name: hawk-linux-arm64 }
           - { target: bun-windows-x64-baseline, name: hawk-windows-x64.exe }
@@ -194,8 +189,6 @@ jobs:
           set -euo pipefail
           cd dist-bin
           expected=(
-            hawk-darwin-arm64
-            hawk-darwin-x64
             hawk-linux-x64
             hawk-linux-arm64
             hawk-windows-x64.exe

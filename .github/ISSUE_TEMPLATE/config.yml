@@ -1,5 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Private security report
-    url: https://github.com/MrBoodj011/hawk/security/advisories/new
-    about: Report vulnerabilities privately. Do not include security details in a public issue.

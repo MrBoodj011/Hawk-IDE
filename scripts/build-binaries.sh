@@ -14,8 +14,6 @@ fi
 mkdir -p dist-bin
 
 TARGETS=(
-  "bun-darwin-arm64:hawk-darwin-arm64"
-  "bun-darwin-x64-baseline:hawk-darwin-x64"
   "bun-linux-x64-baseline:hawk-linux-x64"
   "bun-linux-arm64:hawk-linux-arm64"
 )

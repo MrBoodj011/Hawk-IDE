@@ -15,7 +15,7 @@ local-first Code-OSS-compatible Hawk security workspace.
 ## What works now
 
 - Hawk Mission Control: a full editor surface with a responsive activity-bar
-  view, security telemetry, a living route graph, traffic correlation,
+  view, local security signals, a living route graph, traffic correlation,
   findings triage, organization posture, evidence actions, and MCP status.
 - Native Hawk AI engineering room with active-file, selection, open-tab,
   git-diff, and diagnostics context; durable session history; in-panel model,
@@ -81,21 +81,15 @@ local-first Code-OSS-compatible Hawk security workspace.
   SARIF, and a SHA-256 manifest under `.hawk/reports/`.
 - Existing Hawk CLI, permissions, sessions, browser/Burp bridge, and
   evidence-backed findings workflow.
-- A pinned cross-platform desktop release pipeline for Windows EXE/MSI and
-  portable ZIP, Linux deb/AppImage/tar, and macOS x64/arm64 ZIP/DMG. Signing,
-  notarization, SHA-256 manifests, and the private-repository update gateway are
-  activated through deployment secrets rather than credentials in source.
-- An optional Hawk Cloud control plane with GitHub sign-in, organizations,
-  owner/admin/member/viewer RBAC, invitations, conflict-safe preference sync,
-  Stripe subscriptions, plan entitlements, seat-bound device licenses, and an
-  organization audit log. Source code, captures, evidence, prompts, responses,
-  and provider keys are excluded from cloud sync.
-- Privacy-first observability: telemetry and crash reporting are independent,
-  disabled by default, allowlisted on both client and server, and stripped of
-  code, prompts, paths, URLs, headers, tokens, and secrets.
-- Separate signed Stable and Beta update channels, production health probes,
-  CodeQL/dependency assurance, Chrome Web Store API v2 publishing, and a
-  PortSwigger-reviewed BApp submission workflow.
+- A personal desktop release pipeline for Windows portable ZIP/EXE/MSI and
+  Linux deb/AppImage/tar, plus locally installed Browser and Burp companions.
+  Releases include SHA-256 checksums; Windows signing is optional.
+- A deliberately solo/local architecture: no Hawk account, team system,
+  Stripe/billing, licenses, cloud synchronization, telemetry collector, Apple
+  build, or extension-store publication. Provider keys and engagement data
+  remain on the operator's machine.
+- CodeQL-ready static assurance and production dependency auditing without a
+  hosted Hawk service.
 
 ## Use the Code-OSS extension
 
@@ -110,7 +104,7 @@ npm run build:extension
 
 Open the repository's `extensions/pentesterflow-ide` folder in the Code-OSS
 extension development host, then open the Hawk activity-bar icon. Use
-`Ctrl+Shift+H` (`Cmd+Shift+H` on macOS) for the full Mission Control surface.
+`Ctrl+Shift+H` for the full Mission Control surface.
 It can index local routes, run its passive audit, import a HAR file, run an
 approved passive workspace scan, sync a health report, and compose a
 workspace-aware native AI task without opening a separate agent terminal.
@@ -118,10 +112,9 @@ Run **Hawk: Pair Browser / Burp Capture** to copy the short-lived loopback URL
 and token used by either capture companion.
 Use **Hawk: Plan Governed Smart MCP Mission** to inspect a security DAG before
 approval, and **Hawk: Build Sanitized Evidence Pack** for portable reports.
-After the production control plane is configured, use **Hawk: Sign In to
-Cloud**, **Hawk: Create Team**, **Hawk: Select Cloud Workspace**, and **Hawk:
-Sync Cloud Preferences**. GitHub and Hawk session tokens remain in VS Code
-SecretStorage.
+Hawk does not require a Hawk login. Optional GitHub health-report tokens remain
+in VS Code SecretStorage; LLM keys can be read from local environment
+variables and are not synchronized anywhere.
 
 For a branded Code-OSS source tree with the extension built in, follow
 [desktop/BUILD.md](desktop/BUILD.md). The preparation script copies a local
@@ -170,10 +163,9 @@ contracts.
 See [native Hawk AI sessions](docs/native-ai.md) for the worktree, streaming,
 test-gate, Apply/Reject/Revert, persistence, and security contracts.
 
-See the [production release runbook](docs/release/PRODUCTION_RELEASE.md),
-[Beta program](docs/BETA_PROGRAM.md), [threat model](docs/security/THREAT_MODEL.md),
-[Privacy Notice](PRIVACY.md), [Terms](TERMS.md), [EULA](EULA.md), and
-[Responsible Use Policy](RESPONSIBLE_USE.md) for launch operations.
+See the [local threat model](docs/security/THREAT_MODEL.md),
+[Security Policy](SECURITY.md), and
+[Responsible Use Policy](RESPONSIBLE_USE.md).
 
 ## Hawk health report liaison
 
@@ -205,9 +197,9 @@ needs manual validation.
    active containers. Docker bridge mode currently requires an additional
    warning acknowledgement because Docker itself does not enforce host-level
    destinations.
-3. Team RBAC/SSO, shared evidence workspaces, cloud-scale durable execution,
-   and a network A2A endpoint. Current Smart MCP, A2A bridge, and persistence
-   are local-first.
+3. Deeper local evidence correlation, stronger Docker egress enforcement, and
+   more offline evaluation fixtures. Smart MCP, the A2A bridge, and persistence
+   remain intentionally single-operator and local-first.
 
 ## License and attribution
 

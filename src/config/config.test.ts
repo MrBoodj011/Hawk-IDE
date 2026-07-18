@@ -101,22 +101,16 @@ describe('config', () => {
     expect(reloaded.model).toBe('models/gemini-3.5-flash');
   });
 
-  it('accepts OpenAI, environment key indirection, release channels, and opt-in telemetry', async () => {
+  it('accepts OpenAI and environment key indirection without persisting a provider key', async () => {
     const cfg = defaultConfig();
     cfg.backend = 'openai';
     cfg.model = 'gpt-5.6-sol';
     cfg.api_key_env = 'OPENAI_API_KEY';
-    cfg.release_channel = 'beta';
-    cfg.telemetry_enabled = true;
-    cfg.crash_reporting_enabled = true;
-    cfg.telemetry_endpoint = 'https://api.hawk.example/v1/telemetry/events';
     await save(cfg);
     const reloaded = load();
     expect(reloaded.backend).toBe('openai');
     expect(reloaded.api_key).toBe('');
     expect(reloaded.api_key_env).toBe('OPENAI_API_KEY');
-    expect(reloaded.release_channel).toBe('beta');
-    expect(reloaded.telemetry_enabled).toBe(true);
   });
 
   it('accepts OpenRouter as a backend', async () => {

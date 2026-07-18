@@ -6,7 +6,7 @@ Browser/Burp evidence, governed MCP plans, isolated Docker workers, and
 portable security reporting in one local-first workspace.
 
 The application name, executable, installer identity, protocol, theme, activity
-bar, Mission Control, AI panel, desktop icons, and update channel are Hawk.
+bar, Mission Control, AI panel, and desktop icons are Hawk.
 Third-party and upstream attribution is retained in `NOTICE` and the relevant
 license files.
 
@@ -14,7 +14,7 @@ license files.
 
 | Surface | Purpose | Safety boundary |
 | --- | --- | --- |
-| Hawk desktop | Branded Windows, macOS, and Linux Code-OSS application | Workspace trust and local control-plane token |
+| Hawk desktop | Branded Windows and Linux Code-OSS application | Workspace trust and local daemon token |
 | Mission Control | Routes, signals, traffic, supply-chain posture, evidence, and MCP status | Signals are never auto-labelled as vulnerabilities |
 | Hawk AI | Streaming tasks, context, plans, history, diff preview, tests, Apply/Reject/Revert | File changes remain review-gated |
 | Browser companion | Redacted Fetch/XHR/WebSocket and webRequest metadata | Disabled by default; explicit regex scope and rate limit |
@@ -140,43 +140,25 @@ The release workflow builds:
 
 - Windows x64 portable ZIP, EXE installer, and MSI;
 - Linux x64 tarball, deb, and AppImage;
-- macOS x64 and arm64 ZIP and DMG;
 - Browser companion ZIP and Burp companion JAR;
-- SHA-256 checksums and a native update manifest.
+- SHA-256 checksums.
 
-Signing and notarization are enabled only when deployment secrets exist.
-Unsigned dry runs remain useful for verifying reproducible packaging. The
-private update worker translates Code-OSS update checks into private GitHub
-Release assets without exposing the repository token to desktop clients.
+Windows signing is optional when a personal certificate is configured.
+Otherwise the workflow labels the artifacts as unsigned and still publishes
+them to the private repository. There is no Apple build, update server, Hawk
+account, team/RBAC layer, billing, licensing, cloud sync, telemetry collector,
+or store-publishing automation.
 
-Published Stable/Beta artifacts are fail-closed: Windows signing, Apple
-signing/notarization, the update origin, and production legal metadata are all
-mandatory. Unsigned dry runs remain available but cannot create an official
-GitHub Release.
+## Solo local boundary
 
-## Hawk Cloud and commercial control plane
+Hawk is designed for one operator on trusted personal machines:
 
-`deploy/control-plane` is a Cloudflare Worker backed by D1. It implements
-GitHub identity, organizations, RBAC, invitations, cloud preference sync,
-Stripe Checkout/Portal/webhooks, plan entitlements, seats, short-lived
-device-bound license grants, audit logs, and opt-in telemetry. The desktop
-extension stores its cloud session in SecretStorage and exposes account, team,
-workspace, sync, upgrade, and billing commands.
-
-Cloud workspace state accepts only bounded Hawk preferences. Provider keys,
-source code, prompts, responses, evidence, captures, findings, and tool output
-stay outside the service.
-
-The production automation also includes:
-
-- Cloudflare control-plane and update-service deployment workflows;
-- Stable and Beta native update routing;
-- scheduled health monitoring and incident issue creation;
-- CodeQL and high-severity production dependency auditing;
-- Chrome Web Store API v2 upload/review submission;
-- PortSwigger BApp Store review submission from a public companion source;
-- a real-user Beta program, independent pentest scope, threat model, privacy,
-  terms, EULA, responsible-use, and security-disclosure documents.
+- all daemon and MCP services bind to loopback or stdio;
+- engagement state, evidence, task history, and reports stay in the workspace;
+- Browser and Burp companions are installed locally and require explicit pairing;
+- LLM access is BYOK, with environment-variable indirection available;
+- optional GitHub health sync stores its token in VS Code SecretStorage;
+- dependency assurance and release checks run against the private repository.
 
 ## Important local paths
 
@@ -202,8 +184,8 @@ npm run ci
 
 It runs strict TypeScript checks, Biome, Vitest, the core build, extension
 type-check/build, and Browser integration validation. GitHub CI additionally
-compiles the Java Burp companion. The desktop release workflow performs a
-cross-platform dry run before a production tag should be published.
+compiles the Java Burp companion. The desktop release workflow performs
+Windows and Linux verification before a personal tag is published.
 
 ## Security and legal scope
 

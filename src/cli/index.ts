@@ -38,7 +38,6 @@ import {
 import * as logger from '../logger/logger.js';
 import { createSessionDebugLog } from '../logger/sessionDebug.js';
 import { MemoryStore } from '../memory/store.js';
-import { TelemetryClient } from '../observability/telemetry.js';
 import { YoloPrompter } from '../permission/permission.js';
 import * as sessionStore from '../session/store.js';
 import { skillSearchDirs } from '../skills/discovery.js';
@@ -76,7 +75,6 @@ import { BridgedPrompter } from '../ui/permBridge.js';
 import { VERSION, describe } from '../version/version.js';
 
 const GROQ_AUTO_COMPACT_THRESHOLD = 5500;
-let activeTelemetry: TelemetryClient | undefined;
 
 interface ParsedFlags {
   showVersion: boolean;
@@ -249,15 +247,6 @@ async function main(): Promise<number> {
   if (flags.baseURL) cfg.base_url = flags.baseURL;
   if (flags.apiKey) cfg.api_key = flags.apiKey;
   if (flags.skillsDirs.length) cfg.skills_dirs = [...cfg.skills_dirs, ...flags.skillsDirs];
-  if (!cfg.installation_id) {
-    cfg.installation_id = randomBytes(16).toString('hex');
-    await config.save(cfg);
-  }
-  activeTelemetry = TelemetryClient.fromConfig(cfg, VERSION);
-  void activeTelemetry.capture('app_started', {
-    backend: cfg.backend || 'ollama',
-    releaseChannel: cfg.release_channel,
-  });
   const credential = resolveProviderCredential(cfg);
   const runtimeConfig = cfg.api_key ? cfg : { ...cfg, api_key: credential.apiKey };
 
@@ -756,7 +745,6 @@ async function main(): Promise<number> {
     if (reloadTimer) clearTimeout(reloadTimer);
     await Promise.all(mcpSessions.map((s) => s.close()));
     await closeBurpBridge();
-    await activeTelemetry?.capture('app_stopped');
   }
   return 0;
 }
@@ -928,8 +916,7 @@ Slash: /help /plan /clear /reset /exit /target /maxsteps /thinking /update
 
 main()
   .then((code) => process.exit(code))
-  .catch(async (err: unknown) => {
-    await activeTelemetry?.captureCrash(err);
+  .catch((err: unknown) => {
     process.stderr.write(`fatal: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   });

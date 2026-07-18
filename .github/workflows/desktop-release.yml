@@ -88,49 +88,8 @@ jobs:
       - run: npm ci
       - run: npm run ci
 
-  release-readiness:
-    needs: prepare
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Enforce signed production release configuration
-        env:
-          HAWK_PUBLISH: ${{ needs.prepare.outputs.publish }}
-          HAWK_UPDATE_URL: ${{ secrets.HAWK_UPDATE_URL }}
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          HAWK_LEGAL_ENTITY: ${{ vars.HAWK_LEGAL_ENTITY }}
-          HAWK_LEGAL_CONTACT: ${{ vars.HAWK_LEGAL_CONTACT }}
-          HAWK_PRIVACY_URL: ${{ vars.HAWK_PRIVACY_URL }}
-          HAWK_TERMS_URL: ${{ vars.HAWK_TERMS_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$HAWK_PUBLISH" != "true" ]]; then
-            echo "Dry run: signing credentials are optional."
-            exit 0
-          fi
-          missing=0
-          for name in \
-            HAWK_UPDATE_URL \
-            WINDOWS_CERTIFICATE_BASE64 WINDOWS_CERTIFICATE_PASSWORD \
-            APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
-            APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID \
-            HAWK_LEGAL_ENTITY HAWK_LEGAL_CONTACT HAWK_PRIVACY_URL HAWK_TERMS_URL; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Required production secret is missing: $name"
-              missing=1
-            fi
-          done
-          exit "$missing"
-
   integrations:
-    needs: [prepare, verify, release-readiness]
+    needs: [prepare, verify]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -183,20 +142,10 @@ jobs:
           - os: ubuntu-24.04
             platform: linux
             arch: x64
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
-          - os: macos-15
-            platform: darwin
-            arch: arm64
     runs-on: ${{ matrix.os }}
     env:
       HAWK_VERSION: ${{ needs.prepare.outputs.version }}
       HAWK_TAG: ${{ needs.prepare.outputs.tag }}
-      HAWK_UPDATE_URL: ${{ secrets.HAWK_UPDATE_URL }}
-      HAWK_PUBLISH: ${{ needs.prepare.outputs.publish }}
-      HAWK_PRIVACY_URL: ${{ vars.HAWK_PRIVACY_URL }}
-      HAWK_TERMS_URL: ${{ vars.HAWK_TERMS_URL }}
       BUILD_SOURCEVERSION: ${{ github.sha }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
@@ -232,15 +181,6 @@ jobs:
             --quality "${{ needs.prepare.outputs.quality }}"
             --force
           )
-          if [[ -n "${HAWK_UPDATE_URL:-}" ]]; then
-            args+=(--update-url "$HAWK_UPDATE_URL")
-          fi
-          if [[ -n "${HAWK_PRIVACY_URL:-}" ]]; then
-            args+=(--privacy-url "$HAWK_PRIVACY_URL")
-          fi
-          if [[ -n "${HAWK_TERMS_URL:-}" ]]; then
-            args+=(--terms-url "$HAWK_TERMS_URL")
-          fi
           node desktop/prepare-code-oss.mjs "${args[@]}"
           node -e "require('fs').rmSync(process.argv[1], { recursive: true, force: true })" \
             "$GITHUB_WORKSPACE/upstream"
@@ -309,10 +249,7 @@ jobs:
         shell: pwsh
         run: |
           if (!$env:WINDOWS_CERTIFICATE_BASE64) {
-            if ($env:HAWK_PUBLISH -eq 'true') {
-              throw 'Published Windows builds must be signed.'
-            }
-            'Windows signing secret is not configured; producing an unsigned verification artifact.'
+            'Personal build: Windows signing is optional and no certificate is configured.'
             exit 0
           }
           $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
@@ -375,9 +312,7 @@ jobs:
         shell: pwsh
         run: |
           if (!$env:WINDOWS_CERTIFICATE_BASE64) {
-            if ($env:HAWK_PUBLISH -eq 'true') {
-              throw 'Published Windows installers must be signed.'
-            }
+            'Personal build: installers will remain unsigned.'
             exit 0
           }
           $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
@@ -428,89 +363,6 @@ jobs:
             "$portable" "$HAWK_VERSION" \
             "$GITHUB_WORKSPACE/artifacts/Hawk-linux-${{ matrix.arch }}-$HAWK_VERSION.AppImage"
 
-      - name: Build macOS desktop
-        if: matrix.platform == 'darwin'
-        working-directory: ${{ runner.temp }}/hawk-codeoss
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in 1 2; do
-            if npm run gulp "vscode-darwin-${{ matrix.arch }}-min"; then
-              break
-            fi
-            if [[ "$attempt" == 2 ]]; then
-              echo "::error::macOS desktop build failed after $attempt attempts."
-              exit 1
-            fi
-            echo "::warning::macOS desktop build failed on attempt $attempt; retrying."
-            sleep 20
-          done
-          app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
-          test -d "$app"
-
-      - name: Sign macOS application
-        if: matrix.platform == 'darwin'
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" ]]; then
-            if [[ "$HAWK_PUBLISH" == "true" ]]; then
-              echo "::error::Published macOS builds must be signed."
-              exit 1
-            fi
-            echo "Apple signing secret is not configured; producing an unsigned verification artifact."
-            exit 0
-          fi
-          certificate="$RUNNER_TEMP/hawk-signing.p12"
-          keychain="$RUNNER_TEMP/hawk-signing.keychain-db"
-          password="$(openssl rand -hex 20)"
-          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security list-keychain -d user -s "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
-          app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
-          codesign --force --deep --options runtime --timestamp \
-            --sign "$APPLE_SIGNING_IDENTITY" "$app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-
-      - name: Package and notarize macOS
-        if: matrix.platform == 'darwin'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          app="$RUNNER_TEMP/VSCode-darwin-${{ matrix.arch }}/Hawk Security IDE.app"
-          zip="$GITHUB_WORKSPACE/artifacts/Hawk-macos-${{ matrix.arch }}-$HAWK_VERSION.zip"
-          dmg="$GITHUB_WORKSPACE/artifacts/Hawk-macos-${{ matrix.arch }}-$HAWK_VERSION.dmg"
-          ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
-          hdiutil create -volname "Hawk Security IDE" -srcfolder "$app" \
-            -ov -format UDZO "$dmg"
-          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
-            xcrun notarytool submit "$dmg" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait
-            xcrun stapler staple "$dmg"
-          else
-            if [[ "$HAWK_PUBLISH" == "true" ]]; then
-              echo "::error::Published macOS builds must be notarized."
-              exit 1
-            fi
-            echo "Apple notarization secrets are not configured; skipping notarization."
-          fi
-
       - name: Verify desktop artifacts
         shell: bash
         run: |
@@ -539,19 +391,16 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Generate update manifest and checksums
+      - name: Generate checksums
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/generate-release-manifest.mjs \
-            dist "${{ needs.prepare.outputs.tag }}" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
-          cp PRIVACY.md TERMS.md EULA.md RESPONSIBLE_USE.md SECURITY.md dist/
+          cp LICENSE NOTICE RESPONSIBLE_USE.md SECURITY.md dist/
           (
             cd dist
             find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 |
               sort -z |
               xargs -0 sha256sum > SHA256SUMS
-            test -s update.json
             test -s SHA256SUMS
           )
       - uses: softprops/action-gh-release@v2

@@ -29,5 +29,6 @@ expand scope. The user must review plans, diffs, requests, evidence, and
 reports. Do not give an untrusted MCP server secrets or host access. Use
 immutable images, quotas, approval gates, and isolated workspaces.
 
-Suspected abuse may result in suspension of Hawk Cloud access and preservation
-of the minimum records required for investigation or law.
+Hawk has no hosted account or cloud-access suspension mechanism. The operator
+is solely responsible for keeping every action inside written authorization
+and stopping immediately when scope or safety is uncertain.

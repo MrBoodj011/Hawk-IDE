@@ -33,14 +33,13 @@
     "preview:ui": "node scripts/render-ui-preview.cjs",
     "check:extension": "npm --workspace hawk-security-ide run check",
     "check:integrations": "node scripts/check-integrations.mjs",
-    "check:deploy": "node --test deploy/**/*.test.mjs",
     "package:extension": "npm run build && npm --workspace hawk-security-ide run package",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "lint:fix": "biome check --write src",
-    "ci": "npm run typecheck && npm run lint && npm run test && npm run check:deploy && npm run build && npm run check:extension && npm run check:integrations && npm run build:extension"
+    "ci": "npm run typecheck && npm run lint && npm run test && npm run build && npm run check:extension && npm run check:integrations && npm run build:extension"
   },
   "keywords": [
     "pentest",

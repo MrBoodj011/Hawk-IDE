@@ -11,18 +11,16 @@ Do not open a public issue for a vulnerability. Use GitHub's private security
 advisory flow for this repository. Include the affected version, impact,
 reproduction steps, required privileges, and a minimal redacted proof.
 
-The production operator must publish a monitored security email before public
-launch. Initial acknowledgment target: two business days. Critical
-vulnerabilities are triaged immediately and coordinated disclosure timing is
-agreed with the reporter.
+This is a private, single-operator project. Critical vulnerabilities should be
+fixed before the affected build is used again.
 
 ## Scope
 
-Hawk desktop, update service, control plane, official companion extensions,
-release pipeline, and Hawk-owned cloud endpoints are in scope. Third-party LLM
-providers, GitHub, Stripe, Cloudflare, PortSwigger, and operating-system
-platforms are not controlled by Hawk; reports showing a Hawk-specific
-integration flaw remain welcome.
+Hawk desktop, its local daemon/MCP runtime, Browser and Burp companions, and
+the private release pipeline are in scope. Hawk has no account service,
+billing system, cloud synchronization, telemetry collector, Apple release, or
+store-publishing pipeline. Third-party LLM providers, GitHub, and the operating
+system remain outside Hawk's control.
 
 Never access another user's data, degrade service, use social engineering, or
 retain sensitive data. Stop after proving impact with the minimum evidence.

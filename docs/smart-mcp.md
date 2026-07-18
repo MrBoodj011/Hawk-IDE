@@ -205,10 +205,9 @@ The implementation follows current primary references:
 
 ## Deliberate limits
 
-- The local stdio MCP server remains a single-workspace local security
-  boundary. OAuth, RBAC, billing, licenses, and preference sync are provided
-  by the separate optional Hawk Cloud control plane; cloud identity never
-  turns the stdio MCP server into a remotely reachable multi-tenant service.
+- The local stdio MCP server remains a single-workspace, single-operator
+  security boundary. Hawk has no account, RBAC, billing, licensing, preference
+  sync, or remotely reachable multi-tenant service.
 - Docker bridge networking is not a host allowlist. Hawk requires exact scope,
   active-test authority, plan approval, and an extra bridge acknowledgement;
   a restricted egress proxy is still required for production active testing.
@@ -217,5 +216,5 @@ The implementation follows current primary references:
   MCP clients or third-party servers.
 - Static detections remain signals. Only the verifier can promote lifecycle
   state.
-- Production desktop signing and auto-update require organization-controlled
-  certificates and release credentials that must not be committed.
+- Personal Windows signing is optional. Release credentials, when used, must
+  never be committed.
