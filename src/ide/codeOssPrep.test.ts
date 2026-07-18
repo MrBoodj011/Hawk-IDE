@@ -22,7 +22,9 @@ describe('prepare-code-oss', () => {
   it('defines stable Hawk shell identities for every supported Windows architecture', async () => {
     const product = JSON.parse(await readFile(productOverrides, 'utf8')) as {
       win32ContextMenu: Record<string, { clsid: string }>;
+      tunnelApplicationName?: string;
     };
+    expect(product.tunnelApplicationName).toBeUndefined();
     const identifiers = ['x64', 'arm64'].map((arch) => product.win32ContextMenu[arch]?.clsid);
     expect(identifiers).toHaveLength(2);
     expect(new Set(identifiers).size).toBe(2);

@@ -6,7 +6,6 @@
   "sharedDataFolderName": ".hawk-shared",
   "serverApplicationName": "hawk-server",
   "serverDataFolderName": ".hawk-server",
-  "tunnelApplicationName": "hawk-tunnel",
   "win32DirName": "Hawk",
   "win32NameVersion": "Hawk Security IDE",
   "win32RegValueName": "Hawk",
@@ -25,8 +24,6 @@
       "clsid": "{0F706403-93F5-4D3B-B65B-9E1116CC8115}"
     }
   },
-  "win32TunnelServiceMutex": "hawk-tunnel-service",
-  "win32TunnelMutex": "hawk-tunnel",
   "darwinBundleIdentifier": "com.mrboodj011.hawk",
   "darwinProfileUUID": "1B1CECC8-2D5B-463A-BD6D-4B73B0595422",
   "darwinProfilePayloadUUID": "E5D9BE2B-E5F4-4BB5-953A-29BEBE28D579",
