@@ -3,14 +3,27 @@
   "version": "0.1.0-dev",
   "description": "Hawk is a security-native AI development environment for evidence-driven code review and authorized testing.",
   "type": "module",
-  "workspaces": ["extensions/*"],
+  "workspaces": [
+    "extensions/*"
+  ],
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
   "bin": {
     "hawk": "./dist/cli.js",
     "hawk-browser-mcp": "./dist/browser-mcp.js",
     "hawk-ide-daemon": "./dist/ide-daemon.js",
     "hawk-ide-mcp": "./dist/ide-mcp.js"
   },
-  "files": ["dist", "skills", "docs", "docker", "README.md", "LICENSE", "NOTICE"],
+  "files": [
+    "dist",
+    "skills",
+    "docs",
+    "docker",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli/index.ts",
@@ -82,6 +95,6 @@
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   }
 }
