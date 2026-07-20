@@ -27,6 +27,24 @@ The local-first security IDE for code, runtime evidence, governed AI, and review
 
 > Hawk is a branded Code-OSS workspace that keeps the operator in control. It connects source code, observed traffic, findings, evidence, AI-generated patches, tests, and retests in one local operating surface.
 
+<p align="center">
+  <a href="output/pdf/Hawk_Guide_Complet_Projet.pdf"><strong>Download the complete Hawk project guide (PDF)</strong></a>
+</p>
+
+### Project identity
+
+| Field | Value |
+| --- | --- |
+| Product | **Hawk Security IDE** |
+| Author and maintainer | **[MrBoodj011](https://github.com/MrBoodj011)** |
+| Repository | [github.com/MrBoodj011/hawk](https://github.com/MrBoodj011/hawk) |
+| Current version | `0.7.0` |
+| Package name | `@hawk/ide` |
+| License | [Apache-2.0](LICENSE) |
+| Operating model | Personal, local-first, operator-controlled |
+
+Hawk is developed and published by **MrBoodj011**. The repository contains the IDE source, native AI runtime, daemon, MCP server, extensions, Docker workers, release tooling, documentation, and the complete project guide.
+
 ## Why Hawk
 
 Hawk is built around one auditable loop:
@@ -116,6 +134,34 @@ Long jobs can fan out across up to 32 bounded worker instances with dependency-a
 | `restricted` | Authenticated Hawk egress proxy with exact host and port allowlists. |
 | `bridge` | Compatibility mode; use only with explicit approved external access. |
 
+## What each part does
+
+| Part | Responsibility | Typical operator action |
+| --- | --- | --- |
+| **Code-OSS desktop** | Branded editor, terminal, Git, debug host, extension host, and Hawk activity bar. | Open a trusted workspace and launch Mission Control. |
+| **Mission Control** | Operational view of code, routes, traffic, findings, proof, posture, and governed actions. | Index a workspace, inspect the Security Graph, or plan a scan. |
+| **Hawk AI** | Workspace-aware agent with streaming, context selection, plans, tool events, diff review, tests, and task history. | Ask for a bounded change, review the diff, run gates, then Apply or Reject. |
+| **Coding Core** | Hawk Tab, Next Edit, semantic index, search, model evaluation, debugger loop, and AST merge. | Predict an edit, search symbols, or recover a stopped debug task. |
+| **Traffic plane** | HAR import, Browser Companion, Burp Companion, timeline, source correlation, and identity replay. | Pair a local capture, import redacted traffic, or replay an approved request. |
+| **Security workflow** | Passive rules, findings, Docker reproduction, nine verification gates, retest, and evidence builder. | Turn a signal into a reviewable, reproducible evidence pack. |
+| **Smart MCP Brain** | Goals, policies, capability search, DAGs, approvals, memory, Sentinel, A2A, and artifacts. | Plan a mission before any sensitive tool is allowed to execute. |
+| **Worker mesh** | Bounded Docker agents, scheduling, leases, retries, checkpoints, and recovery. | Split a long task across isolated workers and inspect each artifact. |
+
+### End-to-end example
+
+```text
+1. Index the repository and map routes/symbols.
+2. Import a redacted HAR or pair Browser/Burp for authorized runtime context.
+3. Hawk links request -> route -> source -> signal in the Security Graph.
+4. The operator plans a passive scan or a supported offline reproduction.
+5. Hawk shows the exact policy, limits, plan hash, and approval dialog.
+6. Docker runs baseline, negative-control, and reproduction gates offline.
+7. Hawk AI prepares a minimal patch in an isolated worktree.
+8. The operator reviews the exact diff and runs approved gates.
+9. Apply, Reject, or Revert is decided by the operator, never by the model alone.
+10. Retest and export Markdown, HTML, JSON, SARIF, and SHA-256 evidence.
+```
+
 ## Architecture at a glance
 
 ```mermaid
@@ -195,6 +241,58 @@ The **Copy MCP config** command copies a local-only configuration:
 }
 ```
 
+## NPM command center
+
+The root package is the `@hawk/ide` workspace. NPM is used as the reproducible build and operations layer for the IDE, daemon, MCP server, extension, tests, benchmarks, Docker proxy, and release checks. Hawk is currently consumed from this repository; a hosted Hawk service or mandatory registry account is not required.
+
+<details>
+<summary><strong>Show the complete NPM script map</strong></summary>
+
+| Command | What it does |
+| --- | --- |
+| `npm install` | Installs the root package and all workspace dependencies. |
+| `npm run dev` | Starts the Hawk CLI from TypeScript source. |
+| `npm run dev:burp` | Starts the CLI with the Burp bridge enabled. |
+| `npm run dev:ide-daemon -- --workspace <path>` | Starts the loopback IDE daemon for a workspace. |
+| `npm run build` | Bundles the CLI, browser MCP, daemon, and IDE MCP binaries into `dist/`. |
+| `npm run build:extension` | Builds the root bundle and the `hawk-security-ide` extension. |
+| `npm run check:extension` | Typechecks and validates the Hawk extension workspace. |
+| `npm run package:extension` | Packages the extension as a VSIX artifact. |
+| `npm run check:branding` | Confirms product surfaces use Hawk branding. |
+| `npm run check:integrations` | Validates Browser and Burp integration contracts. |
+| `npm run test` | Runs the complete Vitest suite serially. |
+| `npm run test:watch` | Runs Vitest in interactive watch mode. |
+| `npm run typecheck` | Runs TypeScript with `--noEmit`. |
+| `npm run lint` | Runs Biome checks over `src/`. |
+| `npm run lint:fix` | Applies safe Biome formatting fixes. |
+| `npm run ci` | Runs branding, typecheck, lint, tests, build, extension, and integration gates. |
+| `npm run test:chaos` | Exercises worker crash, restart, network failure, and agent recovery. |
+| `npm run benchmark:index-memory` | Enforces the semantic-index RSS and search-latency budget. |
+| `npm run benchmark:beta-index` | Runs the larger cloned-repository index benchmark with memory enforcement. |
+| `npm run docker:build-egress-proxy` | Builds the authenticated restricted-egress worker proxy image. |
+| `npm run preview:ui` | Renders local UI preview screenshots. |
+| `npm run generate:browser-icons` | Rebuilds Browser Companion icons from the Hawk mark. |
+| `npm run beta:record` | Records a real beta session for release evidence. |
+| `npm run release:readiness` | Reports online release blockers without failing the shell. |
+| `npm run release:readiness:enforce` | Enforces every production readiness gate. |
+| `npm run test:update-real` | Tests a real private-feed update path. |
+| `npm run test:update-signed-real` | Tests a real update path with signature verification required. |
+| `npm run desktop:refresh-portable` | Refreshes the branded portable desktop tree. |
+| `npm run publish:browser-store -- --file <zip>` | Uploads a Browser Companion package when the owner store account is configured. |
+
+</details>
+
+### CLI entry points after build
+
+```text
+hawk             Interactive Hawk agent CLI
+hawk-browser-mcp Browser capture MCP bridge
+hawk-ide-daemon  Loopback IDE daemon
+hawk-ide-mcp     Smart MCP server and worker control plane
+```
+
+The CLI also supports `--backend`, `--model`, `--base-url`, `--api-key`, `--resume`, `--browser`, `--burp`, `--no-stream`, `--list-skills`, `--list-tools`, `--log`, and `--debug-session`. Use `npm run build` first, then `node dist/cli.js --help` for the live option list.
+
 ## A typical Hawk run
 
 1. Open a trusted workspace and index the source surface.
@@ -207,6 +305,98 @@ The **Copy MCP config** command copies a local-only configuration:
 8. Reproduce supported deterministic signals in an offline sandbox.
 9. Use the Security Graph and evidence builder to produce a portable report.
 10. Retest the signal after the fix; keep the finding unverified until all gates pass.
+
+## Hawk AI and model routing
+
+Hawk supports local and explicit BYOK providers. The router selects a configured primary and can use named fallbacks for fast, reasoning, security, or general tasks. A fallback is attempted only before the primary has streamed output.
+
+| Provider | Local / hosted | Use |
+| --- | --- | --- |
+| Ollama | Local loopback | Private coding, embeddings, and offline work. |
+| LM Studio | Local loopback | OpenAI-compatible local serving. |
+| OpenAI | BYOK | Hosted reasoning or coding when explicitly configured. |
+| OpenAI-compatible | BYOK | Self-hosted or compatible gateway endpoints. |
+| Anthropic | BYOK | Claude coding and review workflows. |
+| Gemini | BYOK | Gemini model routing. |
+| Groq | BYOK | Low-latency hosted inference. |
+| OpenRouter | BYOK | Multi-model routing through one explicit key. |
+| DeepSeek | BYOK | Coding-focused hosted inference. |
+| Kimi | BYOK | Kimi model routing. |
+
+Provider keys are read from local environment variables or local settings. Hawk does not synchronize keys, prompts, source code, sessions, or engagement data to a Hawk cloud.
+
+## Local data and persistence
+
+| Location | Contents |
+| --- | --- |
+| `.hawk/health.json` | Sanitized health-report summary. |
+| `.hawk/reports/` | Evidence packs, reports, SARIF, and manifests. |
+| `.hawk/plans/` | Governed mission plans and approval hashes. |
+| `.hawk/brain/` | Goals, policies, memory, runs, and MCP events. |
+| `.hawk/orchestrations/` | Docker run snapshots, leases, logs, and artifacts. |
+| `~/.hawk/ide/workspaces/<hash>/ai-sessions/` | Durable AI sessions, events, checkpoints, patches, and task recovery state. |
+| `~/.hawk/ide/prediction-evaluation/` | Aggregated Next Edit scorecards without retaining source code. |
+
+Persistence uses atomic writes, path validation, bounded artifacts, SHA-256 identities, and drift checks. Symlinks, junctions, special files, and paths that escape the selected workspace are rejected.
+
+## Local daemon API
+
+The daemon is loopback-only and requires `X-Hawk-Token`. The most important endpoints are:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/v1/health` | Health, version, and protocol status. |
+| `POST` | `/v1/workspace/index` | Index routes and source files. |
+| `POST` | `/v1/workspace/search` | Search the semantic index. |
+| `POST` | `/v1/ai/sessions` | Create a durable Hawk AI session. |
+| `GET` | `/v1/ai/sessions/:id/events` | Stream/replay task events. |
+| `GET` | `/v1/ai/sessions/:id/diff` | Read the exact review patch. |
+| `POST` | `/v1/ai/sessions/:id/tests` | Run approved gates. |
+| `POST` | `/v1/ai/sessions/:id/apply` | Apply a hash-bound patch. |
+| `POST` | `/v1/ai/sessions/:id/revert` | Revert only when drift checks pass. |
+| `GET` | `/v1/security/graph` | Read graph nodes and edges. |
+| `GET` | `/v1/traffic` | Read imported/live traffic metadata. |
+| `POST` | `/v1/traffic/replay/plan` | Plan a governed identity replay. |
+| `POST` | `/v1/traffic/replay/execute` | Execute a second-approved replay. |
+| `POST` | `/v1/findings/:id/reproduce` | Run a bounded offline reproduction. |
+| `POST` | `/v1/findings/:id/retest` | Retest a signal after a fix. |
+| `POST` | `/v1/reports/evidence` | Build Markdown, HTML, JSON, SARIF, and manifest output. |
+| `POST` | `/v1/missions/plan` | Compile a Smart MCP mission without executing it. |
+
+Every request is bounded by host checks, peer checks, token authentication, body limits, timeouts, and no-store response headers.
+
+## MCP surface and governance
+
+The Smart MCP Brain is not a free-form shell. A mission carries a typed goal, target scope, authority, budget, model policy, network policy, and success criteria. Hawk compiles that contract into a DAG and rechecks policy at execution time.
+
+| MCP capability | Role |
+| --- | --- |
+| Workspace and semantic search | Find files, symbols, routes, and evidence context. |
+| Hawk AI sessions | Create, stream, pause, resume, inspect, test, apply, reject, or revert a task. |
+| Scan templates | Plan passive workspace, captured-runtime, or release-gate scans. |
+| Traffic tools | Import HAR, pair Browser/Burp, inspect timeline, and plan governed replay. |
+| Reproduction tools | Create exact-hash sandbox plans and execute supported deterministic gates. |
+| ProofGraph resources | Read graph nodes, provenance, confidence, run events, and artifacts. |
+| Evidence builder | Export portable reports with SHA-256 manifests. |
+| Worker orchestration | Estimate critical path, start a DAG, poll status, cancel, and recover tasks. |
+| Sentinel | Fingerprint MCP servers and guard against poisoning, injection, secret-like output, and trust changes. |
+| A2A bridge and Eval Lab | Exchange local task envelopes and compare agent strategies under equal budgets. |
+
+Sensitive actions are separated from planning. Planning a mission does not approve it, and an approval hash does not bypass runtime policy checks.
+
+## Evidence and report outputs
+
+Hawk writes sanitized artifacts under `.hawk/reports/`:
+
+| Artifact | Why it exists |
+| --- | --- |
+| `report.md` | Analyst-readable narrative and review history. |
+| `report.html` | Portable browser presentation. |
+| `evidence.json` | Structured automation input. |
+| `findings.sarif` | Interoperability with code-scanning tools. |
+| `manifest.json` | SHA-256 digest and size for every artifact. |
+
+The repository also includes the full human-readable project guide: [Hawk_Guide_Complet_Projet.pdf](output/pdf/Hawk_Guide_Complet_Projet.pdf). It documents the UI, buttons, commands, MCP tools, API, Docker boundaries, workflows, screenshots, validation, and remaining release gates.
 
 ## Security model
 
@@ -271,6 +461,25 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 - [Production readiness](docs/release/PRODUCTION_READINESS.md)
 - [External pentest runbook](docs/audit/EXTERNAL_PENTEST_RUNBOOK.md)
 - [Threat model](docs/security/THREAT_MODEL.md)
+
+## Repository map
+
+```text
+src/                         CLI, daemon, agent runtime, Coding Core, MCP, graph, scans
+extensions/hawk-security-ide VS Code / Code-OSS extension and Mission Control UI
+integrations/browser/        Browser Companion source and icons
+integrations/burp/           Burp Companion source and build metadata
+docker/                      Worker images and restricted egress proxy
+docs/                        Architecture, security, release, beta, and workflow contracts
+skills/                      Local agent playbooks and governed task skills
+scripts/                     Benchmarks, branding checks, release checks, and packaging helpers
+desktop/                     Branded Code-OSS preparation and portable desktop tooling
+output/pdf/                  Complete Hawk project guide
+```
+
+## Author, ownership, and attribution
+
+Hawk is a personal project created, branded, and maintained by **[MrBoodj011](https://github.com/MrBoodj011)**. The public repository is the canonical source for the Hawk Security IDE, its documentation, releases, and the complete PDF guide. Issues and pull requests should include a reproducible command, the affected surface, and whether the behavior is local-only or involves an authorized target.
 
 ## Health report liaison
 
