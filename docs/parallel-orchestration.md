@@ -152,27 +152,33 @@ The `command` array is passed directly to Docker without a host shell. An
 image can explicitly use `sh -lc` inside the container when a pipeline is
 needed.
 
-## Headless LLM workers
+## Headless LLM workers and restricted egress
 
-For a custom image that calls a hosted LLM or a model reachable over Docker's
-bridge network, the MCP request must opt in:
+For a custom image that calls a hosted LLM, the MCP request must provide the
+exact destination allowlist and explicitly approve the egress policy:
 
 ```json
 {
-  "network_mode": "bridge",
+  "network_mode": "restricted",
+  "egress_allowed_hosts": ["api.example.com"],
+  "egress_allowed_ports": [443],
   "inherit_env": ["OPENAI_API_KEY"],
   "approved_external_access": true
 }
 ```
 
-Hawk passes only the named host variables to Docker and never returns their
-values in MCP output or persisted run state. Enabling this option can create
-external API usage and cost for every active worker, so keep
-`max_parallel`, token limits, and provider budgets explicit.
+Hawk creates an internal Docker network and a local `hawk-egress-proxy` sidecar.
+Workers have no direct external interface; HTTP/HTTPS traffic must authenticate
+to the sidecar and match the normalized host and TCP-port allowlist. Build the
+proxy image once with `npm run docker:build-egress-proxy`. Hawk passes only the
+named host variables to Docker and never returns their values in MCP output or
+persisted run state. Enabling this option can create external API usage and
+cost for every active worker, so keep `max_parallel`, token limits, and provider
+budgets explicit.
 
 For local Ollama on Docker Desktop, configure the worker's provider endpoint
-as `http://host.docker.internal:11434`; it still requires bridge networking
-and explicit approval.
+as `http://host.docker.internal:11434`, add `host.docker.internal` and port
+`11434` to the restricted allowlist, and keep explicit approval enabled.
 
 ## Long-running behavior
 

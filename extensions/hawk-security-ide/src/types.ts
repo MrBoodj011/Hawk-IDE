@@ -291,6 +291,47 @@ export interface TrafficInventory {
   live: boolean;
 }
 
+export interface IdentityReplayPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  approvalHash: string;
+  request: {
+    id: string;
+    method: string;
+    url: string;
+    host: string;
+  };
+  identities: Array<{ id: string; label: string; headerNames: string[] }>;
+  rateLimit: { maxRequests: number; maxRequestsPerSecond: number };
+  statement: string;
+}
+
+export interface IdentityReplayResult {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  requestId: string;
+  host: string;
+  startedAt: string;
+  completedAt: string;
+  observations: Array<{
+    identityId: string;
+    label: string;
+    status?: number;
+    elapsedMs: number;
+    contentType?: string;
+    location?: string;
+    bodyBytesObserved: number;
+    bodyPrefixSha256?: string;
+    truncated: boolean;
+    matchesBaseline?: boolean;
+    error?: string;
+  }>;
+  statement: string;
+}
+
 export interface HawkHealthSummary {
   repositories: number;
   maintenanceScore?: number;

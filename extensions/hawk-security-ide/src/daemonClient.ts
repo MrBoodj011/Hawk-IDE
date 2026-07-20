@@ -21,6 +21,8 @@ import type {
   GovernedMissionProfile,
   HawkHealthReport,
   InlineCompletionResponse,
+  IdentityReplayPlan,
+  IdentityReplayResult,
   RetestResult,
   SandboxReproductionPlan,
   SandboxReproductionResult,
@@ -294,6 +296,35 @@ export class DaemonClient implements vscode.Disposable {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(har),
+    });
+  }
+
+  async createIdentityReplayPlan(
+    workspace: vscode.Uri,
+    input: {
+      requestId: string;
+      allowedHost: string;
+      identities: Array<{ id: string; label: string; headers: Record<string, string> }>;
+      maxRequestsPerSecond?: number;
+    },
+  ): Promise<IdentityReplayPlan> {
+    const daemon = await this.start(workspace);
+    return await this.request<IdentityReplayPlan>(daemon, '/v1/traffic/replay/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async executeIdentityReplay(
+    workspace: vscode.Uri,
+    input: { planId: string; approvalHash: string; approved: true },
+  ): Promise<IdentityReplayResult> {
+    const daemon = await this.start(workspace);
+    return await this.request<IdentityReplayResult>(daemon, '/v1/traffic/replay/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     });
   }
 

@@ -29,6 +29,13 @@ All notable changes to this project are documented here. The format is based on
 - **Production evidence gates** — machine-readable beta-session, independent
   pentest, Windows signing, current CI, and official release checks prevent a
   release from being described as production-ready without real evidence.
+- **Governed identity replay** — authorized Browser/Burp captures can be
+  compared across two to eight named identities with exact host-and-port scope,
+  explicit approval hashes, rate limits, no redirects, and bounded response
+  fingerprints.
+- **Restricted Docker egress** — active workers use an internal network and an
+  authenticated Hawk proxy that enforces normalized host and TCP-port
+  allowlists; legacy `bridge` requests are normalized to this safer contract.
 
 ### Changed
 

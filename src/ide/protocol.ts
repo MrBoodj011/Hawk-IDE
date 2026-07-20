@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 11;
+export const IDE_PROTOCOL_VERSION = 12;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -81,6 +81,62 @@ export interface TrafficInventory {
   requests: TrafficRequest[];
   truncated: boolean;
   live: boolean;
+}
+
+export interface IdentityReplayCredentialInput {
+  id: string;
+  label: string;
+  headers: Record<string, string>;
+}
+
+export interface IdentityReplayPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  approvalHash: string;
+  request: {
+    id: string;
+    method: string;
+    url: string;
+    host: string;
+  };
+  identities: Array<{
+    id: string;
+    label: string;
+    headerNames: string[];
+  }>;
+  rateLimit: {
+    maxRequests: number;
+    maxRequestsPerSecond: number;
+  };
+  statement: string;
+}
+
+export interface IdentityReplayObservation {
+  identityId: string;
+  label: string;
+  status?: number;
+  elapsedMs: number;
+  contentType?: string;
+  location?: string;
+  bodyBytesObserved: number;
+  bodyPrefixSha256?: string;
+  truncated: boolean;
+  matchesBaseline?: boolean;
+  error?: string;
+}
+
+export interface IdentityReplayResult {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  requestId: string;
+  host: string;
+  startedAt: string;
+  completedAt: string;
+  observations: IdentityReplayObservation[];
+  statement: string;
 }
 
 export interface HawkHealthSummary {

@@ -76,6 +76,11 @@ extensions, protocols, and release assets use the Hawk identity.
 - HAR import that stays on-device, redacts sensitive query values, never
   replays requests, and never retains request or response bodies. Imported
   traffic can be combined with a live, redacted Browser/Burp timeline.
+- Governed multi-identity replay for an explicitly approved captured request:
+  exact host-and-port binding, 2–8 named credential sets, a 0.1–5 request/sec
+  ceiling, no redirects, bounded response fingerprints, and memory-only
+  credentials/bodies. Response differences are evidence leads, never automatic
+  authorization findings.
 - Installable Browser and Burp companions with explicit pairing, URL scope,
   request-rate limits, bounded queues, sensitive-header redaction, and capture
   disabled by default. Mission Control polls the local evidence plane and
@@ -251,17 +256,12 @@ evidence builder uses the same local boundary and writes Markdown, HTML, JSON,
 SARIF, and SHA-256 metadata under `.hawk/reports/`. Every static signal still
 needs manual validation.
 
-## Roadmap
+## Remaining roadmap
 
-1. Authenticated multi-identity replay and deeper source-to-data-flow
-   correlation beyond framework route declarations.
-2. A restricted egress proxy that enforces the declared host allowlist for
-   active containers. Docker bridge mode currently requires an additional
-   warning acknowledgement because Docker itself does not enforce host-level
-   destinations.
-3. Deeper local evidence correlation, stronger Docker egress enforcement, and
-   more offline evaluation fixtures. Smart MCP, the A2A bridge, and persistence
-   remain intentionally single-operator and local-first.
+1. Deeper source-to-data-flow correlation beyond framework route declarations.
+2. More offline evaluation fixtures and optional cross-machine worker pools.
+   Smart MCP, the A2A bridge, and persistence remain intentionally
+   single-operator and local-first.
 
 ## License and attribution
 

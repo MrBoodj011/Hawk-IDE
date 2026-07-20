@@ -1073,7 +1073,7 @@ export function renderMissionControlHtml(
             </article>
             <div class="stack">
               <article class="card" id="traffic-section">
-                <div class="card-head"><div class="card-title">Traffic pulse <span id="traffic-mode">waiting</span></div><button class="button small secondary" data-action="pair-capture">Pair</button></div>
+                <div class="card-head"><div class="card-title">Traffic pulse <span id="traffic-mode">waiting</span></div><div class="button-row"><button class="button small secondary" data-action="pair-capture">Pair</button><button class="button small ghost" data-action="identity-replay">Replay</button></div></div>
                 <div id="traffic-list" class="list"><div class="empty-state">Pair a Hawk capture companion or import a redacted HAR.</div></div>
               </article>
               <article class="card">

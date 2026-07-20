@@ -38,7 +38,7 @@ describe('startIdeDaemon', () => {
       expect(health.status).toBe(200);
       expect(health.headers.get('cache-control')).toBe('no-store');
       expect(health.headers.get('x-content-type-options')).toBe('nosniff');
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 11 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 12 });
 
       const predictionEvaluation = await fetch(`${daemon.url}/v1/ai/edit-prediction/evaluation`, {
         headers,
@@ -181,7 +181,12 @@ describe('startIdeDaemon', () => {
       expect(captured.status).toBe(202);
       const liveTraffic = await fetch(`${daemon.url}/v1/traffic`, { headers });
       expect(liveTraffic.status).toBe(200);
-      await expect(liveTraffic.json()).resolves.toMatchObject({
+      const liveTrafficBody = (await liveTraffic.json()) as {
+        source: string;
+        live: boolean;
+        requests: Array<{ id: string; source?: string; url: string }>;
+      };
+      expect(liveTrafficBody).toMatchObject({
         source: 'mixed',
         live: true,
         requests: expect.arrayContaining([
@@ -191,6 +196,35 @@ describe('startIdeDaemon', () => {
           }),
         ]),
       });
+      const capturedRequestId = liveTrafficBody.requests.find(
+        (request) => request.source === 'burp',
+      )?.id;
+      const replayPlan = await fetch(`${daemon.url}/v1/traffic/replay/plan`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: capturedRequestId,
+          allowedHost: 'api.example.test',
+          maxRequestsPerSecond: 2,
+          identities: [
+            {
+              id: 'owner',
+              label: 'Owner',
+              headers: { Authorization: 'Bearer owner-secret' },
+            },
+            {
+              id: 'other',
+              label: 'Other user',
+              headers: { Authorization: 'Bearer other-secret' },
+            },
+          ],
+        }),
+      });
+      expect(replayPlan.status).toBe(201);
+      const replayPlanText = await replayPlan.text();
+      expect(replayPlanText).toContain('"approvalHash"');
+      expect(replayPlanText).not.toContain('owner-secret');
+      expect(replayPlanText).not.toContain('other-secret');
 
       const hawk = await fetch(`${daemon.url}/v1/hawk/health/import`, {
         method: 'POST',
@@ -284,7 +318,7 @@ describe('startIdeDaemon', () => {
       const securityGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
       expect(securityGraph.status).toBe(200);
       await expect(securityGraph.json()).resolves.toMatchObject({
-        protocolVersion: 11,
+        protocolVersion: 12,
         summary: {
           routes: 1,
           requests: expect.any(Number),

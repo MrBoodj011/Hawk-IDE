@@ -21,6 +21,11 @@ import { buildEvidencePack } from './evidenceReport.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import {
+  type IdentityReplayExecuteInput,
+  type IdentityReplayPlanInput,
+  IdentityReplayService,
+} from './identityReplay.js';
+import {
   type EditPredictionRequest,
   type InlineCompletionRequest,
   createInlineCompletion,
@@ -53,7 +58,12 @@ import {
 import { buildUnifiedSecurityGraph, securityGraphResponse } from './securityGraph.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
-import { importHarTraffic, importLiveTraffic, mergeTrafficInventories } from './traffic.js';
+import {
+  importHarTraffic,
+  importLiveTraffic,
+  liveTrafficRequestId,
+  mergeTrafficInventories,
+} from './traffic.js';
 import {
   createWorkspaceScanPlan,
   createWorkspaceScanTemplates,
@@ -123,6 +133,14 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   await editPredictions.initialize();
   const completionLatencies: number[] = [];
   const captureStore = new CaptureStore({ maxEntries: 5_000 });
+  const identityReplay = new IdentityReplayService(
+    (id) =>
+      captureStore.getRequest(id) ??
+      captureStore
+        .listRequests({ limit: 5_000 })
+        .find((entry) => liveTrafficRequestId(entry) === id),
+    now,
+  );
   const captureServer = await startIngestServer({
     store: captureStore,
     port: 0,
@@ -166,6 +184,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       semanticIndex,
       editPredictions,
       completionLatencies: () => [...completionLatencies],
+      identityReplay,
       recordCompletionLatency: (latencyMs) => {
         completionLatencies.push(latencyMs);
         if (completionLatencies.length > 100) completionLatencies.shift();
@@ -225,6 +244,7 @@ interface RequestContext {
   reproducer: SandboxVulnerabilityReproducer;
   semanticIndex: SemanticWorkspaceIndex;
   editPredictions: EditPredictionEngine;
+  identityReplay: IdentityReplayService;
   completionLatencies(): number[];
   recordCompletionLatency(latencyMs: number): void;
 }
@@ -733,6 +753,26 @@ async function handleRequest(
       const traffic = importHarTraffic(JSON.parse(body.toString('utf8')), context.now());
       context.setTraffic(traffic);
       sendJSON(res, 200, traffic);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/traffic/replay/plan') {
+    try {
+      const input = parseJSONBody<IdentityReplayPlanInput>(await readBody(req));
+      sendJSON(res, 201, context.identityReplay.createPlan(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/traffic/replay/execute') {
+    try {
+      const input = parseJSONBody<IdentityReplayExecuteInput>(await readBody(req));
+      sendJSON(res, 200, await context.identityReplay.execute(input));
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }

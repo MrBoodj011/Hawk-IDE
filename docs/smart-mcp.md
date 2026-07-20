@@ -227,9 +227,11 @@ The implementation follows current primary references:
 - The local stdio MCP server remains a single-workspace, single-operator
   security boundary. Hawk has no account, RBAC, billing, licensing, preference
   sync, or remotely reachable multi-tenant service.
-- Docker bridge networking is not a host allowlist. Hawk requires exact scope,
-  active-test authority, plan approval, and an extra bridge acknowledgement;
-  a restricted egress proxy is still required for production active testing.
+- Active container networking is never implicit. Hawk requires exact scope,
+  active-test authority, plan approval, and an explicit restricted egress
+  allowlist. Workers use an internal Docker network and an authenticated Hawk
+  proxy that enforces the declared hosts and TCP ports; `bridge` is accepted
+  only as a compatibility alias and is normalized to restricted mode.
 - The MCP App controls Hawk runs, not arbitrary host processes.
 - Sentinel audits do not transparently intercept arbitrary calls made by other
   MCP clients or third-party servers.

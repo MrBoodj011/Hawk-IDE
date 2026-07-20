@@ -158,10 +158,7 @@ function parseCapturedRequest(entry: CapturedRequest): TrafficRequest | undefine
   const completedAt =
     typeof entry.timeEnd === 'number' ? new Date(entry.timeEnd).toISOString() : undefined;
   return {
-    id: `live-${createHash('sha256')
-      .update(`${entry.id}\u0000${entry.method}\u0000${entry.url}`)
-      .digest('hex')
-      .slice(0, 16)}`,
+    id: liveTrafficRequestId(entry),
     method: entry.method.toUpperCase(),
     url: sanitizeURL(url),
     host: url.host,
@@ -175,6 +172,13 @@ function parseCapturedRequest(entry: CapturedRequest): TrafficRequest | undefine
     ...(entry.initiator ? { initiator: sanitizeInitiator(entry.initiator) } : {}),
     ...(entry.type ? { type: entry.type.slice(0, 80) } : {}),
   };
+}
+
+export function liveTrafficRequestId(entry: CapturedRequest): string {
+  return `live-${createHash('sha256')
+    .update(`${entry.id}\u0000${entry.method}\u0000${entry.url}`)
+    .digest('hex')
+    .slice(0, 16)}`;
 }
 
 function uniqueHosts(requests: TrafficRequest[]): string[] {

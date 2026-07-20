@@ -29,6 +29,7 @@
     "onCommand:hawk.configureHawkHealthSync",
     "onCommand:hawk.openSecurityDashboard",
     "onCommand:hawk.pairCapture",
+    "onCommand:hawk.planIdentityReplay",
     "onCommand:hawk.buildEvidencePack",
     "onCommand:hawk.planGovernedMission",
     "onCommand:hawk.toggleTab",
@@ -108,6 +109,10 @@
       {
         "command": "hawk.pairCapture",
         "title": "Hawk: Pair Browser / Burp Capture"
+      },
+      {
+        "command": "hawk.planIdentityReplay",
+        "title": "Hawk: Plan Governed Identity Replay"
       },
       {
         "command": "hawk.buildEvidencePack",

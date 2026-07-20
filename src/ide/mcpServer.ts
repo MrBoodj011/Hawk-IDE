@@ -329,7 +329,7 @@ async function main(): Promise<void> {
             isolation: {
               workspace: 'read-only',
               output: '.hawk/orchestrations/<run>/<task>',
-              network: 'none by default; bridge requires explicit approval',
+              network: 'none by default; restricted allowlist proxy requires explicit approval',
               capabilities: 'dropped',
             },
           },
@@ -415,7 +415,7 @@ async function main(): Promise<void> {
     {
       title: 'Start isolated parallel Hawk workers',
       description:
-        'Start a background dependency graph of independent tasks in isolated Docker containers. The image must already exist locally. Workers receive a read-only workspace, write only to per-task artifact folders, use CPU/RAM/PID/time limits, and are removed when done. Network and credential inheritance are off by default and require explicit external-access approval. Use this only for authorized work.',
+        'Start a background dependency graph of independent tasks in isolated Docker containers. The image must already exist locally. Workers receive a read-only workspace, write only to per-task artifact folders, use CPU/RAM/PID/time limits, and are removed when done. Network is none by default; approved external access must use the restricted allowlist proxy. Credential inheritance also requires explicit approval. Use this only for authorized work.',
       inputSchema: {
         image: z
           .string()
@@ -463,11 +463,35 @@ async function main(): Promise<void> {
           .optional()
           .describe('Hard tmpfs ceiling for one worker artifact directory. Defaults to 512 MB.'),
         network_mode: z
-          .enum(['none', 'bridge'])
+          .enum(['none', 'restricted', 'bridge'])
           .optional()
           .describe(
-            'Container network mode. Defaults to none. Bridge requires approved_external_access.',
+            'Container network mode. Defaults to none. Restricted uses an internal Docker network plus the Hawk allowlist proxy. Bridge is accepted only as a compatibility alias for restricted.',
           ),
+        egress_allowed_hosts: z
+          .array(
+            z
+              .string()
+              .min(1)
+              .max(253)
+              .describe('Exact hostname/IP or a wildcard such as *.example.com.'),
+          )
+          .min(1)
+          .max(64)
+          .optional()
+          .describe('Required allowlist whenever network_mode is restricted or bridge.'),
+        egress_allowed_ports: z
+          .array(z.number().int().min(1).max(65_535))
+          .min(1)
+          .max(16)
+          .optional()
+          .describe('Allowed TCP destination ports. Defaults to 80 and 443.'),
+        egress_proxy_image: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe('Existing local Hawk proxy image. Defaults to hawk-egress-proxy:0.1.0.'),
         inherit_env: z
           .array(z.string().regex(/^[A-Z_][A-Z0-9_]{0,127}$/))
           .max(16)
@@ -524,6 +548,13 @@ async function main(): Promise<void> {
           memoryMbPerWorker: input.memory_mb_per_worker,
           artifactMbPerWorker: input.artifact_mb_per_worker,
           networkMode: input.network_mode,
+          egressPolicy: input.egress_allowed_hosts
+            ? {
+                allowedHosts: input.egress_allowed_hosts,
+                allowedPorts: input.egress_allowed_ports,
+                proxyImage: input.egress_proxy_image,
+              }
+            : undefined,
           inheritEnv: input.inherit_env,
           approvedExternalAccess: input.approved_external_access,
           scheduleStrategy: input.schedule_strategy,

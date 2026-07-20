@@ -22,7 +22,7 @@ license files.
 | Browser companion | Redacted Fetch/XHR/WebSocket and webRequest metadata | Disabled by default; explicit regex scope and rate limit |
 | Burp companion | Redacted proxy traffic sent to the local Hawk evidence plane | Burp scope by default; explicit pairing and bounded queue |
 | Smart MCP Brain | Typed goals, capability DAGs, model routing, exact-plan approval, durable runs | Scope, actions, budgets, and SHA-256 plan hashes are immutable contracts |
-| Docker worker mesh | Parallel isolated validation, patch, and regression lanes | Local image only, immutable image ID, non-root, no network by default, quotas |
+| Docker worker mesh | Parallel isolated validation, patch, and regression lanes | Local image only, immutable image ID, non-root, no network by default, restricted allowlist proxy for approved egress, quotas |
 | Evidence builder | Markdown, HTML, JSON, SARIF, and SHA-256 manifest | Sanitized local evidence; no request replay |
 
 ## System flow
@@ -175,7 +175,10 @@ Worker controls include:
 - non-root UID/GID;
 - all Linux capabilities dropped and `no-new-privileges`;
 - no container network by default;
-- explicit approval for bridge networking or inherited environment values;
+- explicit approval for restricted egress or inherited environment values;
+- an internal Docker network whose only external hop is the Hawk egress proxy;
+  exact host and TCP-port allowlists are normalized, hashed, persisted, and
+  injected into every worker without exposing the private proxy token;
 - CPU, RAM, PID, open-file, timeout, retry, and global multi-run ceilings;
 - per-worker artifact tmpfs quota copied out only after completion;
 - capped output, per-task artifact directories, cancellation, and forced cleanup;

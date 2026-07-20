@@ -74,6 +74,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hawk.pairCapture', async () => {
       await dashboard.pairCaptureCompanions();
     }),
+    vscode.commands.registerCommand('hawk.planIdentityReplay', async () => {
+      await dashboard.planIdentityReplay();
+    }),
     vscode.commands.registerCommand('hawk.buildEvidencePack', async () => {
       await dashboard.buildEvidencePack();
     }),

@@ -70,4 +70,8 @@ reproduction gates in a read-only, zero-network Docker sandbox. A reproduced
 signal remains unverified until the separate identity, impact, scope, evidence,
 and review gates pass. HAR import remains local and retains only a redacted
 request inventory; it does not replay traffic or retain bodies, cookies, or
-authorization headers.
+authorization headers. For authorized differential testing, **Hawk: Plan
+Identity Replay** binds two to eight named credential sets to one exact
+captured host and port, requires a second explicit approval, rate-limits each
+request, disables redirects, and returns only bounded response fingerprints.
+Credentials and response bodies remain memory-only.

@@ -103,6 +103,51 @@ describe('HawkDockerOrchestrator', () => {
         tasks: [{ id: 'valid', title: 'Tiny output quota', command: ['scan'] }],
       }),
     ).rejects.toThrow('artifactMbPerWorker');
+    await expect(
+      orchestrator.start({
+        image: 'hawk-worker:test',
+        networkMode: 'bridge',
+        approvedExternalAccess: true,
+        tasks: [{ id: 'networked', title: 'Networked task', command: ['scan'] }],
+      }),
+    ).rejects.toThrow('egressPolicy.allowedHosts');
+  });
+
+  it('turns legacy bridge requests into an enforced restricted-egress contract', async () => {
+    const root = await temporaryWorkspace();
+    const runtime = new FakeRuntime();
+    const orchestrator = new HawkDockerOrchestrator(root, runtime);
+    const started = await orchestrator.start({
+      image: 'hawk-worker:test',
+      networkMode: 'bridge',
+      egressPolicy: {
+        allowedHosts: ['API.Example.com', '*.assets.example.com'],
+        allowedPorts: [443],
+      },
+      approvedExternalAccess: true,
+      tasks: [{ id: 'networked', title: 'Networked task', command: ['scan'] }],
+    });
+    const completed = await waitForTerminal(orchestrator, started.id);
+
+    expect(completed).toMatchObject({
+      status: 'succeeded',
+      networkMode: 'restricted',
+      egressPolicy: {
+        allowedHosts: ['*.assets.example.com', 'api.example.com'],
+        allowedPorts: [443],
+        proxyImage: 'hawk-egress-proxy:0.1.0',
+      },
+    });
+    expect(completed.egressPolicy?.allowlistDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(runtime.contexts[0]).toMatchObject({
+      networkMode: 'restricted',
+      egressPolicy: {
+        allowedHosts: ['*.assets.example.com', 'api.example.com'],
+        allowedPorts: [443],
+      },
+    });
+    expect(runtime.contexts[0]?.egressPolicy?.proxyToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(completed)).not.toContain(runtime.contexts[0]?.egressPolicy?.proxyToken);
   });
 
   it('refuses workspace persistence when .hawk is replaced by a file', async () => {
@@ -257,6 +302,7 @@ class FakeRuntime implements WorkerRuntime {
   maxActive = 0;
   readonly started: string[] = [];
   readonly assignments: Array<[string, string]> = [];
+  readonly contexts: WorkerTaskContext[] = [];
 
   constructor(private readonly failures = new Set<string>()) {}
 
@@ -265,6 +311,7 @@ class FakeRuntime implements WorkerRuntime {
   }
 
   async run(context: WorkerTaskContext): Promise<WorkerTaskResult> {
+    this.contexts.push(structuredClone(context));
     this.active += 1;
     this.maxActive = Math.max(this.maxActive, this.active);
     this.started.push(context.task.id);

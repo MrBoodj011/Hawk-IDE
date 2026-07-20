@@ -235,6 +235,140 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  async planIdentityReplay(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    try {
+      const traffic = await this.client.traffic(workspace);
+      if (!traffic || traffic.requests.length === 0) {
+        vscode.window.showInformationMessage(
+          'Import a HAR or pair a Browser/Burp companion before planning identity replay.',
+        );
+        return;
+      }
+      const selected = await vscode.window.showQuickPick(
+        traffic.requests.map((request) => ({
+          label: request.method + ' ' + request.url,
+          description: request.host + (request.status ? ' · ' + request.status : ''),
+          detail: request.source ? 'Captured by ' + request.source : 'Captured request',
+          request,
+        })),
+        {
+          title: 'Hawk: Choose the captured request to replay',
+          placeHolder: 'Exact host and port are bound into the approval plan',
+          matchOnDescription: true,
+        },
+      );
+      if (!selected) return;
+      const countText = await vscode.window.showInputBox({
+        title: 'Hawk: Number of identities',
+        prompt: 'Enter how many named credential sets to compare (2–8).',
+        value: '2',
+        validateInput: (value) => {
+          const count = Number(value);
+          return Number.isInteger(count) && count >= 2 && count <= 8
+            ? undefined
+            : 'Enter an integer from 2 to 8.';
+        },
+      });
+      if (!countText) return;
+      const count = Number(countText);
+      const identities: Array<{ id: string; label: string; headers: Record<string, string> }> = [];
+      const usedIds = new Set<string>();
+      for (let index = 0; index < count; index += 1) {
+        const ordinal = index + 1;
+        const id = await vscode.window.showInputBox({
+          title: 'Hawk: Identity ' + ordinal + ' of ' + count,
+          prompt: 'Short safe id (for example owner or other-user).',
+          validateInput: (value) => {
+            const normalized = value.trim();
+            if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(normalized)) {
+              return 'Use letters, numbers, dots, underscores, or hyphens.';
+            }
+            return usedIds.has(normalized) ? 'Each identity id must be unique.' : undefined;
+          },
+        });
+        if (!id) return;
+        const label = await vscode.window.showInputBox({
+          title: 'Hawk: Label for ' + id,
+          prompt: 'Human-readable identity label.',
+          validateInput: (value) => (value.trim() ? undefined : 'A label is required.'),
+        });
+        if (!label) return;
+        const credential = await vscode.window.showInputBox({
+          title: 'Hawk: Credential header for ' + label,
+          prompt: 'Enter one credential header as Name: value. This input is hidden and never persisted.',
+          password: true,
+          validateInput: (value) => {
+            const separator = value.indexOf(':');
+            if (separator <= 0 || !value.slice(separator + 1).trim()) {
+              return 'Enter a header like Authorization: Bearer <token>.';
+            }
+            return undefined;
+          },
+        });
+        if (!credential) return;
+        const separator = credential.indexOf(':');
+        const headerName = credential.slice(0, separator).trim();
+        const headerValue = credential.slice(separator + 1).trim();
+        usedIds.add(id.trim());
+        identities.push({ id: id.trim(), label: label.trim(), headers: { [headerName]: headerValue } });
+      }
+      const rateText = await vscode.window.showInputBox({
+        title: 'Hawk: Replay rate limit',
+        prompt: 'Maximum requests per second (0.1–5).',
+        value: '2',
+        validateInput: (value) => {
+          const rate = Number(value);
+          return Number.isFinite(rate) && rate >= 0.1 && rate <= 5
+            ? undefined
+            : 'Enter a number from 0.1 to 5.';
+        },
+      });
+      if (!rateText) return;
+      const plan = await this.client.createIdentityReplayPlan(workspace, {
+        requestId: selected.request.id,
+        allowedHost: selected.request.host,
+        identities,
+        maxRequestsPerSecond: Number(rateText),
+      });
+      const approval = await vscode.window.showWarningMessage(
+        'Hawk will send ' + plan.rateLimit.maxRequests + ' governed request(s) to ' + plan.request.host + '.',
+        {
+          modal: true,
+          detail: [
+            plan.request.method + ' ' + plan.request.url,
+            'Identities: ' + plan.identities.map((identity) => identity.label).join(', '),
+            'Rate: ' + plan.rateLimit.maxRequestsPerSecond + ' request/sec',
+            'No redirects; response bodies are not returned or persisted.',
+            'Approval hash: ' + plan.approvalHash.slice(0, 16) + '…',
+            'Response differences are evidence leads, not automatic authorization findings.',
+          ].join('\n'),
+        },
+        'Execute governed replay',
+      );
+      if (approval !== 'Execute governed replay') return;
+      const result = await this.client.executeIdentityReplay(workspace, {
+        planId: plan.id,
+        approvalHash: plan.approvalHash,
+        approved: true,
+      });
+      const differences = result.observations.filter(
+        (observation) => observation.matchesBaseline === false,
+      ).length;
+      const message =
+        'Hawk replay completed: ' +
+        result.observations.length +
+        ' identity observations, ' +
+        differences +
+        ' response difference(s). Validate identity, ownership, impact, scope, and side effects manually.';
+      if (differences > 0) vscode.window.showWarningMessage(message);
+      else vscode.window.showInformationMessage(message);
+    } catch (err) {
+      vscode.window.showErrorMessage('Hawk identity replay failed: ' + errorMessage(err));
+    }
+  }
+
   async openAgent(prompt?: string): Promise<void> {
     const workspace = requireWorkspace();
     if (!workspace) return;
@@ -534,6 +668,10 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     }
     if (action === 'pair-capture') {
       await this.pairCaptureCompanions();
+      return;
+    }
+    if (action === 'identity-replay') {
+      await this.planIdentityReplay();
       return;
     }
     if (action === 'open-agent') {

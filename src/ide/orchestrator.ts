@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, readdir } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { cpus } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { domainToASCII } from 'node:url';
 import { promisify } from 'node:util';
 import writeFileAtomic from 'write-file-atomic';
 import {
@@ -48,6 +50,12 @@ export interface OrchestrationTaskSpec {
   estimatedSeconds?: number;
 }
 
+export interface OrchestrationEgressPolicy {
+  allowedHosts: string[];
+  allowedPorts?: number[];
+  proxyImage?: string;
+}
+
 export interface OrchestrationSpec {
   image: string;
   tasks: OrchestrationTaskSpec[];
@@ -55,7 +63,8 @@ export interface OrchestrationSpec {
   cpuPerWorker?: number;
   memoryMbPerWorker?: number;
   artifactMbPerWorker?: number;
-  networkMode?: 'none' | 'bridge';
+  networkMode?: 'none' | 'restricted' | 'bridge';
+  egressPolicy?: OrchestrationEgressPolicy;
   inheritEnv?: string[];
   approvedExternalAccess?: boolean;
   scheduleStrategy?: DistributedScheduleStrategy;
@@ -88,7 +97,7 @@ export interface OrchestrationTaskSnapshot {
 }
 
 export interface OrchestrationSnapshot {
-  protocolVersion: 2;
+  protocolVersion: 3;
   id: string;
   status: OrchestrationStatus;
   image: string;
@@ -98,7 +107,13 @@ export interface OrchestrationSnapshot {
   cpuPerWorker: number;
   memoryMbPerWorker: number;
   artifactMbPerWorker: number;
-  networkMode: 'none' | 'bridge';
+  networkMode: 'none' | 'restricted';
+  egressPolicy?: {
+    allowedHosts: string[];
+    allowedPorts: number[];
+    proxyImage: string;
+    allowlistDigest: string;
+  };
   resolvedImage?: string;
   inheritedEnv: string[];
   createdAt: string;
@@ -126,7 +141,13 @@ export interface WorkerTaskContext {
   cpu: number;
   memoryMb: number;
   artifactMb: number;
-  networkMode: 'none' | 'bridge';
+  networkMode: 'none' | 'restricted';
+  egressPolicy?: {
+    allowedHosts: string[];
+    allowedPorts: number[];
+    proxyImage: string;
+    proxyToken: string;
+  };
   inheritEnv: string[];
   instanceId: string;
   leaseId: string;
@@ -148,6 +169,7 @@ export interface WorkerRuntime {
   run(context: WorkerTaskContext): Promise<WorkerTaskResult>;
   recover?(context: WorkerTaskContext): Promise<WorkerTaskResult | undefined>;
   cancel(runId: string, taskId: string): Promise<void>;
+  cleanupRun?(runId: string, workspaceRoot: string): Promise<void>;
   cleanupOrphans?(workspaceRoot: string, activeWorkers: Set<string>): Promise<void>;
 }
 
@@ -161,6 +183,11 @@ interface InternalRun {
   active: Map<string, Promise<void>>;
   persisting: Promise<void>;
   durableSnapshot?: OrchestrationSnapshot;
+  egressProxyToken?: string;
+}
+
+interface PersistedOrchestrationSpec extends OrchestrationSpec {
+  egressProxyToken?: string;
 }
 
 export class HawkDockerOrchestrator {
@@ -200,12 +227,16 @@ export class HawkDockerOrchestrator {
         await assertNoSymlinkPath(outputRoot, this.workspaceRoot);
         const [snapshot, persistedSpec] = await Promise.all([
           readJsonFile<OrchestrationSnapshot>(join(outputRoot, 'run.json')),
-          readJsonFile<OrchestrationSpec>(join(outputRoot, 'spec.json')),
+          readJsonFile<PersistedOrchestrationSpec>(join(outputRoot, 'spec.json')),
         ]);
         if (!snapshot || !persistedSpec || snapshot.id !== directory) continue;
         if (resolve(snapshot.workspaceRoot) !== this.workspaceRoot) continue;
         if (!isInside(resolve(snapshot.outputRoot), this.outputBase)) continue;
         const normalized = normalizeSpec(persistedSpec);
+        const egressProxyToken =
+          normalized.networkMode === 'restricted'
+            ? validatePersistedProxyToken(persistedSpec.egressProxyToken)
+            : undefined;
         const tasks = new Map<string, InternalTask>();
         for (const taskSnapshot of snapshot.tasks) {
           const spec = normalized.tasks.find((candidate) => candidate.id === taskSnapshot.id);
@@ -221,8 +252,10 @@ export class HawkDockerOrchestrator {
         const run: InternalRun = {
           snapshot: {
             ...runSnapshot,
-            protocolVersion: 2,
+            protocolVersion: 3,
             artifactMbPerWorker: snapshot.artifactMbPerWorker ?? normalized.artifactMbPerWorker,
+            networkMode: normalized.networkMode,
+            egressPolicy: normalized.egressPolicy,
             resolvedImage: snapshot.resolvedImage ?? snapshot.image,
             scheduler:
               snapshot.scheduler ??
@@ -238,7 +271,8 @@ export class HawkDockerOrchestrator {
           tasks,
           active: new Map(),
           persisting: Promise.resolve(),
-          durableSnapshot: snapshot,
+          durableSnapshot: undefined,
+          egressProxyToken,
         };
         this.runs.set(snapshot.id, run);
         if (isTerminalRun(snapshot.status)) continue;
@@ -269,17 +303,22 @@ export class HawkDockerOrchestrator {
       }
     }
     const activeWorkers = new Set(
-      [...this.runs.values()].flatMap((run) =>
-        [...run.tasks.values()]
+      [...this.runs.values()].flatMap((run) => [
+        ...[...run.tasks.values()]
           .filter((task) => task.status === 'running')
           .map((task) => containerNameFor(run.snapshot.id, task.id)),
-      ),
+        ...(run.snapshot.networkMode === 'restricted' && !isTerminalRun(run.snapshot.status)
+          ? [egressProxyNameFor(run.snapshot.id)]
+          : []),
+      ]),
     );
     await this.runtime.cleanupOrphans?.(this.workspaceRoot, activeWorkers).catch(() => undefined);
   }
 
   async start(spec: OrchestrationSpec): Promise<OrchestrationSnapshot> {
     const normalized = normalizeSpec(spec);
+    const egressProxyToken =
+      normalized.networkMode === 'restricted' ? randomBytes(32).toString('hex') : undefined;
     // The workspace is intentionally untrusted. Never follow a pre-created
     // .hawk symlink/junction while persisting worker state or artifacts.
     await assertNoSymlinkPath(this.outputBase, this.workspaceRoot);
@@ -315,7 +354,7 @@ export class HawkDockerOrchestrator {
     }
     const run: InternalRun = {
       snapshot: {
-        protocolVersion: 2,
+        protocolVersion: 3,
         id,
         status: 'queued',
         image: normalized.image,
@@ -326,6 +365,7 @@ export class HawkDockerOrchestrator {
         memoryMbPerWorker: normalized.memoryMbPerWorker,
         artifactMbPerWorker: normalized.artifactMbPerWorker,
         networkMode: normalized.networkMode,
+        egressPolicy: normalized.egressPolicy,
         resolvedImage,
         inheritedEnv: normalized.inheritEnv,
         createdAt,
@@ -342,11 +382,12 @@ export class HawkDockerOrchestrator {
       tasks,
       active: new Map(),
       persisting: Promise.resolve(),
+      egressProxyToken,
     };
     this.runs.set(id, run);
     await writeFileAtomic(
       join(outputRoot, 'spec.json'),
-      `${JSON.stringify(normalized, null, 2)}\n`,
+      `${JSON.stringify({ ...normalized, egressProxyToken }, null, 2)}\n`,
       {
         encoding: 'utf8',
         mode: 0o600,
@@ -513,6 +554,7 @@ export class HawkDockerOrchestrator {
     else run.snapshot.status = 'succeeded';
     run.snapshot.completedAt = this.now().toISOString();
     await this.persist(run);
+    await this.runtime.cleanupRun?.(run.snapshot.id, this.workspaceRoot).catch(() => undefined);
   }
 
   private canReserveWorker(run: InternalRun): boolean {
@@ -633,6 +675,16 @@ export class HawkDockerOrchestrator {
       memoryMb: run.snapshot.memoryMbPerWorker,
       artifactMb: run.snapshot.artifactMbPerWorker,
       networkMode: run.snapshot.networkMode,
+      ...(run.snapshot.egressPolicy && run.egressProxyToken
+        ? {
+            egressPolicy: {
+              allowedHosts: run.snapshot.egressPolicy.allowedHosts,
+              allowedPorts: run.snapshot.egressPolicy.allowedPorts,
+              proxyImage: run.snapshot.egressPolicy.proxyImage,
+              proxyToken: run.egressProxyToken,
+            },
+          }
+        : {}),
       inheritEnv: run.snapshot.inheritedEnv,
       instanceId: task.assignedInstanceId,
       leaseId: task.leaseId,
@@ -728,6 +780,8 @@ export class HawkDockerOrchestrator {
 }
 
 export class DockerWorkerRuntime implements WorkerRuntime {
+  private readonly egressPreparations = new Map<string, Promise<void>>();
+
   async availability(): Promise<{ available: boolean; version?: string; error?: string }> {
     try {
       const { stdout } = await execFileAsync('docker', ['info', '--format', '{{.ServerVersion}}'], {
@@ -770,6 +824,14 @@ export class DockerWorkerRuntime implements WorkerRuntime {
   async run(context: WorkerTaskContext): Promise<WorkerTaskResult> {
     const containerName = containerNameFor(context.runId, context.task.id);
     const timeoutSeconds = context.task.timeoutSeconds ?? 3600;
+    const restricted = context.networkMode === 'restricted';
+    if (restricted) {
+      if (!context.egressPolicy) {
+        throw new Error('Restricted Docker networking requires an egress policy');
+      }
+      await this.ensureRestrictedEgress(context);
+    }
+    const workerNetwork = restricted ? egressNetworkNameFor(context.runId) : 'none';
     const args = [
       'run',
       '--pull=never',
@@ -788,7 +850,7 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       '--label',
       `hawk.workspace=${workspaceLabel(context.workspaceRoot)}`,
       '--network',
-      context.networkMode,
+      workerNetwork,
       '--read-only',
       '--user',
       '65532:65532',
@@ -817,6 +879,15 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       '--env',
       'HAWK_OUTPUT_DIR=/output',
     ];
+    if (restricted && context.egressPolicy) {
+      const proxyUrl = `http://hawk:${encodeURIComponent(context.egressPolicy.proxyToken)}@hawk-egress-proxy:3128`;
+      for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']) {
+        args.push('--env', `${name}=${proxyUrl}`);
+      }
+      args.push('--env', 'NO_PROXY=localhost,127.0.0.1,::1');
+      args.push('--env', 'no_proxy=localhost,127.0.0.1,::1');
+      args.push('--env', `HAWK_EGRESS_ALLOWLIST=${context.egressPolicy.allowedHosts.join(',')}`);
+    }
     for (const name of context.inheritEnv) args.push('--env', name);
     args.push(context.image, ...context.task.command);
 
@@ -964,6 +1035,20 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     }
   }
 
+  async cleanupRun(runId: string, _workspaceRoot: string): Promise<void> {
+    this.egressPreparations.delete(runId);
+    await this.removeContainer(egressProxyNameFor(runId));
+    try {
+      await execFileAsync('docker', ['network', 'rm', egressNetworkNameFor(runId)], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsHide: true,
+      });
+    } catch {
+      // An offline Docker daemon or already-removed network needs no further cleanup.
+    }
+  }
+
   async cleanupOrphans(workspaceRoot: string, activeWorkers: Set<string>): Promise<void> {
     try {
       const { stdout } = await execFileAsync(
@@ -989,6 +1074,38 @@ export class DockerWorkerRuntime implements WorkerRuntime {
         .map((name) => name.trim())
         .filter((name) => name.startsWith('hawk-') && !activeWorkers.has(name));
       await Promise.all(orphans.map((name) => this.removeContainer(name)));
+      const { stdout: networks } = await execFileAsync(
+        'docker',
+        [
+          'network',
+          'ls',
+          '--filter',
+          'label=hawk.egress=true',
+          '--filter',
+          `label=hawk.workspace=${workspaceLabel(workspaceRoot)}`,
+          '--format',
+          '{{.Name}}',
+        ],
+        { encoding: 'utf8', timeout: 10_000, windowsHide: true },
+      );
+      const activeProxyNetworks = new Set(
+        [...activeWorkers]
+          .filter((name) => name.startsWith('hawk-egress-'))
+          .map((name) => name.replace(/^hawk-egress-/, 'hawk-egress-net-')),
+      );
+      await Promise.all(
+        networks
+          .split(/\r?\n/)
+          .map((name) => name.trim())
+          .filter((name) => name.startsWith('hawk-egress-net-') && !activeProxyNetworks.has(name))
+          .map((name) =>
+            execFileAsync('docker', ['network', 'rm', name], {
+              encoding: 'utf8',
+              timeout: 10_000,
+              windowsHide: true,
+            }).catch(() => undefined),
+          ),
+      );
     } catch {
       // Docker may be offline during startup. A later initialization reconciles retained workers.
     }
@@ -1012,6 +1129,125 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     await assertSafeArtifactTree(outputDirectory);
   }
 
+  private async ensureRestrictedEgress(context: WorkerTaskContext): Promise<void> {
+    const existing = this.egressPreparations.get(context.runId);
+    if (existing) return await existing;
+    const preparation = this.createRestrictedEgress(context).catch((error) => {
+      this.egressPreparations.delete(context.runId);
+      throw error;
+    });
+    this.egressPreparations.set(context.runId, preparation);
+    await preparation;
+  }
+
+  private async createRestrictedEgress(context: WorkerTaskContext): Promise<void> {
+    const policy = context.egressPolicy;
+    if (!policy) throw new Error('Restricted Docker networking requires an egress policy');
+    try {
+      await execFileAsync('docker', ['image', 'inspect', policy.proxyImage], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsHide: true,
+      });
+    } catch (error) {
+      throw new Error(
+        `Hawk egress proxy image "${policy.proxyImage}" is not available locally. Run npm run docker:build-egress-proxy first: ${errorMessage(error)}`,
+      );
+    }
+    const network = egressNetworkNameFor(context.runId);
+    try {
+      await execFileAsync('docker', ['network', 'inspect', network], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsHide: true,
+      });
+    } catch {
+      await execFileAsync(
+        'docker',
+        [
+          'network',
+          'create',
+          '--internal',
+          '--label',
+          'hawk.egress=true',
+          '--label',
+          `hawk.workspace=${workspaceLabel(context.workspaceRoot)}`,
+          network,
+        ],
+        { encoding: 'utf8', timeout: 15_000, windowsHide: true },
+      );
+    }
+
+    const proxy = egressProxyNameFor(context.runId);
+    let proxyExists = true;
+    try {
+      await execFileAsync('docker', ['inspect', proxy], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsHide: true,
+      });
+    } catch {
+      proxyExists = false;
+    }
+    if (!proxyExists) {
+      await execFileAsync(
+        'docker',
+        [
+          'run',
+          '--detach',
+          '--pull=never',
+          '--name',
+          proxy,
+          '--label',
+          'hawk.managed=true',
+          '--label',
+          'hawk.egress=true',
+          '--label',
+          `hawk.run=${context.runId}`,
+          '--label',
+          `hawk.workspace=${workspaceLabel(context.workspaceRoot)}`,
+          '--network',
+          'bridge',
+          '--read-only',
+          '--cap-drop',
+          'ALL',
+          '--security-opt',
+          'no-new-privileges',
+          '--pids-limit',
+          '64',
+          '--memory',
+          '128m',
+          '--cpus',
+          '0.5',
+          '--tmpfs',
+          '/tmp:rw,noexec,nosuid,size=16m',
+          '--env',
+          `HAWK_PROXY_TOKEN=${policy.proxyToken}`,
+          '--env',
+          `HAWK_ALLOWED_HOSTS=${policy.allowedHosts.join(',')}`,
+          '--env',
+          `HAWK_ALLOWED_PORTS=${policy.allowedPorts.join(',')}`,
+          policy.proxyImage,
+        ],
+        { encoding: 'utf8', timeout: 30_000, windowsHide: true },
+      );
+    }
+    try {
+      await execFileAsync(
+        'docker',
+        ['network', 'connect', '--alias', 'hawk-egress-proxy', network, proxy],
+        { encoding: 'utf8', timeout: 10_000, windowsHide: true },
+      );
+    } catch (error) {
+      const inspected = await execFileAsync(
+        'docker',
+        ['inspect', '--format', '{{json .NetworkSettings.Networks}}', proxy],
+        { encoding: 'utf8', timeout: 10_000, windowsHide: true },
+      ).catch(() => ({ stdout: '' }));
+      if (!inspected.stdout.includes(network)) throw error;
+    }
+  }
+
   private async removeContainer(containerName: string): Promise<void> {
     try {
       await execFileAsync('docker', ['rm', '--force', containerName], {
@@ -1025,23 +1261,29 @@ export class DockerWorkerRuntime implements WorkerRuntime {
   }
 }
 
-type NormalizedOrchestrationSpec = Required<
-  Pick<
-    OrchestrationSpec,
-    | 'image'
-    | 'tasks'
-    | 'maxParallel'
-    | 'cpuPerWorker'
-    | 'memoryMbPerWorker'
-    | 'artifactMbPerWorker'
-    | 'networkMode'
-    | 'inheritEnv'
-    | 'approvedExternalAccess'
-    | 'scheduleStrategy'
-    | 'leaseSeconds'
-    | 'agentInstances'
-  >
->;
+type NormalizedOrchestrationSpec = Omit<
+  Required<
+    Pick<
+      OrchestrationSpec,
+      | 'image'
+      | 'tasks'
+      | 'maxParallel'
+      | 'cpuPerWorker'
+      | 'memoryMbPerWorker'
+      | 'artifactMbPerWorker'
+      | 'networkMode'
+      | 'inheritEnv'
+      | 'approvedExternalAccess'
+      | 'scheduleStrategy'
+      | 'leaseSeconds'
+      | 'agentInstances'
+    >
+  >,
+  'networkMode'
+> & {
+  networkMode: 'none' | 'restricted';
+  egressPolicy?: NonNullable<OrchestrationSnapshot['egressPolicy']>;
+};
 
 function normalizeSpec(spec: OrchestrationSpec): NormalizedOrchestrationSpec {
   if (!isSafeImageName(spec.image)) throw new Error('Docker image name is invalid');
@@ -1117,9 +1359,15 @@ function normalizeSpec(spec: OrchestrationSpec): NormalizedOrchestrationSpec {
   if (maxParallel * memoryMbPerWorker > MAX_GLOBAL_MEMORY_MB) {
     throw new Error(`Parallel memory reservation cannot exceed ${MAX_GLOBAL_MEMORY_MB} MB`);
   }
-  const networkMode = spec.networkMode ?? 'none';
-  if (networkMode !== 'none' && networkMode !== 'bridge')
-    throw new Error('networkMode must be none or bridge');
+  const requestedNetworkMode = spec.networkMode ?? 'none';
+  if (!['none', 'restricted', 'bridge'].includes(requestedNetworkMode))
+    throw new Error('networkMode must be none or restricted');
+  const networkMode = requestedNetworkMode === 'none' ? 'none' : 'restricted';
+  const egressPolicy =
+    networkMode === 'restricted' ? normalizeEgressPolicy(spec.egressPolicy) : undefined;
+  if (networkMode === 'none' && spec.egressPolicy) {
+    throw new Error('egressPolicy requires networkMode restricted');
+  }
   const inheritEnv = [...new Set(spec.inheritEnv ?? [])];
   if (inheritEnv.length > 16) throw new Error('A run can inherit at most 16 environment names');
   for (const name of inheritEnv) {
@@ -1177,6 +1425,7 @@ function normalizeSpec(spec: OrchestrationSpec): NormalizedOrchestrationSpec {
     memoryMbPerWorker,
     artifactMbPerWorker,
     networkMode,
+    egressPolicy,
     inheritEnv,
     approvedExternalAccess,
     scheduleStrategy,
@@ -1295,8 +1544,77 @@ function containerNameFor(runId: string, taskId: string): string {
   return safe.slice(0, 63);
 }
 
+function egressProxyNameFor(runId: string): string {
+  return `hawk-egress-${runId.slice(4, 20).toLowerCase()}`;
+}
+
+function egressNetworkNameFor(runId: string): string {
+  return `hawk-egress-net-${runId.slice(4, 20).toLowerCase()}`;
+}
+
 function workspaceLabel(workspaceRoot: string): string {
   return createHash('sha256').update(resolve(workspaceRoot)).digest('hex').slice(0, 24);
+}
+
+function normalizeEgressPolicy(
+  policy: OrchestrationEgressPolicy | undefined,
+): NonNullable<OrchestrationSnapshot['egressPolicy']> {
+  if (!policy || !Array.isArray(policy.allowedHosts) || policy.allowedHosts.length === 0) {
+    throw new Error('Restricted networking requires at least one egressPolicy.allowedHosts entry');
+  }
+  if (policy.allowedHosts.length > 64) throw new Error('Egress allowlist is limited to 64 hosts');
+  const allowedHosts = [
+    ...new Set(
+      policy.allowedHosts.map((host) => {
+        const value = host.trim().toLowerCase();
+        const wildcard = value.startsWith('*.');
+        const normalized = normalizeEgressHost(wildcard ? value.slice(2) : value);
+        if (!normalized) throw new Error(`Invalid egress allowlist host: ${host}`);
+        return wildcard ? `*.${normalized}` : normalized;
+      }),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+  const allowedPorts = [
+    ...new Set((policy.allowedPorts ?? [80, 443]).map((port) => Number(port))),
+  ].sort((left, right) => left - right);
+  if (
+    allowedPorts.length === 0 ||
+    allowedPorts.length > 16 ||
+    allowedPorts.some((port) => !Number.isInteger(port) || port < 1 || port > 65_535)
+  ) {
+    throw new Error('Egress policy requires 1-16 valid TCP ports');
+  }
+  const proxyImage = policy.proxyImage?.trim() || 'hawk-egress-proxy:0.1.0';
+  if (!isSafeImageName(proxyImage)) throw new Error('Egress proxy image name is invalid');
+  return {
+    allowedHosts,
+    allowedPorts,
+    proxyImage,
+    allowlistDigest: createHash('sha256')
+      .update(JSON.stringify({ allowedHosts, allowedPorts, proxyImage }))
+      .digest('hex'),
+  };
+}
+
+function normalizeEgressHost(value: string): string {
+  const unwrapped = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
+  if (isIP(unwrapped)) return unwrapped.toLowerCase();
+  const ascii = domainToASCII(unwrapped.replace(/\.$/, '').toLowerCase());
+  if (
+    !ascii ||
+    ascii.length > 253 ||
+    !ascii.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+  ) {
+    return '';
+  }
+  return ascii;
+}
+
+function validatePersistedProxyToken(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error('Persisted restricted-egress run is missing its private proxy token');
+  }
+  return value;
 }
 
 async function resourceDelay(): Promise<void> {

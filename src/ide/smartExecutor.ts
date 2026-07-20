@@ -155,15 +155,6 @@ async function executeDockerCapability(
 ): Promise<CapabilityExecutionResult> {
   if (context.signal.aborted) throw new Error('Capability was cancelled before launch');
   const input = dockerInput(context.input);
-  const activeRuntime = context.node.capabilityId === 'runtime.authorized.validate';
-  if (
-    activeRuntime &&
-    input.networkMode === 'bridge' &&
-    input.acknowledgeUnrestrictedBridge !== true
-  )
-    throw new Error(
-      'Docker bridge is not host-restricted; set acknowledge_unrestricted_bridge only after exact scope approval',
-    );
   const run = await orchestrator.start({
     image: input.image,
     tasks: [
@@ -177,7 +168,15 @@ async function executeDockerCapability(
     ],
     maxParallel: 1,
     networkMode: input.networkMode,
-    approvedExternalAccess: input.networkMode === 'bridge',
+    egressPolicy:
+      input.networkMode === 'restricted'
+        ? {
+            allowedHosts: input.egressAllowedHosts,
+            allowedPorts: input.egressAllowedPorts,
+            proxyImage: input.egressProxyImage,
+          }
+        : undefined,
+    approvedExternalAccess: input.networkMode === 'restricted',
   });
   const completed = await waitForOrchestration(
     orchestrator,
@@ -205,8 +204,10 @@ function dockerInput(value: unknown): {
   image: string;
   command: string[];
   timeoutSeconds: number;
-  networkMode: 'none' | 'bridge';
-  acknowledgeUnrestrictedBridge: boolean;
+  networkMode: 'none' | 'restricted';
+  egressAllowedHosts: string[];
+  egressAllowedPorts?: number[];
+  egressProxyImage?: string;
 } {
   if (!value || typeof value !== 'object')
     throw new Error('This capability needs an execution input with image and command');
@@ -219,6 +220,14 @@ function dockerInput(value: unknown): {
     !input.command.every((item) => typeof item === 'string' && item.length > 0)
   )
     throw new Error('Docker capability input.command must be a non-empty string array');
+  const networkMode =
+    input.network_mode === 'restricted' || input.network_mode === 'bridge' ? 'restricted' : 'none';
+  const egressAllowedHosts = Array.isArray(input.egress_allowed_hosts)
+    ? input.egress_allowed_hosts.filter((item): item is string => typeof item === 'string')
+    : [];
+  if (networkMode === 'restricted' && egressAllowedHosts.length === 0) {
+    throw new Error('Active Docker networking requires egress_allowed_hosts');
+  }
   return {
     image: input.image,
     command: input.command as string[],
@@ -226,8 +235,13 @@ function dockerInput(value: unknown): {
       typeof input.timeout_seconds === 'number'
         ? Math.max(10, Math.min(Math.floor(input.timeout_seconds), 43_200))
         : 1_800,
-    networkMode: input.network_mode === 'bridge' ? 'bridge' : 'none',
-    acknowledgeUnrestrictedBridge: input.acknowledge_unrestricted_bridge === true,
+    networkMode,
+    egressAllowedHosts,
+    egressAllowedPorts: Array.isArray(input.egress_allowed_ports)
+      ? input.egress_allowed_ports.filter((item): item is number => typeof item === 'number')
+      : undefined,
+    egressProxyImage:
+      typeof input.egress_proxy_image === 'string' ? input.egress_proxy_image : undefined,
   };
 }
 
