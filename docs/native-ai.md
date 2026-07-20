@@ -64,12 +64,19 @@ file.
 - **Pause** stops the worker while retaining its worktree and saved agent
   memory. **Resume** continues it without recreating the task.
 - Background lanes recover after daemon restart and auto-resume when enabled.
-- **Smart Synthesis** scores review-ready lanes from test results and review
-  size, then gives every bounded candidate patch to a fresh merge agent. The
-  result remains an ordinary review-gated diff.
-- **Hawk: Diagnose and Fix Stopped Debugger** captures native DAP threads,
+- **AST Semantic Merge** scores review-ready lanes, reads their isolated file
+  states, and compares TypeScript/JavaScript declarations, imports, containers,
+  and members. Compatible whole-file and symbol edits are transplanted into a
+  fresh worktree deterministically. Same-symbol divergence, removal-versus-
+  modification, base drift, and non-AST collisions become a structured
+  conflict plan for the merge agent instead of patch concatenation. The result
+  remains an ordinary review-gated diff.
+- **Hawk: Run Automatic Debug / Test / Fix Loop** captures native DAP threads,
   frames, scopes, variables, breakpoints, and diagnostics, redacts secret-like
-  values, and starts an isolated fix task.
+  values, and starts an isolated fix task. After a separate approval showing
+  the exact gate commands, Hawk repeats edit, approved tests, and evidence-fed
+  repair up to `hawk.debug.autoFix.maxAttempts`. Cancel stops an active gate;
+  successful fixes still require manual diff review and Apply.
 - **Hawk: Show Next Edit Model Evaluation** compares every model configuration
   observed by Hawk Tab using structured-edit validity, explicit editor
   acceptance/rejection feedback, cache reuse, and p50/p95 generation latency.
@@ -119,6 +126,7 @@ GET  /v1/ai/sessions/:id/events?after=<event-id>
 POST /v1/ai/sessions/:id/messages
 GET  /v1/ai/sessions/:id/diff
 POST /v1/ai/sessions/:id/tests
+POST /v1/ai/sessions/:id/tests/cancel
 POST /v1/ai/sessions/:id/apply
 POST /v1/ai/sessions/:id/checkpoints
 POST /v1/ai/sessions/:id/checkpoints/restore

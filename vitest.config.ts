@@ -2,7 +2,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+    include: [
+      'src/**/*.test.{ts,tsx}',
+      'tests/**/*.test.{ts,tsx}',
+      'extensions/**/*.test.{ts,tsx}',
+    ],
     environment: 'node',
     globals: false,
     reporters: ['default'],

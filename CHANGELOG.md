@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-20
+
+### Added
+
+- **Automatic Debug Agent** — one explicit approval starts a bounded
+  diagnose/edit/test/fix cycle in the isolated worktree. Hawk feeds exact
+  failed-gate output and a refreshed, redacted DAP snapshot back into the same
+  durable agent session until all approved gates pass or the configured safety
+  limit is reached. Cancel stops the active gate; Apply always remains manual.
+- **Real AST semantic merge** — parallel candidates are compared by
+  TypeScript/JavaScript declarations, imports, classes, interfaces, and
+  members. Compatible whole-file and symbol changes are deterministically
+  transplanted into the merge worktree before the model runs; divergent edits
+  to the same semantic unit become an explicit conflict plan in Hawk AI.
+
+### Changed
+
+- The local IDE API protocol is now version 8 and returns the structured
+  semantic merge plan alongside candidate scores.
+
 ## [0.3.1] - 2026-07-20
 
 ### Added

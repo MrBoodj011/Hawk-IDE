@@ -279,6 +279,85 @@ describe('AiSessionManager', () => {
       await manager.dispose();
     }
   }, 15_000);
+
+  it('seeds a merge worktree with compatible AST changes before model conflict resolution', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ai-semantic-merge-'));
+    temporaryRoots.push(root);
+    await git(root, ['init']);
+    await git(root, ['config', 'user.name', 'Hawk Test']);
+    await git(root, ['config', 'user.email', 'hawk-test@localhost']);
+    await writeFile(
+      join(root, 'policy.ts'),
+      [
+        'export class Policy {',
+        '  authorize(role: string): boolean {',
+        "    return role === 'admin';",
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    await git(root, ['add', 'policy.ts']);
+    await git(root, ['commit', '-m', 'base']);
+    const worker = join(root, 'semantic-worker.cjs');
+    await writeFile(
+      worker,
+      [
+        "const fs = require('node:fs');",
+        'process.stdin.resume();',
+        "process.stdin.once('data', (chunk) => {",
+        '  const request = JSON.parse(chunk.toString());',
+        "  const path = 'policy.ts';",
+        '  let source = fs.readFileSync(path, "utf8");',
+        "  if (request.prompt.includes('owner lane')) {",
+        "    source = source.replace(\"role === 'admin'\", \"role === 'admin' || role === 'owner'\");",
+        '    fs.writeFileSync(path, source);',
+        "  } else if (request.prompt.includes('audit lane')) {",
+        "    source = source.replace(/\\r?\\n}\\r?\\n/, '\\n\\n  audit(role: string): string {\\n    return `checked:${role}`;\\n  }\\n}\\n');",
+        '    fs.writeFileSync(path, source);',
+        '  }',
+        "  console.log(JSON.stringify({ type: 'worker-result', ok: true }));",
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+    const manager = new AiSessionManager({
+      workspaceRoot: root,
+      storageRoot: join(root, '.test-storage'),
+      workerLaunch: { command: process.execPath, args: [worker] },
+    });
+    await manager.initialize();
+    try {
+      const owner = await manager.create({ prompt: 'owner lane change' });
+      const audit = await manager.create({ prompt: 'audit lane change' });
+      await waitForStatus(manager, owner.id, 'awaiting-review');
+      await waitForStatus(manager, audit.id, 'awaiting-review');
+
+      const merged = await manager.mergeBatch({
+        sessionIds: [owner.id, audit.id],
+        objective: 'combine policy behavior',
+      });
+      const review = await waitForStatus(manager, merged.mergeSession.id, 'awaiting-review');
+      const seeded = normalizeLines(
+        await readFile(join(review.sandboxPath ?? '', 'policy.ts'), 'utf8'),
+      );
+
+      expect(seeded).toContain("role === 'admin' || role === 'owner'");
+      expect(seeded).toContain('audit(role: string)');
+      expect(merged.semanticMerge.conflicts).toEqual([]);
+      expect(merged.semanticMerge.automaticallyMergedUnits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ strategy: 'ast-add', candidateId: audit.id }),
+        ]),
+      );
+      await manager.reject(merged.mergeSession.id);
+      await manager.reject(owner.id);
+      await manager.reject(audit.id);
+    } finally {
+      await manager.dispose();
+    }
+  }, 20_000);
 });
 
 async function waitForStatus(

@@ -11,6 +11,6 @@ headers, rate-limits forwarding, and uses a bounded background queue.
 gradle --no-daemon -p integrations/burp clean jar
 ```
 
-Load `build/libs/hawk-burp-companion-0.3.1.jar` as a Java extension in Burp.
+Load `build/libs/hawk-burp-companion-0.4.0.jar` as a Java extension in Burp.
 Open the **Hawk** tab, paste the pairing JSON copied from Hawk Security IDE,
 choose the authorized scope, and enable capture.

@@ -163,7 +163,32 @@ export interface AiMergeCandidateScore {
   reasons: string[];
 }
 
+export interface AiSemanticMergeAppliedUnit {
+  path: string;
+  unit: string;
+  candidateId: string;
+  strategy: 'whole-file' | 'ast-add' | 'ast-update' | 'ast-delete';
+}
+
+export interface AiSemanticMergeConflict {
+  path: string;
+  unit: string;
+  candidateIds: string[];
+  reason: string;
+}
+
+export interface AiSemanticMergePlan {
+  engine: 'typescript-ast-v1';
+  primaryCandidateId: string;
+  candidateIds: string[];
+  filesAnalyzed: number;
+  astFilesAnalyzed: number;
+  automaticallyMergedUnits: AiSemanticMergeAppliedUnit[];
+  conflicts: AiSemanticMergeConflict[];
+}
+
 export interface AiMergeBatchResponse {
   mergeSession: AiSessionSummary;
   candidates: AiMergeCandidateScore[];
+  semanticMerge: AiSemanticMergePlan;
 }

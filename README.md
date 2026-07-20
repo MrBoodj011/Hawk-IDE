@@ -37,11 +37,15 @@ local-first Code-OSS-compatible Hawk security workspace.
   cache reuse, and p50/p95 generation latency without retaining code.
 - Hawk Debug Agent reads native Debug Adapter Protocol threads, stack frames,
   scopes, variables, breakpoints, and diagnostics, redacts secret-shaped
-  values, and launches an isolated fix-and-regression loop after approval.
+  values, and runs a bounded automatic diagnose/edit/approved-test/fix loop.
+  Failed gate output and the latest redacted debugger evidence return to the
+  same durable agent session; cancellation preserves the isolated patch and
+  Apply always remains manual.
 - Long native AI tasks support Pause/Resume, restart recovery, optional
-  background auto-resume, and intelligent synthesis that scores parallel
-  candidates by test evidence and review surface before creating one clean
-  merge lane.
+  background auto-resume, and AST semantic merge. Hawk scores parallel
+  candidates, then deterministically transplants compatible files and
+  TypeScript/JavaScript symbols into a clean worktree before the model resolves
+  explicit same-symbol conflicts.
 - Hawk Local AI setup: the Windows installer can add the official Ollama
   runtime, while the native first-run wizard verifies the release digest and
   Windows signer, recommends a coding model from available RAM, downloads it

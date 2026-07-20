@@ -34,12 +34,15 @@ import type {
   AiParallelBatchResponse,
   AiRestoreCheckpointRequest,
   AiRunTestsRequest,
+  AiSemanticMergeConflict,
+  AiSemanticMergePlan,
   AiSessionEvent,
   AiSessionStatus,
   AiSessionSummary,
   AiTestGate,
   AiTestResult,
 } from './aiProtocol.js';
+import { buildSemanticMerge } from './semanticMerge.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_PATCH_BYTES = 2 * 1024 * 1024;
@@ -120,6 +123,22 @@ interface CommandResult {
   exitCode: number | null;
   durationMs: number;
   cancelled: boolean;
+}
+
+interface SeedFile {
+  path: string;
+  content: string | null;
+}
+
+interface InternalCreateOptions {
+  seedFiles?: SeedFile[];
+  preparationEvents?: string[];
+}
+
+interface SemanticMergePreparation {
+  seedFiles: SeedFile[];
+  plan: AiSemanticMergePlan;
+  context: string;
 }
 
 /**
@@ -232,11 +251,15 @@ export class AiSessionManager {
     await Promise.allSettled(this.saveQueues.values());
   }
 
-  async create(input: AiCreateSessionRequest): Promise<AiSessionSummary> {
+  async create(
+    input: AiCreateSessionRequest,
+    internal: InternalCreateOptions = {},
+  ): Promise<AiSessionSummary> {
     const prompt = validatePrompt(input.prompt);
     const id = randomUUID();
     const createdAt = this.timestamp();
     const prepared = await this.prepareWorktree(id);
+    await seedPreparedWorktree(prepared.worktreeRoot, internal.seedFiles ?? []);
     const session: StoredAiSession = {
       version: SESSION_FILE_VERSION,
       id,
@@ -264,6 +287,9 @@ export class AiSessionManager {
     };
     await this.save(session);
     await this.addEvent(session, 'status', 'Isolated worktree ready. Starting Hawk AI.');
+    for (const event of internal.preparationEvents ?? []) {
+      await this.addEvent(session, 'plan', event);
+    }
     await this.startWorker(session, prompt, input.context ?? '');
     return publicSession(session);
   }
@@ -334,6 +360,10 @@ export class AiSessionManager {
     const scores = candidates
       .map(scoreMergeCandidate)
       .sort((left, right) => right.score - left.score);
+    const rankedCandidates = scores
+      .map((score) => candidates.find((candidate) => candidate.id === score.sessionId))
+      .filter((candidate): candidate is StoredAiSession => Boolean(candidate));
+    const semantic = await prepareSemanticMerge(rankedCandidates);
     const patches: string[] = [];
     let totalBytes = 0;
     for (const score of scores) {
@@ -360,20 +390,32 @@ export class AiSessionManager {
       input.objective?.trim() ||
       candidates[0]?.prompt.replace(/^\[[^\]]+ lane\]\s*/, '') ||
       'Synthesize the strongest correct implementation.';
-    const mergeSession = await this.create({
-      prompt: [
-        '[Intelligent merge lane]',
-        objective,
-        '',
-        'Review every candidate patch and its test evidence. Build one coherent implementation in this fresh isolated worktree.',
-        'Keep compatible non-overlapping improvements, resolve semantic conflicts deliberately, reject duplicated or risky changes, and add regression coverage.',
-        'Do not blindly concatenate patches. The final output must be a clean reviewable diff.',
-      ].join('\n'),
-      context: [input.context ?? '', ...patches].filter(Boolean).join('\n\n').slice(0, 1_600_000),
-      background: true,
-      autoResume: true,
-    });
-    return { mergeSession, candidates: scores };
+    const mergeSession = await this.create(
+      {
+        prompt: [
+          '[AST semantic merge lane]',
+          objective,
+          '',
+          `Hawk already transplanted ${semantic.plan.automaticallyMergedUnits.length} compatible file/symbol change(s) into this isolated worktree using the TypeScript AST.`,
+          `There are ${semantic.plan.conflicts.length} explicit semantic conflict(s). Preserve the seeded compatible edits, resolve every listed conflict deliberately, then add or update regression coverage.`,
+          'Compare behavior and test evidence. Do not concatenate patches or replace a seeded file with one candidate wholesale unless the semantic plan requires it.',
+          'The final output must be one coherent, compiling, reviewable diff.',
+        ].join('\n'),
+        context: [input.context ?? '', semantic.context, ...patches]
+          .filter(Boolean)
+          .join('\n\n')
+          .slice(0, 1_600_000),
+        background: true,
+        autoResume: true,
+      },
+      {
+        seedFiles: semantic.seedFiles,
+        preparationEvents: [
+          `AST semantic pre-merge seeded ${semantic.plan.automaticallyMergedUnits.length} compatible change(s) across ${semantic.plan.filesAnalyzed} file(s). ${semantic.plan.conflicts.length} conflict(s) remain for explicit resolution.`,
+        ],
+      },
+    );
+    return { mergeSession, candidates: scores, semanticMerge: semantic.plan };
   }
 
   async continue(id: string, input: AiCreateSessionRequest): Promise<AiSessionSummary> {
@@ -500,6 +542,13 @@ export class AiSessionManager {
       await this.save(session);
       await this.addEvent(session, 'status', testSummary(session.testResults));
     }
+    return publicSession(session);
+  }
+
+  async cancelTests(id: string): Promise<AiSessionSummary> {
+    const session = await this.load(id);
+    const controller = this.testControllers.get(id);
+    if (controller && !controller.signal.aborted) controller.abort();
     return publicSession(session);
   }
 
@@ -1156,6 +1205,179 @@ function scoreMergeCandidate(session: StoredAiSession): AiMergeCandidateScore {
   }
   if (reasons.length === 0) reasons.push('review-ready candidate');
   return { sessionId: session.id, score: Math.max(0, Math.min(100, score)), reasons };
+}
+
+async function prepareSemanticMerge(
+  candidates: StoredAiSession[],
+): Promise<SemanticMergePreparation> {
+  const baseFiles: Record<string, string | null> = {};
+  const candidateFiles = candidates.map((candidate) => ({
+    id: candidate.id,
+    files: {} as Record<string, string | null>,
+  }));
+  const forcedConflicts: AiSemanticMergeConflict[] = [];
+  const touchedPaths = [
+    ...new Set(candidates.flatMap((candidate) => candidate.touchedFiles.map((file) => file.path))),
+  ].sort();
+
+  for (const path of touchedPaths) {
+    const touching = candidates.filter((candidate) =>
+      candidate.touchedFiles.some((file) => file.path === path),
+    );
+    const baseBuffers = await Promise.all(
+      touching.map((candidate) =>
+        readGitFileAt(candidate.worktreeRoot, candidate.snapshotCommit, path),
+      ),
+    );
+    if (!buffersEqual(baseBuffers)) {
+      forcedConflicts.push({
+        path,
+        unit: 'snapshot',
+        candidateIds: touching.map((candidate) => candidate.id),
+        reason: 'Candidates started from different base content for this file.',
+      });
+      continue;
+    }
+    const base = decodeMergeText(baseBuffers[0] ?? null);
+    if (base === undefined) {
+      forcedConflicts.push({
+        path,
+        unit: 'binary-or-large-file',
+        candidateIds: touching.map((candidate) => candidate.id),
+        reason:
+          'Binary, invalid UTF-8, or oversized files require explicit model and operator review.',
+      });
+      continue;
+    }
+    baseFiles[path] = base;
+    for (const candidate of touching) {
+      const index = candidates.findIndex((item) => item.id === candidate.id);
+      const entry = candidateFiles[index];
+      if (!entry) continue;
+      const content = decodeMergeText(await readCandidateFile(candidate, path));
+      if (content === undefined) {
+        forcedConflicts.push({
+          path,
+          unit: 'binary-or-large-file',
+          candidateIds: [candidate.id],
+          reason: 'Candidate output is binary, invalid UTF-8, or too large for AST merge.',
+        });
+        continue;
+      }
+      entry.files[path] = content;
+    }
+  }
+
+  const merged = buildSemanticMerge({
+    baseFiles,
+    candidates: candidateFiles,
+  });
+  const plan: AiSemanticMergePlan = {
+    ...merged.plan,
+    conflicts: [...merged.plan.conflicts, ...forcedConflicts],
+  };
+  const seedFiles = Object.entries(merged.files)
+    .filter(([path, content]) => content !== baseFiles[path])
+    .map(([path, content]) => ({ path, content }));
+  return {
+    seedFiles,
+    plan,
+    context: renderSemanticMergePlan(plan),
+  };
+}
+
+async function readGitFileAt(
+  worktreeRoot: string,
+  commit: string,
+  relativePath: string,
+): Promise<Buffer | null> {
+  try {
+    return await gitBuffer(worktreeRoot, ['show', `${commit}:${toGitPath(relativePath)}`]);
+  } catch {
+    return null;
+  }
+}
+
+async function readCandidateFile(
+  session: StoredAiSession,
+  relativePath: string,
+): Promise<Buffer | null> {
+  const absolute = resolve(session.worktreeRoot, relativePath);
+  if (!isInside(session.worktreeRoot, absolute)) {
+    throw new Error(`Unsafe semantic merge path: ${relativePath}`);
+  }
+  try {
+    const info = await lstat(absolute);
+    if (!info.isFile()) return Buffer.from([0]);
+    return await readFile(absolute);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+function decodeMergeText(content: Buffer | null): string | null | undefined {
+  if (content === null) return null;
+  if (content.length > 1_500_000 || content.includes(0)) return undefined;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(content);
+  } catch {
+    return undefined;
+  }
+}
+
+function buffersEqual(values: Array<Buffer | null>): boolean {
+  if (values.length < 2) return true;
+  const first = values[0] ?? null;
+  return values.every((value) => {
+    if (first === null || value === null) return first === value;
+    return first.equals(value);
+  });
+}
+
+function renderSemanticMergePlan(plan: AiSemanticMergePlan): string {
+  return [
+    '# Hawk AST Semantic Merge Plan',
+    '',
+    `Engine: ${plan.engine}`,
+    `Primary candidate: ${plan.primaryCandidateId}`,
+    `Files analyzed: ${plan.filesAnalyzed}`,
+    `AST files analyzed: ${plan.astFilesAnalyzed}`,
+    `Compatible changes seeded: ${plan.automaticallyMergedUnits.length}`,
+    `Conflicts requiring resolution: ${plan.conflicts.length}`,
+    '',
+    '## Deterministically seeded changes',
+    '',
+    ...(plan.automaticallyMergedUnits.length
+      ? plan.automaticallyMergedUnits.map(
+          (item) => `- ${item.path} :: ${item.unit} <- ${item.candidateId} (${item.strategy})`,
+        )
+      : ['- None']),
+    '',
+    '## Semantic conflicts',
+    '',
+    ...(plan.conflicts.length
+      ? plan.conflicts.map(
+          (item) =>
+            `- ${item.path} :: ${item.unit} [${item.candidateIds.join(', ')}] — ${item.reason}`,
+        )
+      : ['- None']),
+  ].join('\n');
+}
+
+async function seedPreparedWorktree(worktreeRoot: string, files: SeedFile[]): Promise<void> {
+  for (const file of files) {
+    const absolute = resolve(worktreeRoot, file.path);
+    if (!isInside(worktreeRoot, absolute)) {
+      throw new Error(`Unsafe semantic merge seed path: ${file.path}`);
+    }
+    if (file.content === null) {
+      await rm(absolute, { force: true });
+      continue;
+    }
+    await mkdir(dirname(absolute), { recursive: true });
+    await writeFile(absolute, file.content, { encoding: 'utf8', mode: 0o600 });
+  }
 }
 
 function defaultWorkerLaunch(): WorkerLaunch {

@@ -503,6 +503,20 @@ async function handleRequest(
     return;
   }
 
+  const aiCancelTestsMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/tests\/cancel$/);
+  if (req.method === 'POST' && aiCancelTestsMatch?.[1]) {
+    try {
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.cancelTests(decodeURIComponent(aiCancelTestsMatch[1])),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   const aiApplyMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/apply$/);
   if (req.method === 'POST' && aiApplyMatch?.[1]) {
     try {
