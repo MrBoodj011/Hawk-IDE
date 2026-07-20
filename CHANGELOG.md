@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **Local observability and sanitized debug bundles** — every daemon request
+  now receives a trace ID; bounded route metrics expose status, memory, and
+  p50/p95 latency without retaining queries or payloads. An operator-approved
+  command exports a private debug bundle with an exact SHA-256 manifest.
+- **Versioned durable-state migrations** — legacy Hawk AI sessions, semantic
+  index v4 files, and orchestration snapshots upgrade conservatively. Future
+  formats are rejected, and old Docker bridge authority is removed.
+- **Packaged runtime E2E gate** — CI boots the extension-embedded daemon and
+  MCP server as real processes, indexes the same fixture through both
+  protocols, and verifies metrics and debug-bundle integrity on Windows and
+  Linux.
+- **Concurrency, recovery, and security corpus** — deterministic tests cover
+  atomic snapshot/event races, competing MCP terminal states, AST merge
+  fixtures, replay authority/header fuzz cases, and egress-proxy bypass cases.
+
+### Changed
+
+- MCP task terminal transitions are serialized per task, truncated JSONL
+  records no longer make valid durable history unreadable, and the restricted
+  egress proxy now enforces method, header, request, keep-alive, and timeout
+  bounds.
+- The local IDE API protocol is now version 12.
+
 ## [0.7.0] - 2026-07-20
 
 ### Added

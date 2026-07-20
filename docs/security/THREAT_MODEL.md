@@ -20,6 +20,10 @@
 | Persistence path attack | workspace-bound `.hawk` paths, symlink/junction refusal, private state files, exact preimage checks, artifact-tree validation |
 | Unsafe parallel execution | Docker isolation, resource budgets, approval gates, digest-pinned images, durable task state, recovery leases |
 | Unsafe or misleading reproduction | expiring exact-plan hash, explicit approval, immutable source location, read-only filesystems, zero network, dropped capabilities, negative control, bounded runtime, no automatic verification |
+| Replay scope or header injection | exact normalized host and port, rejection of URL userinfo/path/query/fragment authority tricks, forbidden forwarding headers, CR/LF rejection, no redirects, approval hash bound to credential bytes |
+| Restricted-egress bypass | authenticated proxy, exact normalized host/port allowlist, HTTP method allowlist, absolute HTTP URL only, bounded headers/timeouts/connections, wildcard suffix lookalike tests |
+| Debug data leakage | explicit export approval, normalized routes without queries, bounded in-memory traces, secret-shaped metadata rejection, no source/prompts/bodies/tokens/absolute workspace path, SHA-256 manifest |
+| State rollback or unsafe migration | versioned readers, future-version rejection, conservative defaults, legacy Docker bridge migrated to no-network |
 | CI credential compromise | least-privilege workflow permissions and no secret values in artifacts |
 
 ## Personal validation

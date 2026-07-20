@@ -674,3 +674,50 @@ export interface AiMergeBatchResponse {
     }>;
   };
 }
+
+export interface ObservabilitySnapshot {
+  schemaVersion: 1;
+  generatedAt: string;
+  uptimeSeconds: number;
+  totals: {
+    requests: number;
+    errors: number;
+    active: number;
+    status2xx: number;
+    status4xx: number;
+    status5xx: number;
+  };
+  process: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+    externalBytes: number;
+  };
+  routes: Array<{
+    method: string;
+    route: string;
+    requests: number;
+    errors: number;
+    p50Ms: number;
+    p95Ms: number;
+    maxMs: number;
+  }>;
+  recentTraces: Array<{
+    id: string;
+    method: string;
+    route: string;
+    status: number;
+    startedAt: string;
+    completedAt: string;
+    durationMs: number;
+  }>;
+}
+
+export interface DebugBundleResult {
+  schemaVersion: 1;
+  generatedAt: string;
+  path: string;
+  manifestPath: string;
+  sha256: string;
+  bytes: number;
+}

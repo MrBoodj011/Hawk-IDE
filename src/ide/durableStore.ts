@@ -68,7 +68,16 @@ export class DurableStore {
       const lines = (await readFile(this.file(collection, id, 'jsonl'), 'utf8'))
         .split(/\r?\n/)
         .filter(Boolean);
-      return lines.slice(Math.max(0, lines.length - limit)).map((line) => JSON.parse(line) as T);
+      const values: T[] = [];
+      for (const line of lines.slice(Math.max(0, lines.length - limit))) {
+        try {
+          values.push(JSON.parse(line) as T);
+        } catch {
+          // A crash can leave one incomplete tail record. Preserve every valid
+          // event instead of making the complete durable run unreadable.
+        }
+      }
+      return values;
     } catch (error) {
       if (isMissing(error)) return [];
       throw error;

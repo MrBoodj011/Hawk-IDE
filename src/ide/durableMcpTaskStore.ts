@@ -17,6 +17,8 @@ export type McpTaskStatusListener = (
 ) => Promise<void> | void;
 
 export class DurableMcpTaskStore implements TaskStore {
+  private readonly transitions = new Map<string, Promise<void>>();
+
   constructor(
     private readonly store: DurableStore,
     private readonly now: () => Date = () => new Date(),
@@ -60,13 +62,15 @@ export class DurableMcpTaskStore implements TaskStore {
     status: 'completed' | 'failed',
     result: Result,
   ): Promise<void> {
-    const stored = await this.require(taskId);
-    if (isTerminal(stored.task.status))
-      throw new Error(`MCP task ${taskId} is already ${stored.task.status}`);
-    stored.task.status = status;
-    stored.task.lastUpdatedAt = this.now().toISOString();
-    stored.result = result;
-    await this.store.writeJson('mcp-tasks', taskId, stored);
+    await this.serialize(taskId, async () => {
+      const stored = await this.require(taskId);
+      if (isTerminal(stored.task.status))
+        throw new Error(`MCP task ${taskId} is already ${stored.task.status}`);
+      stored.task.status = status;
+      stored.task.lastUpdatedAt = this.now().toISOString();
+      stored.result = result;
+      await this.store.writeJson('mcp-tasks', taskId, stored);
+    });
   }
 
   async getTaskResult(taskId: string): Promise<Result> {
@@ -80,14 +84,16 @@ export class DurableMcpTaskStore implements TaskStore {
     status: Task['status'],
     statusMessage?: string,
   ): Promise<void> {
-    const stored = await this.require(taskId);
-    if (isTerminal(stored.task.status))
-      throw new Error(`MCP task ${taskId} is already ${stored.task.status}`);
-    stored.task.status = status;
-    stored.task.lastUpdatedAt = this.now().toISOString();
-    if (statusMessage) stored.task.statusMessage = statusMessage.slice(0, 1_000);
-    await this.store.writeJson('mcp-tasks', taskId, stored);
-    await this.onStatusChange(taskId, status);
+    await this.serialize(taskId, async () => {
+      const stored = await this.require(taskId);
+      if (isTerminal(stored.task.status))
+        throw new Error(`MCP task ${taskId} is already ${stored.task.status}`);
+      stored.task.status = status;
+      stored.task.lastUpdatedAt = this.now().toISOString();
+      if (statusMessage) stored.task.statusMessage = statusMessage.slice(0, 1_000);
+      await this.store.writeJson('mcp-tasks', taskId, stored);
+      await this.onStatusChange(taskId, status);
+    });
   }
 
   async listTasks(cursor?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
@@ -126,6 +132,17 @@ export class DurableMcpTaskStore implements TaskStore {
     const stored = await this.read(taskId);
     if (!stored) throw new Error(`Unknown or expired MCP task: ${taskId}`);
     return stored;
+  }
+
+  private async serialize(taskId: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.transitions.get(taskId) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.transitions.set(taskId, current);
+    try {
+      await current;
+    } finally {
+      if (this.transitions.get(taskId) === current) this.transitions.delete(taskId);
+    }
   }
 }
 

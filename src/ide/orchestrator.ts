@@ -18,6 +18,10 @@ import {
   releaseAgentLease,
   scheduleDistributedAgents,
 } from './distributedScheduler.js';
+import {
+  migrateOrchestrationSnapshotDocument,
+  migrateOrchestrationSpecDocument,
+} from './stateMigrations.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_TASKS = 64;
@@ -225,11 +229,19 @@ export class HawkDockerOrchestrator {
       try {
         const outputRoot = join(this.outputBase, directory);
         await assertNoSymlinkPath(outputRoot, this.workspaceRoot);
-        const [snapshot, persistedSpec] = await Promise.all([
-          readJsonFile<OrchestrationSnapshot>(join(outputRoot, 'run.json')),
-          readJsonFile<PersistedOrchestrationSpec>(join(outputRoot, 'spec.json')),
+        const [rawSnapshot, rawPersistedSpec] = await Promise.all([
+          readJsonFile<unknown>(join(outputRoot, 'run.json')),
+          readJsonFile<unknown>(join(outputRoot, 'spec.json')),
         ]);
-        if (!snapshot || !persistedSpec || snapshot.id !== directory) continue;
+        if (!rawSnapshot || !rawPersistedSpec) continue;
+        const snapshotMigration = migrateOrchestrationSnapshotDocument(rawSnapshot);
+        const specMigration = migrateOrchestrationSpecDocument(
+          rawPersistedSpec,
+          snapshotMigration.fromVersion,
+        );
+        const snapshot = snapshotMigration.value as unknown as OrchestrationSnapshot;
+        const persistedSpec = specMigration.value as unknown as PersistedOrchestrationSpec;
+        if (snapshot.id !== directory) continue;
         if (resolve(snapshot.workspaceRoot) !== this.workspaceRoot) continue;
         if (!isInside(resolve(snapshot.outputRoot), this.outputBase)) continue;
         const normalized = normalizeSpec(persistedSpec);
@@ -275,6 +287,14 @@ export class HawkDockerOrchestrator {
           egressProxyToken,
         };
         this.runs.set(snapshot.id, run);
+        if (snapshotMigration.migrated || specMigration.migrated) {
+          await writeFileAtomic(
+            join(outputRoot, 'spec.json'),
+            `${JSON.stringify(persistedSpec, null, 2)}\n`,
+            { encoding: 'utf8', mode: 0o600, fsync: true },
+          );
+          await this.persist(run);
+        }
         if (isTerminalRun(snapshot.status)) continue;
         for (const task of tasks.values()) {
           if (task.status !== 'running') continue;

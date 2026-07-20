@@ -43,6 +43,7 @@ import type {
   AiTestResult,
 } from './aiProtocol.js';
 import { buildSemanticMerge } from './semanticMerge.js';
+import { migrateAiSessionDocument } from './stateMigrations.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_PATCH_BYTES = 2 * 1024 * 1024;
@@ -1078,17 +1079,20 @@ export class AiSessionManager {
 
   private async load(id: string): Promise<StoredAiSession> {
     validateSessionId(id);
-    let parsed: StoredAiSession;
+    let raw: unknown;
     try {
-      parsed = JSON.parse(await readFile(this.sessionPath(id), 'utf8')) as StoredAiSession;
+      raw = JSON.parse(await readFile(this.sessionPath(id), 'utf8')) as unknown;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT')
         throw new Error('Hawk AI session not found.');
       throw err;
     }
-    if (parsed.version !== SESSION_FILE_VERSION || parsed.id !== id) {
+    const migration = migrateAiSessionDocument(raw, id);
+    const parsed = migration.value as unknown as StoredAiSession;
+    if (parsed.version !== SESSION_FILE_VERSION) {
       throw new Error('Unsupported or corrupt Hawk AI session file.');
     }
+    if (migration.migrated) await this.save(parsed);
     return parsed;
   }
 

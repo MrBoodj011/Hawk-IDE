@@ -38,4 +38,24 @@ describe('DurableMcpTaskStore', () => {
       /already cancelled/i,
     );
   });
+
+  it('serializes concurrent terminal transitions so exactly one wins', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'hawk-mcp-task-race-'));
+    directories.push(directory);
+    const store = new DurableMcpTaskStore(new DurableStore(directory));
+    const task = await store.createTask({ ttl: 60_000 }, 2, {
+      method: 'tools/call',
+      params: { name: 'hawk_run_execute_task', arguments: { plan_id: 'plan-race' } },
+    } as Request);
+    const transitions = await Promise.allSettled([
+      store.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'ok' }] }),
+      store.updateTaskStatus(task.taskId, 'cancelled', 'operator cancellation'),
+      store.storeTaskResult(task.taskId, 'failed', { content: [{ type: 'text', text: 'failed' }] }),
+    ]);
+    expect(transitions.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(transitions.filter((result) => result.status === 'rejected')).toHaveLength(2);
+    expect(['completed', 'cancelled', 'failed']).toContain(
+      (await store.getTask(task.taskId))?.status,
+    );
+  });
 });

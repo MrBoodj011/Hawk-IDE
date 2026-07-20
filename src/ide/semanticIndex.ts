@@ -12,6 +12,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
+import { migrateSemanticIndexDocument } from './stateMigrations.js';
 
 // Bump this whenever the on-disk representation changes. Version 5 stores
 // embeddings in compact Float32/base64 form and derives `normalized` text on
@@ -570,7 +571,10 @@ export class SemanticWorkspaceIndex {
     try {
       const info = await stat(this.indexPath);
       if (!info.isFile() || info.size <= 0 || info.size > MAX_PERSISTED_INDEX_BYTES) return;
-      const stored = JSON.parse(await readFile(this.indexPath, 'utf8')) as StoredIndex;
+      const migration = migrateSemanticIndexDocument(
+        JSON.parse(await readFile(this.indexPath, 'utf8')) as unknown,
+      );
+      const stored = migration.value as unknown as StoredIndex;
       if (
         stored.version !== INDEX_VERSION ||
         stored.rootHash !== this.rootHash ||
@@ -664,6 +668,7 @@ export class SemanticWorkspaceIndex {
           budgetBytes: MAX_RESIDENT_INDEX_BYTES,
         },
       };
+      if (migration.migrated) await this.persist();
     } catch {
       // Missing, old or corrupt indexes are rebuilt from source.
     }

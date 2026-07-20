@@ -83,6 +83,28 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hawk.planGovernedMission', async () => {
       await dashboard.planGovernedMission();
     }),
+    vscode.commands.registerCommand('hawk.exportDebugBundle', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      const approval = await vscode.window.showWarningMessage(
+        'Export a sanitized Hawk debug bundle with bounded request metrics and runtime metadata?',
+        { modal: true },
+        'Export bundle',
+      );
+      if (approval !== 'Export bundle') return;
+      try {
+        const bundle = await client.buildDebugBundle(workspace);
+        const action = await vscode.window.showInformationMessage(
+          `Hawk debug bundle created (${Math.ceil(bundle.bytes / 1024)} KiB, SHA-256 ${bundle.sha256.slice(0, 12)}...).`,
+          'Reveal file',
+        );
+        if (action === 'Reveal file') {
+          await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(bundle.path));
+        }
+      } catch (err) {
+        vscode.window.showErrorMessage(`Hawk could not export diagnostics: ${errorMessage(err)}`);
+      }
+    }),
   );
 
   const closeLegacyAuxiliaryBar = () => {

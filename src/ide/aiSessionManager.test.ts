@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -16,6 +16,57 @@ afterEach(async () => {
 });
 
 describe('AiSessionManager', () => {
+  it('migrates a legacy session in place and preserves review state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ai-migration-'));
+    temporaryRoots.push(root);
+    const storageRoot = join(root, '.test-storage');
+    const sessionsRoot = join(storageRoot, 'sessions');
+    await mkdir(sessionsRoot, { recursive: true });
+    const id = '8d927176-f2f3-4bd3-ae31-e5347a1484e8';
+    const now = '2026-07-20T12:00:00.000Z';
+    await writeFile(
+      join(sessionsRoot, `${id}.json`),
+      JSON.stringify({
+        id,
+        title: 'Legacy review',
+        prompt: 'Review the legacy patch',
+        status: 'awaiting-review',
+        createdAt: now,
+        updatedAt: now,
+        workspaceRoot: root,
+        repoRoot: root,
+        workspaceRelative: '',
+        worktreeRoot: join(root, 'worktree'),
+        workerRoot: join(root, 'worktree'),
+        snapshotCommit: 'deadbeef',
+        patchPath: join(storageRoot, 'patches', `${id}.patch`),
+        agentSessionPath: join(storageRoot, 'agent', `${id}.json`),
+      }),
+      'utf8',
+    );
+    const manager = new AiSessionManager({ workspaceRoot: root, storageRoot });
+    await manager.initialize();
+    try {
+      await expect(manager.get(id)).resolves.toMatchObject({
+        id,
+        status: 'awaiting-review',
+        background: false,
+        autoResume: false,
+        resumeCount: 0,
+        checkpoints: [],
+        testGates: [],
+        testResults: [],
+      });
+      const migrated = JSON.parse(await readFile(join(sessionsRoot, `${id}.json`), 'utf8')) as {
+        version?: number;
+        status?: string;
+      };
+      expect(migrated).toMatchObject({ version: 1, status: 'awaiting-review' });
+    } finally {
+      await manager.dispose();
+    }
+  });
+
   it('isolates an agent edit, exposes its exact diff, applies it, and reverts safely', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-ai-session-'));
     temporaryRoots.push(root);

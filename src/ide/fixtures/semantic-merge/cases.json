@@ -1,0 +1,70 @@
+[
+  {
+    "name": "typescript independent top-level functions",
+    "path": "auth.ts",
+    "base": "export function authorize(role: string) {\n  return role === 'admin';\n}\n\nexport function audit(role: string) {\n  return role;\n}\n",
+    "candidates": [
+      {
+        "id": "authorization",
+        "content": "export function authorize(role: string) {\n  return role === 'admin' || role === 'owner';\n}\n\nexport function audit(role: string) {\n  return role;\n}\n"
+      },
+      {
+        "id": "audit",
+        "content": "export function authorize(role: string) {\n  return role === 'admin';\n}\n\nexport function audit(role: string) {\n  return `audit:${role}`;\n}\n"
+      }
+    ],
+    "expectedContains": ["role === 'admin' || role === 'owner'", "return `audit:${role}`"],
+    "expectedConflictContains": []
+  },
+  {
+    "name": "typescript deletion versus mutation",
+    "path": "policy.ts",
+    "base": "export function validate(input: string) {\n  return input.length > 0;\n}\n",
+    "candidates": [
+      {
+        "id": "delete",
+        "content": ""
+      },
+      {
+        "id": "tighten",
+        "content": "export function validate(input: string) {\n  return input.trim().length > 3;\n}\n"
+      }
+    ],
+    "expectedContains": [],
+    "expectedConflictContains": ["function:validate"]
+  },
+  {
+    "name": "typescript class member addition and independent update",
+    "path": "service.ts",
+    "base": "export class Service {\n  read(id: string) {\n    return id;\n  }\n}\n",
+    "candidates": [
+      {
+        "id": "read",
+        "content": "export class Service {\n  read(id: string) {\n    return id.trim();\n  }\n}\n"
+      },
+      {
+        "id": "write",
+        "content": "export class Service {\n  read(id: string) {\n    return id;\n  }\n\n  write(id: string) {\n    return `saved:${id}`;\n  }\n}\n"
+      }
+    ],
+    "expectedContains": ["return id.trim()", "write(id: string)"],
+    "expectedConflictContains": []
+  },
+  {
+    "name": "python independent methods",
+    "path": "policy.py",
+    "base": "class Policy:\n    def authorize(self, role: str) -> bool:\n        return role == 'admin'\n\n    def audit(self, role: str) -> str:\n        return role\n",
+    "candidates": [
+      {
+        "id": "authorization",
+        "content": "class Policy:\n    def authorize(self, role: str) -> bool:\n        return role in {'admin', 'owner'}\n\n    def audit(self, role: str) -> str:\n        return role\n"
+      },
+      {
+        "id": "audit",
+        "content": "class Policy:\n    def authorize(self, role: str) -> bool:\n        return role == 'admin'\n\n    def audit(self, role: str) -> str:\n        return f'audit:{role}'\n"
+      }
+    ],
+    "expectedContains": ["role in {'admin', 'owner'}", "return f'audit:{role}'"],
+    "expectedConflictContains": []
+  }
+]

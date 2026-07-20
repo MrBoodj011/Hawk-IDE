@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { CapturedHeader, CapturedRequest } from '../browser/store.js';
+import { apply as redact } from '../redact/index.js';
 import {
   IDE_PROTOCOL_VERSION,
   type IdentityReplayCredentialInput,
@@ -358,7 +359,9 @@ function replayURL(value: string): URL {
 
 function normalizeAuthority(value: string): string {
   try {
-    return new URL(`http://${value}`).host.toLowerCase();
+    const url = new URL(`http://${value}`);
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) return '';
+    return url.host.toLowerCase();
   } catch {
     return '';
   }
@@ -395,7 +398,14 @@ function observationFingerprint(value: IdentityReplayObservation): string {
 
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/https?:\/\/[^\s]+/gi, '[approved target]').slice(0, 300);
+  return redact(message)
+    .replace(/\b(Bearer|Basic|Token)\s+[^\s,;]+/gi, '$1 [REDACTED]')
+    .replace(
+      /\b(authorization|cookie|x-api-key|x-auth-token|x-csrf-token|x-xsrf-token)\s*[:=]\s*[^\s,;]+/gi,
+      '$1=[REDACTED]',
+    )
+    .replace(/https?:\/\/[^\s]+/gi, '[approved target]')
+    .slice(0, 300);
 }
 
 async function delay(ms: number): Promise<void> {

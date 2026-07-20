@@ -132,7 +132,7 @@ Long jobs can fan out across up to 32 bounded worker instances with dependency-a
 | --- | --- |
 | `none` | Default. No worker network. |
 | `restricted` | Authenticated Hawk egress proxy with exact host and port allowlists. |
-| `bridge` | Compatibility mode; use only with explicit approved external access. |
+| `bridge` | Legacy input only. Hawk normalizes it to `restricted`; an old persisted run is migrated to `none` until the operator approves a new restricted-egress policy. |
 
 ## What each part does
 
@@ -262,6 +262,8 @@ The root package is the `@hawk/ide` workspace. NPM is used as the reproducible b
 | `npm run check:integrations` | Validates Browser and Burp integration contracts. |
 | `npm run test` | Runs the complete Vitest suite serially. |
 | `npm run test:watch` | Runs Vitest in interactive watch mode. |
+| `npm run test:e2e-runtime` | Builds the extension and exercises its embedded daemon and MCP server as real child processes. |
+| `npm run test:e2e-runtime:built` | Runs the same runtime E2E contract against already-built extension artifacts. |
 | `npm run typecheck` | Runs TypeScript with `--noEmit`. |
 | `npm run lint` | Runs Biome checks over `src/`. |
 | `npm run lint:fix` | Applies safe Biome formatting fixes. |
@@ -334,10 +336,11 @@ Provider keys are read from local environment variables or local settings. Hawk 
 | `.hawk/plans/` | Governed mission plans and approval hashes. |
 | `.hawk/brain/` | Goals, policies, memory, runs, and MCP events. |
 | `.hawk/orchestrations/` | Docker run snapshots, leases, logs, and artifacts. |
+| `.hawk/diagnostics/` | Operator-approved, sanitized debug bundles and SHA-256 manifests. |
 | `~/.hawk/ide/workspaces/<hash>/ai-sessions/` | Durable AI sessions, events, checkpoints, patches, and task recovery state. |
 | `~/.hawk/ide/prediction-evaluation/` | Aggregated Next Edit scorecards without retaining source code. |
 
-Persistence uses atomic writes, path validation, bounded artifacts, SHA-256 identities, and drift checks. Symlinks, junctions, special files, and paths that escape the selected workspace are rejected.
+Persistence uses atomic writes, path validation, bounded artifacts, SHA-256 identities, and drift checks. Versioned migrations upgrade AI sessions, semantic-index metadata, and orchestration snapshots conservatively; unknown future versions are rejected, and legacy Docker bridge authority is removed rather than inherited. Symlinks, junctions, special files, and paths that escape the selected workspace are rejected.
 
 ## Local daemon API
 
@@ -346,6 +349,8 @@ The daemon is loopback-only and requires `X-Hawk-Token`. The most important endp
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/v1/health` | Health, version, and protocol status. |
+| `GET` | `/v1/diagnostics/metrics` | Bounded request counts, latency percentiles, memory, and recent sanitized traces. |
+| `POST` | `/v1/diagnostics/bundle` | Create an operator-approved sanitized support bundle and SHA-256 manifest. |
 | `POST` | `/v1/workspace/index` | Index routes and source files. |
 | `POST` | `/v1/workspace/search` | Search the semantic index. |
 | `POST` | `/v1/ai/sessions` | Create a durable Hawk AI session. |
@@ -363,7 +368,7 @@ The daemon is loopback-only and requires `X-Hawk-Token`. The most important endp
 | `POST` | `/v1/reports/evidence` | Build Markdown, HTML, JSON, SARIF, and manifest output. |
 | `POST` | `/v1/missions/plan` | Compile a Smart MCP mission without executing it. |
 
-Every request is bounded by host checks, peer checks, token authentication, body limits, timeouts, and no-store response headers.
+Every request is bounded by host checks, peer checks, token authentication, body limits, timeouts, and no-store response headers. The daemon returns `X-Hawk-Trace-Id` for local correlation. Metrics store normalized route templates rather than query strings, request bodies, credentials, prompts, source code, or absolute workspace paths.
 
 ## MCP surface and governance
 
@@ -414,16 +419,17 @@ Read the [threat model](docs/security/THREAT_MODEL.md), [Security Policy](SECURI
 
 ## Validation snapshot
 
-The latest local validation snapshot for commit `ddf4c51`:
+The latest local validation snapshot for the current source tree:
 
 | Check | Result |
 | --- | --- |
-| Test files | 95 |
-| Tests passed | 745 |
+| Test files | 99 |
+| Tests passed | 775 |
 | Tests skipped | 16 |
 | Chaos scenarios | 4/4 |
 | TypeScript / Biome / tsup build | PASS |
-| Index benchmark | PASS, peak RSS below 500 MiB |
+| Packaged daemon + MCP runtime E2E | PASS |
+| Index benchmark | PASS, 391.7 MiB peak RSS under the 500 MiB limit |
 | Production dependency audit | 0 vulnerabilities |
 | Branding guard | PASS across the working tree |
 
@@ -458,6 +464,7 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 - [Parallel Docker orchestration](docs/parallel-orchestration.md)
 - [Sandbox reproduction](docs/sandbox-reproduction.md)
 - [Identity replay](docs/traffic-identity-replay.md)
+- [Local observability and debug bundles](docs/observability.md)
 - [Production readiness](docs/release/PRODUCTION_READINESS.md)
 - [External pentest runbook](docs/audit/EXTERNAL_PENTEST_RUNBOOK.md)
 - [Threat model](docs/security/THREAT_MODEL.md)

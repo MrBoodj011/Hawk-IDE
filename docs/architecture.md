@@ -36,6 +36,10 @@ The current local-first slice provides:
 12. Reproduce supported deterministic audit signals through an expiring,
     hash-approved baseline/control/reproduction DAG inside a read-only,
     zero-network Docker sandbox.
+13. Record bounded local request metrics and trace IDs, then export a
+    deliberately approved, sanitized debug bundle with a SHA-256 manifest.
+14. Migrate AI sessions, semantic indexes, and Docker orchestration snapshots
+    forward without silently increasing their authority.
 
 ## Runtime layout
 
@@ -111,3 +115,35 @@ The embedded MCP App has no network or external resource CSP permissions. It
 can observe and control Hawk runs only through the host-mediated MCP channel.
 Remote testing and active scanner actions remain subject to the existing
 agent permission and authorization workflow.
+
+## Durable state and migrations
+
+Hawk state formats are versioned at their persistence boundaries:
+
+| State | Current migration behavior |
+| --- | --- |
+| AI sessions | Pre-versioned sessions become version 1 with conservative recovery, checkpoint, touched-file, and test-gate defaults. Existing review status and worktree paths remain unchanged. |
+| Semantic index | Version 4 metadata upgrades to version 5 with bounded symbol, type, import, call, and structural fields. Older or future formats rebuild or fail closed. |
+| Docker orchestration | Older snapshots upgrade to protocol 3. Legacy `bridge` authority is removed; the recovered run is network-denied until a new restricted-egress policy is explicitly approved. |
+
+Atomic snapshots are serialized, per-task MCP terminal transitions are
+serialized, and a crash-truncated JSONL record does not make the remaining
+durable history unreadable. Unknown future state versions are never guessed.
+
+## Local observability
+
+Every authenticated or rejected daemon request receives a random
+`X-Hawk-Trace-Id`. The bounded in-memory telemetry surface records status
+counts, active requests, process memory, route-level p50/p95/max latency, and
+the latest sanitized traces. URL query strings and payloads are never retained.
+
+`GET /v1/diagnostics/metrics` returns the current snapshot. The command
+**Hawk: Export Sanitized Debug Bundle** calls
+`POST /v1/diagnostics/bundle` only after a modal operator approval. The bundle
+contains runtime versions, bounded counters, index statistics, and sanitized
+trace data; it excludes source, prompts, traffic bodies, credentials, tokens,
+and the absolute workspace path. A separate manifest records its exact byte
+size and SHA-256 digest under `.hawk/diagnostics/`.
+
+See [Local observability and debug bundles](observability.md) for the data
+contract and operational workflow.

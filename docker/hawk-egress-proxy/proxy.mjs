@@ -13,10 +13,16 @@ const allowedPorts = new Set(
     .filter((value) => Number.isInteger(value) && value >= 1 && value <= 65_535),
 );
 if (allowedPorts.size === 0) throw new Error('HAWK_ALLOWED_PORTS has no valid ports');
+const allowedMethods = new Set(['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
 const server = http.createServer((request, response) => {
   void handleHttp(request, response);
 });
+server.requestTimeout = 30_000;
+server.headersTimeout = 10_000;
+server.keepAliveTimeout = 5_000;
+server.maxHeadersCount = 128;
+server.maxRequestsPerSocket = 100;
 server.on('connect', (request, client, head) => {
   void handleConnect(request, client, head);
 });
@@ -63,6 +69,11 @@ async function handleHttp(request, response) {
   if (!authorized(request)) {
     response.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="Hawk"' });
     response.end('Proxy authentication required');
+    return;
+  }
+  if (!allowedMethods.has(String(request.method ?? '').toUpperCase())) {
+    response.writeHead(405, { Allow: [...allowedMethods].join(', ') });
+    response.end('HTTP method is outside the Hawk egress policy');
     return;
   }
   let target;

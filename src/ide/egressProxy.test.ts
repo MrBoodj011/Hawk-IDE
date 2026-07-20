@@ -54,6 +54,39 @@ describe('Hawk restricted egress proxy', () => {
     await expect(
       proxyRequest(proxyPort, `http://127.0.0.1:${targetPort}/health`),
     ).resolves.toMatchObject({ status: 407 });
+    await expect(
+      proxyRequest(proxyPort, `http://user:password@127.0.0.1:${targetPort}/health`, token),
+    ).resolves.toMatchObject({ status: 403 });
+    await expect(
+      proxyRequest(proxyPort, `https://127.0.0.1:${targetPort}/health`, token),
+    ).resolves.toMatchObject({ status: 403 });
+    await expect(
+      proxyRequest(proxyPort, `http://127.0.0.1:${targetPort + 1}/health`, token),
+    ).resolves.toMatchObject({ status: 403 });
+    await expect(proxyRequest(proxyPort, '/relative/path', token)).resolves.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      proxyRequest(proxyPort, `http://127.0.0.1:${targetPort}/health`, `${token}-suffix`),
+    ).resolves.toMatchObject({ status: 407 });
+    await expect(
+      proxyRequest(proxyPort, `http://127.0.0.1:${targetPort}/health`, token, 'TRACE'),
+    ).resolves.toMatchObject({ status: 405 });
+  });
+
+  it('does not let a wildcard match the root domain or a suffix lookalike', async () => {
+    const token = 'hawk-wildcard-token';
+    const proxyPort = await startProxy({
+      token,
+      allowedHosts: '*.example.test',
+      allowedPorts: '80',
+    });
+    await expect(
+      proxyRequest(proxyPort, 'http://example.test/health', token),
+    ).resolves.toMatchObject({ status: 403 });
+    await expect(
+      proxyRequest(proxyPort, 'http://evil-example.test/health', token),
+    ).resolves.toMatchObject({ status: 403 });
   });
 });
 
@@ -86,17 +119,42 @@ async function readyPort(child: ChildProcess): Promise<number> {
   });
 }
 
+async function startProxy(input: {
+  token: string;
+  allowedHosts: string;
+  allowedPorts: string;
+}): Promise<number> {
+  const proxy = spawn(
+    process.execPath,
+    [fileURLToPath(new URL('../../docker/hawk-egress-proxy/proxy.mjs', import.meta.url))],
+    {
+      env: {
+        ...process.env,
+        HAWK_PROXY_TOKEN: input.token,
+        HAWK_PROXY_PORT: '0',
+        HAWK_ALLOWED_HOSTS: input.allowedHosts,
+        HAWK_ALLOWED_PORTS: input.allowedPorts,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  );
+  children.push(proxy);
+  return await readyPort(proxy);
+}
+
 async function proxyRequest(
   proxyPort: number,
   target: string,
   token?: string,
+  method = 'GET',
 ): Promise<{ status: number; body: string }> {
   return await new Promise((resolve, reject) => {
     const request = http.request(
       {
         hostname: '127.0.0.1',
         port: proxyPort,
-        method: 'GET',
+        method,
         path: target,
         headers: token
           ? { 'Proxy-Authorization': `Basic ${Buffer.from(`hawk:${token}`).toString('base64')}` }

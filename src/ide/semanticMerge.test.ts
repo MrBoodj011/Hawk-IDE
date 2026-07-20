@@ -1,7 +1,49 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildSemanticMerge } from './semanticMerge.js';
 
 describe('buildSemanticMerge', () => {
+  it('passes the cross-language semantic merge fixture corpus', () => {
+    const cases = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL('./fixtures/semantic-merge/cases.json', import.meta.url)),
+        'utf8',
+      ),
+    ) as Array<{
+      name: string;
+      path: string;
+      base: string;
+      candidates: Array<{ id: string; content: string }>;
+      expectedContains: string[];
+      expectedConflictContains: string[];
+    }>;
+    expect(cases.length).toBeGreaterThanOrEqual(4);
+    for (const fixture of cases) {
+      const result = buildSemanticMerge({
+        baseFiles: { [fixture.path]: fixture.base },
+        candidates: fixture.candidates.map((candidate) => ({
+          id: candidate.id,
+          files: { [fixture.path]: candidate.content },
+        })),
+      });
+      const content = result.files[fixture.path] ?? '';
+      for (const expected of fixture.expectedContains) {
+        expect(content, fixture.name).toContain(expected);
+      }
+      const conflictUnits = result.plan.conflicts.map((conflict) => conflict.unit);
+      for (const expected of fixture.expectedConflictContains) {
+        expect(
+          conflictUnits.some((unit) => unit.includes(expected)),
+          fixture.name,
+        ).toBe(true);
+      }
+      if (fixture.expectedConflictContains.length === 0) {
+        expect(result.plan.conflicts, fixture.name).toEqual([]);
+      }
+    }
+  });
+
   it('transplants disjoint class-member edits from separate candidates', () => {
     const base = [
       'export class Policy {',

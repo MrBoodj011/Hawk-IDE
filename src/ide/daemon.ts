@@ -30,6 +30,7 @@ import {
   type InlineCompletionRequest,
   createInlineCompletion,
 } from './inlineCompletion.js';
+import { HawkObservability } from './observability.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import { ProofGraph } from './proofGraph.js';
 import {
@@ -113,6 +114,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   const evidencePacks: EvidencePackReport[] = [];
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const durableStore = new DurableStore(workspaceRoot);
+  const observability = new HawkObservability(now);
   const proofGraph = new ProofGraph(durableStore, now);
   const reproducer = new SandboxVulnerabilityReproducer(
     workspaceRoot,
@@ -147,6 +149,16 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   });
 
   const server = createServer((req, res) => {
+    const trace = observability.start(req.method, req.url);
+    res.setHeader('X-Hawk-Trace-Id', trace.id);
+    let recorded = false;
+    const record = (status: number) => {
+      if (recorded) return;
+      recorded = true;
+      observability.finish(trace, status);
+    };
+    res.once('finish', () => record(res.statusCode || 500));
+    res.once('close', () => record(res.writableEnded ? res.statusCode || 500 : 499));
     void handleRequest(req, res, {
       token,
       workspaceRoot,
@@ -185,10 +197,17 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       editPredictions,
       completionLatencies: () => [...completionLatencies],
       identityReplay,
+      observability,
       recordCompletionLatency: (latencyMs) => {
         completionLatencies.push(latencyMs);
         if (completionLatencies.length > 100) completionLatencies.shift();
       },
+    }).catch((error) => {
+      if (!res.headersSent) {
+        sendJSON(res, 500, { ok: false, error: errorMessage(error), traceId: trace.id });
+      } else if (!res.writableEnded) {
+        res.end();
+      }
     });
   });
   server.requestTimeout = REQUEST_TIMEOUT_MS;
@@ -245,6 +264,7 @@ interface RequestContext {
   semanticIndex: SemanticWorkspaceIndex;
   editPredictions: EditPredictionEngine;
   identityReplay: IdentityReplayService;
+  observability: HawkObservability;
   completionLatencies(): number[];
   recordCompletionLatency(latencyMs: number): void;
 }
@@ -418,6 +438,36 @@ async function handleRequest(
       );
     } catch (err) {
       sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/diagnostics/metrics') {
+    sendJSON(res, 200, context.observability.snapshot());
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/diagnostics/bundle') {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      sendJSON(
+        res,
+        201,
+        await context.observability.buildDebugBundle({
+          approved: input.approved === true,
+          workspaceRoot: context.workspaceRoot,
+          extra: {
+            protocolVersion: IDE_PROTOCOL_VERSION,
+            semanticIndex: context.semanticIndex.stats() ?? null,
+            aiSessions: (await context.aiSessions.list(100)).length,
+            findings: context.findings().length,
+            trafficRecords: context.traffic()?.requests.length ?? 0,
+            reproductions: (await context.reproducer.list(100)).length,
+          },
+        }),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
     return;
   }

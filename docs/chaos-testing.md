@@ -10,11 +10,15 @@ handoffs that make that safe:
 | Docker/network adapter throws `ECONNRESET` | The task is recorded as a failed attempt, retries only within its explicit budget, and never leaves the run stuck in `running`. |
 | Recovery itself loses the Docker/network socket | The reattach failure is persisted, the task is reassigned only within its retry budget, and the next worker attempt can complete normally. |
 | Hawk agent process disappears while a background task is editing an isolated worktree | The saved session/worktree is reopened, the task auto-resumes once, and the resulting diff is still reviewable. |
+| 100 snapshots or 120 event appends arrive concurrently | Writes are serialized, snapshots remain complete JSON, and every JSONL event is stored exactly once in submission order. |
+| MCP completion, failure, and cancellation race for one task | Exactly one terminal transition wins; later terminal writes are rejected instead of overwriting the result. |
+| A crash leaves a truncated JSONL record | Valid durable records remain recoverable and the malformed partial record is not interpreted as an event. |
 
 Run the deterministic suite locally:
 
 ```sh
 npm run test:chaos
+npm exec vitest run src/ide/durableStore.race.test.ts src/ide/durableMcpTaskStore.test.ts -- --maxWorkers=1 --fileParallelism=false
 ```
 
 The tests use in-process fault-injecting runtimes and a tiny worker fixture; no
@@ -27,3 +31,9 @@ drop the daemon socket/network route, and restart the Hawk control process.
 Compare the resulting `run.json`, task attempt count, lease state, and agent
 session events with the invariants above. Never run that destructive variant
 against an operator's active workspace.
+
+The normal CI gate also runs `npm run test:e2e-runtime:built`. That test starts
+the extension-packaged daemon and MCP server as separate child processes,
+indexes a real temporary route fixture through both protocols, checks trace
+metrics and debug-bundle integrity, then shuts both processes down. GitHub CI
+repeats the runtime contract on Windows and Linux.

@@ -13,6 +13,7 @@ import type {
   CodingCoreBenchmark,
   DaemonDescriptor,
   DaemonHealth,
+  DebugBundleResult,
   EditPredictionEvaluationReport,
   EditPredictionResponse,
   EvidencePackReport,
@@ -23,6 +24,7 @@ import type {
   InlineCompletionResponse,
   IdentityReplayPlan,
   IdentityReplayResult,
+  ObservabilitySnapshot,
   RetestResult,
   SandboxReproductionPlan,
   SandboxReproductionResult,
@@ -193,6 +195,20 @@ export class DaemonClient implements vscode.Disposable {
     const daemon = await this.start(workspace);
     return await this.request<CodingCoreBenchmark>(daemon, '/v1/diagnostics/coding-core', {
       method: 'POST',
+    });
+  }
+
+  async observability(workspace: vscode.Uri): Promise<ObservabilitySnapshot> {
+    const daemon = await this.start(workspace);
+    return await this.request<ObservabilitySnapshot>(daemon, '/v1/diagnostics/metrics');
+  }
+
+  async buildDebugBundle(workspace: vscode.Uri): Promise<DebugBundleResult> {
+    const daemon = await this.start(workspace);
+    return await this.request<DebugBundleResult>(daemon, '/v1/diagnostics/bundle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: true }),
     });
   }
 

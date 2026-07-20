@@ -35,6 +35,8 @@
     "test:update-real": "node scripts/test-private-update.mjs --from 0.7.0 --to v0.7.1",
     "test:update-signed-real": "node scripts/test-private-update.mjs --from 0.0.0 --require-signature",
     "test:chaos": "vitest run src/ide/chaos.test.ts --maxWorkers=1 --fileParallelism=false",
+    "test:e2e-runtime": "npm run build:extension && node --import tsx scripts/runtime-e2e-smoke.ts",
+    "test:e2e-runtime:built": "node --import tsx scripts/runtime-e2e-smoke.ts",
     "benchmark:index-memory": "node --expose-gc --import tsx scripts/index-memory-gate.ts",
     "benchmark:beta-index": "node --expose-gc --import tsx scripts/beta-index-benchmark.ts --clone --enforce-memory",
     "docker:build-egress-proxy": "docker build --pull=false -t hawk-egress-proxy:0.1.0 docker/hawk-egress-proxy",
@@ -52,7 +54,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "lint:fix": "biome check --write src",
-    "ci": "npm run check:branding && npm run typecheck && npm run lint && npm run test && npm run build && npm run check:extension && npm run check:integrations && npm run build:extension"
+    "ci": "npm run check:branding && npm run typecheck && npm run lint && npm run test && npm run build && npm run check:extension && npm run check:integrations && npm run build:extension && npm run test:e2e-runtime:built"
   },
   "keywords": [
     "pentest",

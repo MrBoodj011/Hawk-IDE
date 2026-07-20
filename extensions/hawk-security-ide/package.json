@@ -32,6 +32,7 @@
     "onCommand:hawk.planIdentityReplay",
     "onCommand:hawk.buildEvidencePack",
     "onCommand:hawk.planGovernedMission",
+    "onCommand:hawk.exportDebugBundle",
     "onCommand:hawk.toggleTab",
     "onCommand:hawk.triggerTab",
     "onCommand:hawk.rebuildSemanticIndex",
@@ -121,6 +122,10 @@
       {
         "command": "hawk.planGovernedMission",
         "title": "Hawk: Plan Governed Smart MCP Mission"
+      },
+      {
+        "command": "hawk.exportDebugBundle",
+        "title": "Hawk: Export Sanitized Debug Bundle"
       },
       {
         "command": "hawk.toggleTab",

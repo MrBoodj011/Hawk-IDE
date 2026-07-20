@@ -38,7 +38,43 @@ describe('startIdeDaemon', () => {
       expect(health.status).toBe(200);
       expect(health.headers.get('cache-control')).toBe('no-store');
       expect(health.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(health.headers.get('x-hawk-trace-id')).toMatch(/^trace-/);
       expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 12 });
+
+      const metrics = await fetch(`${daemon.url}/v1/diagnostics/metrics`, { headers });
+      expect(metrics.status).toBe(200);
+      await expect(metrics.json()).resolves.toMatchObject({
+        schemaVersion: 1,
+        totals: {
+          requests: expect.any(Number),
+          active: expect.any(Number),
+        },
+        routes: expect.arrayContaining([
+          expect.objectContaining({
+            method: 'GET',
+            route: '/v1/health',
+            requests: expect.any(Number),
+          }),
+        ]),
+      });
+
+      const blockedBundle = await fetch(`${daemon.url}/v1/diagnostics/bundle`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: false }),
+      });
+      expect(blockedBundle.status).toBe(400);
+      const bundle = await fetch(`${daemon.url}/v1/diagnostics/bundle`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: true }),
+      });
+      expect(bundle.status).toBe(201);
+      await expect(bundle.json()).resolves.toMatchObject({
+        schemaVersion: 1,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        bytes: expect.any(Number),
+      });
 
       const predictionEvaluation = await fetch(`${daemon.url}/v1/ai/edit-prediction/evaluation`, {
         headers,
