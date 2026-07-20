@@ -131,4 +131,81 @@ describe('SemanticWorkspaceIndex', () => {
     expect(stats.files).toBe(1);
     expect(index.search('value generated')).toHaveLength(1);
   });
+
+  it('extracts polyglot symbols, imports, parameter types, and return types', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-semantic-polyglot-'));
+    roots.push(root);
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(
+      join(root, 'src', 'policy.py'),
+      [
+        'from hawk.security.tokens import AccessToken',
+        'class AuthorizationPolicy(BasePolicy):',
+        '    async def verify_token(self, token: AccessToken) -> Decision:',
+        '        return decide(token)',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src', 'PolicyService.java'),
+      [
+        'import com.hawk.security.AccessToken;',
+        'public final class PolicyService {',
+        '  public Decision authorize(AccessToken token) { return decide(token); }',
+        '}',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src', 'policy.go'),
+      [
+        'package policy',
+        'import "hawk/security/token"',
+        'type Decision struct {}',
+        'func Authorize(token token.AccessToken) Decision { return decide(token) }',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(root, 'src', 'policy.rs'),
+      [
+        'use crate::security::AccessToken;',
+        'pub struct Decision {}',
+        'pub fn authorize(token: AccessToken) -> Decision { decide(token) }',
+      ].join('\n'),
+    );
+
+    const index = new SemanticWorkspaceIndex(root, { storageRoot: join(root, '.cache') });
+    const stats = await index.build();
+
+    expect(stats.files).toBe(4);
+    expect(stats.types).toBeGreaterThanOrEqual(8);
+    expect(index.search('verify_token AccessToken Decision')[0]).toMatchObject({
+      file: 'src/policy.py',
+    });
+    expect(index.search('PolicyService authorize AccessToken')[0]).toMatchObject({
+      file: 'src/PolicyService.java',
+    });
+    expect(
+      index.search('func Authorize package hawk/security/token', 4).map((item) => item.file),
+    ).toContain('src/policy.go');
+    expect(
+      index.search('use crate::security AccessToken rust function', 4).map((item) => item.file),
+    ).toContain('src/policy.rs');
+  });
+
+  it('keeps representative semantic chunks from a very large generated file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-semantic-representative-'));
+    roots.push(root);
+    const lines = Array.from({ length: 5_000 }, (_, index) =>
+      index === 4_750
+        ? 'export function criticalRecoverySignal(): string { return "recover"; }'
+        : `export const generated_${index} = ${index};`,
+    );
+    await writeFile(join(root, 'generated.ts'), lines.join('\n'));
+    const index = new SemanticWorkspaceIndex(root, { storageRoot: join(root, '.cache') });
+
+    const stats = await index.build();
+
+    expect(stats.truncated).toBe(true);
+    expect(stats.chunks).toBeLessThanOrEqual(24);
+    expect(index.search('criticalRecoverySignal recover')).toHaveLength(1);
+  });
 });

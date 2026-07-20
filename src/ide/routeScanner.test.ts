@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 async function fixture(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'pentesterflow-ide-routes-'));
+  const root = await mkdtemp(join(tmpdir(), 'hawk-ide-routes-'));
   temporaryRoots.push(root);
   return root;
 }

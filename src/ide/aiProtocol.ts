@@ -178,7 +178,7 @@ export interface AiSemanticMergeConflict {
 }
 
 export interface AiSemanticMergePlan {
-  engine: 'typescript-ast-v1';
+  engine: 'typescript-ast-v1' | 'hawk-semantic-v2';
   primaryCandidateId: string;
   candidateIds: string[];
   filesAnalyzed: number;

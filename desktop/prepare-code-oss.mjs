@@ -9,7 +9,7 @@ import { sanitizeHawkProduct } from './product-branding.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDirectory, '..');
-const defaultExtension = resolve(projectRoot, 'extensions', 'pentesterflow-ide');
+const defaultExtension = resolve(projectRoot, 'extensions', 'hawk-security-ide');
 const defaultOverrides = resolve(scriptDirectory, 'product-overrides.json');
 
 const args = parseArgs(process.argv.slice(2));

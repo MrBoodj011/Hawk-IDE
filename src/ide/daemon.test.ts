@@ -21,7 +21,7 @@ afterEach(async () => {
 
 describe('startIdeDaemon', () => {
   it('keeps the local API token-gated and returns a route inventory', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pentesterflow-ide-daemon-'));
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ide-daemon-'));
     temporaryRoots.push(root);
     await writeFile(join(root, 'server.ts'), "app.get('/api/profile', handler);\n");
     const daemon = await startIdeDaemon({

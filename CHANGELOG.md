@@ -17,6 +17,18 @@ All notable changes to this project are documented here. The format is based on
   downloaded again from the private GitHub feed on Windows and must pass
   release selection, exact-size, SHA-256, PE, trusted-host, and Authenticode
   verification without launching the installer.
+- **Hawk-only product identity gate** — CI rejects legacy product names in
+  source paths, packages, commands, docs, installers, and release assets while
+  retaining required Apache attribution only in `NOTICE`.
+- **Polyglot semantic index v5** — language-aware declarations, imports, and
+  type facts now cover Python, Java, Kotlin, C#, Go, and Rust in addition to the
+  TypeScript/JavaScript compiler AST.
+- **Semantic Merge v2** — compatible Python class, method, and function edits
+  merge deterministically, while divergent edits to the same declaration
+  become explicit review conflicts.
+- **Production evidence gates** — machine-readable beta-session, independent
+  pentest, Windows signing, current CI, and official release checks prevent a
+  release from being described as production-ready without real evidence.
 
 ### Changed
 
@@ -24,6 +36,11 @@ All notable changes to this project are documented here. The format is based on
   parsing, 2,200 resident chunks, a 128 MiB persistent file ceiling, and
   bounded finite local embeddings to keep indexing responsive under the new
   memory budget.
+- Large files use representative structural chunks so generated or unusually
+  large sources cannot consume the complete bounded index.
+- Static audit and offline sandbox reproduction include five additional
+  deterministic patterns for command interpolation, request-controlled URL and
+  file access, unsafe deserialization, and weak password hashing.
 - Windows updates cannot launch unless their Authenticode chain is trusted.
   Production publication also requires a pinned `HAWK_WINDOWS_PUBLISHER`
   certificate subject in addition to the PFX or Azure signing identity.
@@ -129,7 +146,7 @@ All notable changes to this project are documented here. The format is based on
 
 - **Saved memory (`#` quick-add)** — a curated, human-readable memory layer
   modeled on Claude Code. `#<text>` saves a durable fact (one Markdown file per
-  fact with frontmatter, under `.pentesterflow/memory/`); `#!<text>` saves it to
+  fact with frontmatter, under `.hawk/memory/`); `#!<text>` saves it to
   the personal scope. The fact catalog is pinned into the system prompt every
   turn (survives compaction) and the most relevant facts are recalled in full
   per turn, surfaced as a `recalled memory: …` line. Manage with
@@ -152,7 +169,7 @@ All notable changes to this project are documented here. The format is based on
   Copilot surfaces stay hidden; local model outages now render as a guided
   offline state instead of raw transport errors.
 
-- **Self-update hardening** — a pinned `pentesterflow update <version>` now
+- **Self-update hardening** — a pinned `hawk update <version>` now
   fetches the installer from that release tag (immutable) instead of `main`, and
   the installer URL is asserted to be https on `raw.githubusercontent.com`
   before fetch.
@@ -252,11 +269,11 @@ behavior, and making long-running turns legible.
 - **Fail-closed self-update** — the installers (`install.sh`, `install.ps1`)
   now refuse to install a binary they can't SHA-256 verify (missing
   `SHA256SUMS`, missing checksum tool, or mismatch are all fatal). Override with
-  `PENTESTERFLOW_SKIP_CHECKSUM=1`.
+  `HAWK_SKIP_CHECKSUM=1`.
 
 ## [0.1.0] - 2026-05-31
 
-First public release of pentesterflow — an agentic offensive-security CLI for
+First public release of Hawk — an agentic offensive-security CLI for
 security engineers, professional penetration testers, and bug hunters.
 
 ### Added
@@ -289,9 +306,9 @@ security engineers, professional penetration testers, and bug hunters.
   errors during long assessments.
 - **Gemini provider support** — first-class `gemini` backend, native
   `generateContent` tool-call integration, `GEMINI_API_KEY` loading,
-  interactive API-key setup, recommended PentesterFlow-fit model ordering, and
+  interactive API-key setup, recommended Hawk-fit model ordering, and
   `cheap cost` tags for low-cost Gemini models in the picker.
-- **Burp bridge runtime** — `pentesterflow --burp [port]`, `/burp [port]`, Burp
+- **Burp bridge runtime** — `hawk --burp [port]`, `/burp [port]`, Burp
   task ingestion, issue import endpoints, and Browser Capture tools for reading
   queued Burp requests and confirmed issues from the CLI session.
 - **Context snapshots and session memory** — compacted engagement memory,
@@ -320,7 +337,7 @@ security engineers, professional penetration testers, and bug hunters.
   `AbortSignal` cancellation, error recovery, `@file` mention expansion, and
   session save on every history mutation.
 - **MCP integration** via `@modelcontextprotocol/sdk`, including one-flag Browser
-  MCP and a standalone `pentesterflow-browser-mcp` stdio server with a local
+  MCP and a standalone `hawk-browser-mcp` stdio server with a local
   capture-ingest endpoint.
 - **Findings workflow** — verified bugs written to `./findings/<slug>.md` with a
   copy-pasteable PoC, impact, and remediation.
@@ -329,7 +346,7 @@ security engineers, professional penetration testers, and bug hunters.
 - **Terminal UI** — banner, scrollback transcript, multi-line input with
   bracketed-paste, slash-command completion menu, `@file` mention picker,
   markdown rendering, status bar, and permission / question modals.
-- **Configuration** — zod-validated `~/.pentesterflow/config.json` with
+- **Configuration** — zod-validated `~/.hawk/config.json` with
   crash-safe atomic saves; resumable sessions; structured JSON-lines logs.
 - **Quality** — 300+ unit and integration tests (vitest), typecheck, and lint
   gated by `npm run ci`.

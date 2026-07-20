@@ -31,13 +31,13 @@ Discovered automatically, in increasing precedence (later overrides earlier
 on a name collision):
 
 1. this built-in `skills/` directory
-2. `./.pentesterflow/skills/` (project-local — scoped to the repo)
-3. `~/.pentesterflow/builtin-skills/` (installer-managed shipped skills)
-4. `~/.pentesterflow/skills/` (personal)
+2. `./.hawk/skills/` (project-local — scoped to the repo)
+3. `~/.hawk/builtin-skills/` (installer-managed shipped skills)
+4. `~/.hawk/skills/` (personal)
 5. any dirs passed via `--skills <dir>` or the `skills_dirs` config
 
-Use `~/.pentesterflow/skills/` for personal skills you want available
-everywhere, or the project-local `./.pentesterflow/skills/` for skills
+Use `~/.hawk/skills/` for personal skills you want available
+everywhere, or the project-local `./.hawk/skills/` for skills
 scoped to a single repo.
 
 Just drop a `<name>/SKILL.md` into one of these — no config needed. Skills
@@ -47,7 +47,7 @@ Just drop a `<name>/SKILL.md` into one of these — no config needed. Skills
 ## Creating a skill
 
 - **Scaffold:** run `/skills new <name>` in the TUI — it writes a templated
-  `./.pentesterflow/skills/<name>/SKILL.md` and loads it immediately.
+  `./.hawk/skills/<name>/SKILL.md` and loads it immediately.
 - **By hand:** copy [`_template/SKILL.md`](_template/SKILL.md) into
   `<name>/SKILL.md` and edit.
 

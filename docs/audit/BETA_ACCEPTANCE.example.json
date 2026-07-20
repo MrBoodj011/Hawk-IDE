@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "product": "Hawk Security IDE",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "sessions": [
+    {
+      "id": "beta-example-not-valid-evidence",
+      "recordedAt": "2026-01-01T00:00:00.000Z",
+      "cohort": "typescript-monorepo",
+      "repositoryCommit": "replace-with-tested-project-commit",
+      "hawkCommit": "replace-with-hawk-commit",
+      "model": "replace-with-model",
+      "hardware": "replace-with-cpu-ram-os",
+      "outcome": "pass",
+      "manualRecovery": false,
+      "criticalHighFindings": 0,
+      "searchP95Ms": 0,
+      "peakRssMb": 0,
+      "signedUpdateVerified": true,
+      "evidence": {
+        "file": "replace-with-session-evidence-file",
+        "sha256": "replace-with-evidence-sha256"
+      }
+    }
+  ]
+}

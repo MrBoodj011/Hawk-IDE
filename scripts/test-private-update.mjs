@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, open, stat } from 'node:fs/promises';
+import { mkdir, open, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -9,8 +9,9 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const repository = 'MrBoodj011/hawk';
-const fromVersion = argument('--from') || '0.2.0';
+const fromVersion = argument('--from') || '0.7.0';
 const requestedTag = argument('--to');
+const resultPath = argument('--result');
 const requireSignature = process.argv.includes('--require-signature');
 const expectedPublisher = (process.env.HAWK_WINDOWS_PUBLISHER || '').trim();
 const outputRoot = resolve(argument('--output') || '.tmp/updater-test');
@@ -78,27 +79,29 @@ if (
   );
 }
 
-console.log(
-  JSON.stringify(
-    {
-      ok: true,
-      scenario: `${normalizeVersion(fromVersion)} -> ${normalizeVersion(release.tag_name)}`,
-      release: release.html_url,
-      asset: asset.name,
-      bytes: info.size,
-      downloaded,
-      sha256: actualHash,
-      checksumVerified: true,
-      peHeaderVerified: true,
-      authenticode: signature ?? { status: 'not-checked', reason: 'non-Windows host' },
-      expectedPublisher: expectedPublisher || undefined,
-      installerLaunched: false,
-      note: 'The test exercises the real private GitHub feed and full asset download but never launches the installer.',
-    },
-    null,
-    2,
-  ),
-);
+const result = {
+  ok: true,
+  scenario: `${normalizeVersion(fromVersion)} -> ${normalizeVersion(release.tag_name)}`,
+  release: release.html_url,
+  tag: release.tag_name,
+  asset: asset.name,
+  installer,
+  bytes: info.size,
+  downloaded,
+  sha256: actualHash,
+  checksumVerified: true,
+  peHeaderVerified: true,
+  authenticode: signature ?? { status: 'not-checked', reason: 'non-Windows host' },
+  expectedPublisher: expectedPublisher || undefined,
+  installerLaunched: false,
+  note: 'The feed test downloads and verifies the real installer. Installer execution is isolated in the separate Windows upgrade smoke gate.',
+};
+if (resultPath) {
+  const absoluteResult = resolve(resultPath);
+  await mkdir(resolve(absoluteResult, '..'), { recursive: true });
+  await writeFile(absoluteResult, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+}
+console.log(JSON.stringify(result, null, 2));
 
 async function githubToken() {
   const fromEnvironment = process.env.HAWK_GITHUB_TOKEN || process.env.GITHUB_TOKEN;

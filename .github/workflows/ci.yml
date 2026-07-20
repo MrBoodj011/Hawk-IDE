@@ -28,7 +28,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: hawk-security-ide-vsix
-          path: extensions/pentesterflow-ide/*.vsix
+          path: extensions/hawk-security-ide/*.vsix
           if-no-files-found: error
 
   integrations:

@@ -9,8 +9,9 @@ Its product loop is:
 Understand code -> observe runtime traffic -> prove a finding -> fix it -> retest it
 ```
 
-The project builds on the original PentesterFlow Agent runtime and adds a
-local-first Code-OSS-compatible Hawk security workspace.
+Hawk combines its local agent runtime with a branded, Code-OSS-compatible
+security workspace. Product surfaces, commands, storage, installers, companion
+extensions, protocols, and release assets use the Hawk identity.
 
 ## What works now
 
@@ -25,8 +26,11 @@ local-first Code-OSS-compatible Hawk security workspace.
   workspace indexing, natural-language code search, isolated task terminals,
   named patch checkpoints, three-lane parallel coding tournaments, explicit
   BYOK model fallbacks, and built-in latency/RAM benchmarks. The index is now
-  persistent and incremental, extracts TypeScript/JavaScript AST declarations,
-  types, imports, and calls, and can add loopback-only Ollama embeddings.
+  persistent and incremental, extracts TypeScript/JavaScript compiler-AST
+  declarations and language-aware Python, Java, Kotlin, C#, Go, and Rust
+  symbols, parameter/return types, imports, and calls, and can add loopback-only
+  Ollama embeddings. Representative structural chunks prevent one generated
+  file from consuming the complete bounded index.
 - Hawk Next Edit predicts an exact, bounded multiline replacement from recent
   edits, diagnostics, surrounding code, and repository context. The editor
   discards the result unless the model's old text exactly matches the current
@@ -43,9 +47,9 @@ local-first Code-OSS-compatible Hawk security workspace.
   Apply always remains manual.
 - Long native AI tasks support Pause/Resume, restart recovery, optional
   background auto-resume, and AST semantic merge. Hawk scores parallel
-  candidates, then deterministically transplants compatible files and
-  TypeScript/JavaScript symbols into a clean worktree before the model resolves
-  explicit same-symbol conflicts.
+  candidates, then deterministically transplants compatible files,
+  TypeScript/JavaScript AST symbols, and indentation-bounded Python declarations
+  into a clean worktree before the model resolves explicit same-symbol conflicts.
 - Hawk Local AI setup: the Windows installer can add the official Ollama
   runtime, while the native first-run wizard verifies the release digest and
   Windows signer, recommends a coding model from available RAM, downloads it
@@ -152,7 +156,7 @@ npm run check:extension
 npm run build:extension
 ```
 
-Open the repository's `extensions/pentesterflow-ide` folder in the Code-OSS
+Open the repository's `extensions/hawk-security-ide` folder in the Code-OSS
 extension development host, then open the Hawk activity-bar icon. Use
 `Ctrl+Shift+H` for the full Mission Control surface.
 It can index local routes, run its passive audit, import a HAR file, run an
@@ -261,5 +265,5 @@ needs manual validation.
 
 ## License and attribution
 
-This project includes and builds on [PentesterFlow Agent](https://github.com/PentesterFlow/agent)
-under Apache-2.0. See [NOTICE](NOTICE) and [LICENSE](LICENSE).
+Hawk is distributed under Apache-2.0. Required third-party attributions are
+kept in [NOTICE](NOTICE) and the complete terms are in [LICENSE](LICENSE).

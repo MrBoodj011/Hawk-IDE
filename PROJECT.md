@@ -81,7 +81,10 @@ privacy-safe persistent scorecard that can compare multiple configured models.
 The semantic index persists outside the repository, reuses unchanged files,
 and updates saved/deleted/renamed files incrementally. TypeScript and JavaScript
 use the compiler AST for declarations, type annotations, imports, exports, and
-calls; other languages use bounded structural parsing. Local BM25/structural
+calls. Python, Java, Kotlin, C#, Go, and Rust receive language-aware symbol,
+parameter/return-type, and import extraction; remaining languages use bounded
+structural parsing. Representative structural sampling prevents one generated
+file from consuming the complete 500 MiB-bounded index. Local BM25/structural
 ranking always works. Optional vector reranking uses only a validated loopback
 Ollama `/api/embed` endpoint and gracefully falls back when unavailable.
 

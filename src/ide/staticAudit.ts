@@ -4,7 +4,7 @@ import { relative, resolve, sep } from 'node:path';
 import fg from 'fast-glob';
 import { IDE_PROTOCOL_VERSION, type SecurityFinding, type StaticAuditReport } from './protocol.js';
 
-const SOURCE_GLOBS = ['**/*.{ts,tsx,js,jsx,mjs,cjs,py,rb,php,java,go}'];
+const SOURCE_GLOBS = ['**/*.{ts,tsx,js,jsx,mjs,cjs,py,rb,php,java,go,rs,cs,kt,kts}'];
 const IGNORED_DIRECTORIES = [
   '**/node_modules/**',
   '**/.git/**',
@@ -22,6 +22,7 @@ interface AuditRule {
   pattern: RegExp;
   description: string;
   remediation: string;
+  safeControl?: string;
   evidenceSummary(match: string): string;
 }
 
@@ -89,6 +90,70 @@ const RULES: AuditRule[] = [
     evidenceSummary: () =>
       'Wildcard origin and credentials:true appear in the same CORS configuration.',
   },
+  {
+    id: 'shell-command-interpolation',
+    title: 'Potential shell command interpolation',
+    severity: 'high',
+    pattern: /\b(?:exec|execSync|system|popen)\s*\(\s*(?:`[^`\r\n]*\$\{|f['"][^'"\r\n]*\{)/gi,
+    description:
+      'A shell-command-looking API receives string interpolation. Attacker-controlled data could alter the executed command.',
+    remediation:
+      'Use an argument-array process API without a shell, validate every argument, and keep the executable name constant.',
+    safeControl: "spawn('tool', ['--input', value], { shell: false });",
+    evidenceSummary: () => 'Interpolated string passed to a shell-command-looking API.',
+  },
+  {
+    id: 'request-controlled-url-fetch',
+    title: 'Potential request-controlled outbound URL',
+    severity: 'high',
+    pattern:
+      /\b(?:fetch|axios\.(?:get|post|put|delete)|https?\.get)\s*\(\s*(?:req(?:uest)?\.(?:query|body|params)|ctx\.(?:query|request)|request\.(?:args|form|json))/gi,
+    description:
+      'An outbound request appears to consume a URL directly from inbound request data. This can become SSRF without strict destination policy.',
+    remediation:
+      'Resolve destinations through an explicit scheme/host/port allow-list, block private and metadata ranges, and revalidate redirects.',
+    safeControl: "fetch(allowlistedServiceUrl('/health'));",
+    evidenceSummary: () => 'Inbound request data appears to feed an outbound URL API.',
+  },
+  {
+    id: 'request-controlled-file-path',
+    title: 'Potential request-controlled file path',
+    severity: 'high',
+    pattern:
+      /\b(?:readFile|readFileSync|sendFile|createReadStream|open)\s*\(\s*(?:req(?:uest)?\.(?:query|body|params)|ctx\.(?:query|request)|request\.(?:args|form|json))/gi,
+    description:
+      'A filesystem API appears to consume a path directly from inbound request data. This can enable path traversal or unintended file disclosure.',
+    remediation:
+      'Map opaque identifiers to server-owned paths, resolve against a fixed root, and reject any result outside that root.',
+    safeControl: 'readFile(resolveTrustedAsset(assetId));',
+    evidenceSummary: () => 'Inbound request data appears to feed a filesystem path API.',
+  },
+  {
+    id: 'unsafe-deserialization',
+    title: 'Potential unsafe deserialization',
+    severity: 'high',
+    pattern:
+      /\b(?:pickle\.loads?|yaml\.unsafe_load|ObjectInputStream|Marshal\.load|unserialize)\s*\(/gi,
+    description:
+      'A native object deserializer is used on data that may be attacker-controlled. Some formats can instantiate dangerous objects or gadget chains.',
+    remediation:
+      'Use a data-only format with a strict schema, reject unknown fields and types, and never deserialize native objects from untrusted input.',
+    safeControl: 'const value = StrictSchema.parse(JSON.parse(input));',
+    evidenceSummary: () => 'Native or explicitly unsafe deserialization API detected.',
+  },
+  {
+    id: 'weak-password-hash',
+    title: 'Weak hash used with password-like data',
+    severity: 'medium',
+    pattern:
+      /\b(?:createHash\s*\(\s*['"](?:md5|sha1)['"]\s*\)|(?:md5|sha1)\s*\()\s*[^;\r\n]{0,160}\b(?:password|passwd|pwd)\b/gi,
+    description:
+      'A fast legacy digest appears to process password-like data. Fast hashes do not provide adequate resistance to offline cracking.',
+    remediation:
+      'Use Argon2id, scrypt, bcrypt, or PBKDF2 with a unique salt and an explicitly reviewed work factor.',
+    safeControl: 'const digest = await argon2.hash(password);',
+    evidenceSummary: () => 'MD5/SHA-1 call appears on the same expression as password-like data.',
+  },
 ];
 
 export function getStaticAuditReproductionRecipe(
@@ -100,7 +165,7 @@ export function getStaticAuditReproductionRecipe(
     ruleId: rule.id,
     patternSource: rule.pattern.source,
     patternFlags: rule.pattern.flags,
-    safeControl: 'const value = process.env.HAWK_SAFE_CONTROL;',
+    safeControl: rule.safeControl ?? 'const value = process.env.HAWK_SAFE_CONTROL;',
   };
 }
 

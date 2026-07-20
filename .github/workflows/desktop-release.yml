@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Artifact version (for example v0.2.0)'
+        description: 'Artifact version (for example v0.7.0)'
         required: true
-        default: 'v0.2.0'
+        default: 'v0.7.0'
       publish:
         description: 'Attach the verified artifacts to a GitHub Release'
         required: true
@@ -50,7 +50,7 @@ jobs:
             publish="${{ inputs.publish }}"
           fi
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]] || {
-            echo "::error::release tag must look like v0.2.0"
+            echo "::error::release tag must look like v0.7.0"
             exit 1
           }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -73,6 +73,23 @@ jobs:
           for (const key of ['repository', 'ref', 'node']) {
             if (!value[key]) throw new Error(`desktop/upstream.json is missing ${key}`);
             console.log(`${key}=${value[key]}`);
+          }
+          NODE
+      - name: Bind release tag to Hawk package versions
+        shell: bash
+        env:
+          HAWK_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const expected = process.env.HAWK_RELEASE_VERSION;
+          const manifests = [
+            ['package.json', JSON.parse(fs.readFileSync('package.json', 'utf8')).version],
+            ['extensions/hawk-security-ide/package.json', JSON.parse(fs.readFileSync('extensions/hawk-security-ide/package.json', 'utf8')).version],
+            ['integrations/browser/manifest.json', JSON.parse(fs.readFileSync('integrations/browser/manifest.json', 'utf8')).version],
+          ];
+          for (const [file, version] of manifests) {
+            if (version !== expected) throw new Error(`${file} is ${version}; release tag requires ${expected}`);
           }
           NODE
 
@@ -195,7 +212,7 @@ jobs:
           args=(
             --source "$GITHUB_WORKSPACE/upstream"
             --out "$RUNNER_TEMP/hawk-codeoss"
-            --extension "$GITHUB_WORKSPACE/extensions/pentesterflow-ide"
+            --extension "$GITHUB_WORKSPACE/extensions/hawk-security-ide"
             --version "$HAWK_VERSION"
             --quality "${{ needs.prepare.outputs.quality }}"
             --force
@@ -510,6 +527,11 @@ jobs:
           cp LICENSE NOTICE RESPONSIBLE_USE.md SECURITY.md dist/
           (
             cd dist
+            legacy='pente''sterflow'
+            if find . -maxdepth 1 -type f -iname "*${legacy}*" | grep -q .; then
+              echo "::error::legacy-branded release asset detected"
+              exit 1
+            fi
             find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 |
               sort -z |
               xargs -0 sha256sum > SHA256SUMS
@@ -547,4 +569,54 @@ jobs:
           node scripts/test-private-update.mjs `
             --from 0.0.0 `
             --to '${{ needs.prepare.outputs.tag }}' `
-            --require-signature
+            --require-signature `
+            --result .tmp/candidate-update.json
+      - name: Exercise real signed installer upgrade
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HAWK_WINDOWS_PUBLISHER: ${{ vars.HAWK_WINDOWS_PUBLISHER }}
+          HAWK_ALLOW_INSTALLER_EXECUTION: '1'
+        shell: pwsh
+        run: |
+          $currentTag = '${{ needs.prepare.outputs.tag }}'
+          $currentVersion = [version](($currentTag -replace '^v', '') -replace '[-+].*$', '')
+          $releases = gh api "repos/${{ github.repository }}/releases?per_page=100" | ConvertFrom-Json
+          $candidates = @(
+            foreach ($release in $releases) {
+              if ($release.draft -or $release.tag_name -eq $currentTag) { continue }
+              $text = (($release.tag_name -replace '^v', '') -replace '[-+].*$', '')
+              try { $version = [version]$text } catch { continue }
+              if ($version -lt [version]'0.7.0' -or $version -ge $currentVersion) { continue }
+              if (!($release.assets | Where-Object name -Match '^HawkSetup-windows-x64-.+\.exe$')) { continue }
+              [pscustomobject]@{ tag = $release.tag_name; version = $version }
+            }
+          )
+          $previous = $candidates | Sort-Object version -Descending | Select-Object -First 1
+          if (!$previous) {
+            if ($currentVersion -gt [version]'0.7.0') {
+              throw "No previous Hawk 0.7+ installer exists for a real upgrade test."
+            }
+            "First signed 0.7.x candidate: feed/signature smoke passed; upgrade execution begins with v0.7.1." |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            exit 0
+          }
+          node scripts/test-private-update.mjs `
+            --from 0.0.0 `
+            --to $previous.tag `
+            --require-signature `
+            --output .tmp/previous-update `
+            --result .tmp/previous-update.json
+          $old = Get-Content .tmp/previous-update.json | ConvertFrom-Json
+          $candidate = Get-Content .tmp/candidate-update.json | ConvertFrom-Json
+          & ./scripts/test-windows-upgrade.ps1 `
+            -PreviousInstaller $old.installer `
+            -PreviousVersion ([string]$previous.version) `
+            -CandidateInstaller $candidate.installer `
+            -CandidateVersion ([string]$currentVersion) `
+            -ExpectedPublisher $env:HAWK_WINDOWS_PUBLISHER
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hawk-update-smoke-${{ needs.prepare.outputs.version }}
+          path: .tmp/*.json
+          if-no-files-found: warn

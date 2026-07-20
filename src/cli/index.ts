@@ -274,7 +274,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // Skills: walk built-in + project-local (.pentesterflow/skills) + user dirs.
+  // Skills: walk built-in + project-local (.hawk/skills) + user dirs.
   const skills = new SkillRegistry();
   const allSkillDirs = skillSearchDirs(cfg.skills_dirs);
   for (const d of allSkillDirs) skills.loadDir(d);
@@ -359,7 +359,7 @@ async function main(): Promise<number> {
   // `#`-saved fact stays in context for the rest of the session and beyond.
   const memoryStore = new MemoryStore();
   // Operator-authored engagement notes (scope/rules/creds). Read once at
-  // startup from project + home .pentesterflow/engagement.md; always injected
+  // startup from project + home .hawk/engagement.md; always injected
   // into the system prompt so it survives compaction unconditionally.
   const engagement = new EngagementStore().load();
 
@@ -482,7 +482,7 @@ async function main(): Promise<number> {
 
   // First-run setup. Asked exactly once, before the agent is built (so
   // the system prompt is constructed with the chosen profile). The
-  // answer persists in ~/.pentesterflow/config.json so subsequent
+  // answer persists in ~/.hawk/config.json so subsequent
   // launches skip this step.
   if (cfg.tooling_profile === undefined) {
     const picked = await runFirstRunPicker();
@@ -584,7 +584,7 @@ async function main(): Promise<number> {
   for (const d of skillDirsToWatch) watchDir(d);
 
   // When the user scaffolds a skill via `/skills new`, its dir (e.g.
-  // ./.pentesterflow/skills) may not have existed at startup, so it wasn't being
+  // ./.hawk/skills) may not have existed at startup, so it wasn't being
   // watched. Add it to the reload walk + a watcher so subsequent edits
   // hot-reload like any other skill.
   const onSkillCreated = (skillRootDir: string): void => {

@@ -1260,7 +1260,7 @@ async function prepareSemanticMerge(
           path,
           unit: 'binary-or-large-file',
           candidateIds: [candidate.id],
-          reason: 'Candidate output is binary, invalid UTF-8, or too large for AST merge.',
+          reason: 'Candidate output is binary, invalid UTF-8, or too large for semantic merge.',
         });
         continue;
       }
@@ -1337,7 +1337,7 @@ function buffersEqual(values: Array<Buffer | null>): boolean {
 
 function renderSemanticMergePlan(plan: AiSemanticMergePlan): string {
   return [
-    '# Hawk AST Semantic Merge Plan',
+    '# Hawk Semantic Merge v2 Plan',
     '',
     `Engine: ${plan.engine}`,
     `Primary candidate: ${plan.primaryCandidateId}`,

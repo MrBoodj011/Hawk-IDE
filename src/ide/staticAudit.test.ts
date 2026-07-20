@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe('scanWorkspaceSecurity', () => {
   it('reports passive code signals without leaking a credential literal', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pentesterflow-static-audit-'));
+    const root = await mkdtemp(join(tmpdir(), 'hawk-static-audit-'));
     temporaryRoots.push(root);
     await writeFile(
       join(root, 'server.ts'),
@@ -46,5 +46,34 @@ describe('scanWorkspaceSecurity', () => {
       ]),
     );
     expect(JSON.stringify(result)).not.toContain('super-secret-value');
+  });
+
+  it('maps modern request-to-sink signals to offline reproduction recipes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-static-audit-sinks-'));
+    temporaryRoots.push(root);
+    await writeFile(
+      join(root, 'handlers.ts'),
+      [
+        'exec(`convert ${req.query.file}`);',
+        'fetch(req.query.callbackUrl);',
+        'readFile(req.params.path);',
+        'const stream = new ObjectInputStream(request.body);',
+        'createHash("sha1").update(password).digest("hex");',
+      ].join('\n'),
+    );
+
+    const result = await scanWorkspaceSecurity(root);
+    const rules = result.findings.map((finding) => finding.ruleId);
+
+    expect(rules).toEqual(
+      expect.arrayContaining([
+        'shell-command-interpolation',
+        'request-controlled-url-fetch',
+        'request-controlled-file-path',
+        'unsafe-deserialization',
+        'weak-password-hash',
+      ]),
+    );
+    expect(result.findings.every((finding) => finding.confidence === 'signal')).toBe(true);
   });
 });

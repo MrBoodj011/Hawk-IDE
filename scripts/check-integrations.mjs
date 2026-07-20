@@ -8,7 +8,7 @@ const burp = resolve(root, 'integrations', 'burp');
 const manifest = JSON.parse(await readFile(resolve(browser, 'manifest.json'), 'utf8'));
 const rootPackage = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
 const extensionPackage = JSON.parse(
-  await readFile(resolve(root, 'extensions', 'pentesterflow-ide', 'package.json'), 'utf8'),
+  await readFile(resolve(root, 'extensions', 'hawk-security-ide', 'package.json'), 'utf8'),
 );
 
 assert(manifest.manifest_version === 3, 'browser companion must use Manifest V3');

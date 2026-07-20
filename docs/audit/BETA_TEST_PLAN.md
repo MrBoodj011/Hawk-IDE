@@ -19,7 +19,8 @@ billing, or cloud sync is required.
 5. Three long parallel lanes; pause; Hawk restart; resume; candidate synthesis.
 6. Apply conflict after an operator edit and exact safe Revert after Apply.
 7. Browser/Burp capture with narrow scope, redaction, rate limit, and evidence export.
-8. v0.2.0 to v0.2.1 updater detection and verified download.
+8. Signed v0.7.x to v0.7.x+1 updater detection, verified download, silent
+   installation inside an ephemeral Windows runner, version check, and cleanup.
 9. Offline Ollama, unavailable model, corrupt index, corrupt session, and lost
    network recovery.
 
@@ -41,3 +42,26 @@ Record repository commit, Hawk commit, model, hardware, index statistics,
 prediction latency, session event log, test-gate output, diff hash, updater
 report, and any failure/recovery notes. Do not include target credentials or
 captured secrets.
+
+Record one real session with:
+
+```powershell
+npm run beta:record -- `
+  --cohort typescript-monorepo `
+  --repository-commit <commit> `
+  --model <provider/model> `
+  --hardware "<cpu / ram / os>" `
+  --outcome pass `
+  --manual-recovery false `
+  --critical-high-findings 0 `
+  --search-p95-ms <milliseconds> `
+  --peak-rss-mb <megabytes> `
+  --signed-update-verified true `
+  --evidence <sanitized-session-evidence.json>
+```
+
+The command stores a local, atomic evidence ledger under
+`.hawk/validation/beta-acceptance.json`. It does not invent results. Run
+`npm run release:readiness` to check the five-session, three-cohort gate.
+The expected structure is documented in
+`docs/audit/BETA_ACCEPTANCE.example.json`.

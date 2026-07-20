@@ -51,6 +51,8 @@ SetCompressor /SOLID lzma
 !include "MUI2.nsh"
 !include "x64.nsh"
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
+!include "Sections.nsh"
 
 Name "Hawk Security IDE"
 OutFile "__OUTPUT__"
@@ -108,6 +110,15 @@ Section "Hawk Local AI runtime (Ollama)" SEC_OLLAMA
     MessageBox MB_ICONEXCLAMATION|MB_OK "Hawk Security IDE installed successfully, but Ollama setup did not finish. Open Hawk and choose 'Set up local AI' to retry securely."
   ${EndIf}
 SectionEnd
+
+Function .onInit
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "/NOLOCALAI" $R1
+  ${IfNot} ${Errors}
+    SectionSetFlags ${SEC_OLLAMA} 0
+  ${EndIf}
+FunctionEnd
 
 LangString DESC_SEC_MAIN ${LANG_ENGLISH} "The complete Hawk Security IDE desktop application."
 LangString DESC_SEC_OLLAMA ${LANG_ENGLISH} "Recommended: install the official verified Ollama runtime for private local AI. The coding model is chosen inside Hawk."

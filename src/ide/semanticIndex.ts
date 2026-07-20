@@ -13,16 +13,16 @@ import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
-// Bump this whenever the on-disk representation changes. Version 4 stores
+// Bump this whenever the on-disk representation changes. Version 5 stores
 // embeddings in compact Float32/base64 form and derives `normalized` text on
-// load, which avoids retaining a second large copy of every chunk in the
-// persisted JSON parse tree.
-const INDEX_VERSION = 4;
+// load, and records per-file representative-chunk truncation.
+const INDEX_VERSION = 5;
 const MAX_FILES = 8_000;
 const MAX_FILE_BYTES = 2_500_000;
 const MAX_TOTAL_BYTES = 48 * 1024 * 1024;
 const MAX_PERSISTED_INDEX_BYTES = 128 * 1024 * 1024;
 const MAX_CHUNKS = 2_100;
+const MAX_CHUNKS_PER_FILE = 24;
 // The resident index is deliberately below the process-level 500 MiB gate so
 // the daemon still has room for the TypeScript parser, HTTP server, and LLM
 // request buffers while a rebuild is in progress.
@@ -174,6 +174,7 @@ interface IndexedFile {
   mtimeMs: number;
   hash: string;
   bytes: number;
+  truncated: boolean;
   chunks: IndexedChunk[];
 }
 
@@ -320,7 +321,7 @@ export class SemanticWorkspaceIndex {
     }
     return await this.commitStats({
       startedAt: Date.now(),
-      truncated: false,
+      truncated: indexed.truncated,
       reusedFiles: Math.max(0, this.files.size - 1),
       changedFiles: 1,
     });
@@ -369,6 +370,7 @@ export class SemanticWorkspaceIndex {
       const file = relative(this.root, absolutePath).replaceAll('\\', '/');
       const previous = previousFiles.get(file);
       if (previous && previous.size === info.size && previous.mtimeMs === info.mtimeMs) {
+        if (previous.truncated) truncated = true;
         const previousResidentBytes = estimateIndexedFileBytes(previous);
         if (residentBytes + previousResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
           truncated = true;
@@ -385,6 +387,7 @@ export class SemanticWorkspaceIndex {
       const indexed = await this.indexOneFile(absolutePath, file, info.size, info.mtimeMs);
       previousFiles.delete(file);
       if (!indexed) continue;
+      if (indexed.truncated) truncated = true;
       if (chunkCount + indexed.chunks.length > MAX_CHUNKS) {
         truncated = true;
         break;
@@ -423,13 +426,15 @@ export class SemanticWorkspaceIndex {
   ): Promise<IndexedFile | undefined> {
     const content = await readFile(absolutePath, 'utf8').catch(() => '');
     if (!content || content.includes('\u0000')) return undefined;
+    const chunked = chunkFile(file, content);
     return {
       path: file,
       size,
       mtimeMs,
       hash: createHash('sha256').update(content).digest('hex'),
       bytes: Buffer.byteLength(content),
-      chunks: chunkFile(file, content),
+      truncated: chunked.truncated,
+      chunks: chunked.chunks,
     };
   }
 
@@ -627,6 +632,7 @@ export class SemanticWorkspaceIndex {
         mtimeMs: file.mtimeMs,
         hash: file.hash,
         bytes: file.bytes,
+        truncated: file.truncated === true,
         chunks: file.chunks.map((chunk): IndexedChunk => {
           const embedding = chunk.embedding ? decodeEmbedding(chunk.embedding) : undefined;
           return {
@@ -673,6 +679,7 @@ export class SemanticWorkspaceIndex {
       mtimeMs: file.mtimeMs,
       hash: file.hash,
       bytes: file.bytes,
+      truncated: file.truncated,
       chunks: file.chunks.map((chunk) => ({
         id: chunk.id,
         file: chunk.file,
@@ -755,7 +762,7 @@ async function collectSourceFiles(root: string): Promise<{ paths: string[]; trun
   return { paths, truncated };
 }
 
-function chunkFile(file: string, content: string): IndexedChunk[] {
+function chunkFile(file: string, content: string): { chunks: IndexedChunk[]; truncated: boolean } {
   const lines = content.split(/\r?\n/);
   const facts = analyzeStructure(file, content);
   const output: IndexedChunk[] = [];
@@ -794,7 +801,13 @@ function chunkFile(file: string, content: string): IndexedChunk[] {
     });
     if (offset + CHUNK_LINES >= lines.length) break;
   }
-  return output;
+  if (output.length <= MAX_CHUNKS_PER_FILE) {
+    return { chunks: output, truncated: false };
+  }
+  return {
+    chunks: selectRepresentativeChunks(output, MAX_CHUNKS_PER_FILE),
+    truncated: true,
+  };
 }
 
 function analyzeStructure(file: string, content: string): StructuralFact[] {
@@ -809,10 +822,10 @@ function analyzeStructure(file: string, content: string): StructuralFact[] {
       // Generated compiler baselines can intentionally contain parser-crash
       // reproducers. Keep the index available with the bounded structural
       // fallback instead of trusting every source file to be parseable.
-      return analyzeLanguageStructure(content);
+      return analyzeLanguageStructure(content, extension);
     }
   }
-  return analyzeLanguageStructure(content);
+  return analyzeLanguageStructure(content, extension);
 }
 
 function analyzeTypeScript(file: string, content: string, extension: string): StructuralFact[] {
@@ -889,7 +902,7 @@ function analyzeTypeScript(file: string, content: string, extension: string): St
   return facts.slice(0, MAX_FACTS_PER_FILE);
 }
 
-function analyzeLanguageStructure(content: string): StructuralFact[] {
+function analyzeLanguageStructure(content: string, extension = ''): StructuralFact[] {
   const facts: StructuralFact[] = [];
   const lines = content.split(/\r?\n/);
   const patterns: Array<{
@@ -937,9 +950,155 @@ function analyzeLanguageStructure(content: string): StructuralFact[] {
         });
       }
     }
+    for (const fact of languageAwareFacts(line, extension)) {
+      facts.push({ ...fact, line: index + 1 });
+    }
     if (facts.length >= MAX_FACTS_PER_FILE) break;
   }
+  return dedupeStructuralFacts(facts).slice(0, MAX_FACTS_PER_FILE);
+}
+
+function languageAwareFacts(line: string, extension: string): Array<Omit<StructuralFact, 'line'>> {
+  const facts: Array<Omit<StructuralFact, 'line'>> = [];
+  const add = (kind: StructuralFact['kind'], name?: string, detail = ''): void => {
+    const clean = name?.trim();
+    if (!clean || clean.length > 240 || COMMON_CALLS.has(clean)) return;
+    facts.push({ kind, name: clean, detail: detail.slice(0, 500) });
+  };
+  const parameters = (value: string, separator: RegExp, typeFirst = false): void => {
+    for (const raw of value.split(',')) {
+      const clean = raw
+        .trim()
+        .replace(/=.*/, '')
+        .replace(/\b(?:mut|ref|out|in)\s+/g, '');
+      const match = separator.exec(clean);
+      if (!match) continue;
+      const type = (typeFirst ? match[1] : match[2])?.trim();
+      const name = (typeFirst ? match[2] : match[1])?.trim();
+      add('type', type, name ? `parameter ${name}` : 'parameter');
+    }
+  };
+
+  if (extension === '.py') {
+    const declaration =
+      /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?/.exec(line);
+    if (declaration) {
+      add('symbol', declaration[1], 'python function');
+      parameters(declaration[2] ?? '', /^([A-Za-z_]\w*)\s*:\s*(.+)$/);
+      add('type', declaration[3], `return of ${declaration[1]}`);
+    }
+    const classDeclaration = /^\s*class\s+([A-Za-z_]\w*)\s*(?:\(([^)]*)\))?/.exec(line);
+    if (classDeclaration) {
+      add('symbol', classDeclaration[1], 'python class');
+      add('type', classDeclaration[1], 'python class');
+      for (const base of (classDeclaration[2] ?? '').split(',')) add('type', base, 'base class');
+    }
+    const importDeclaration = /^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))/.exec(line);
+    add('import', importDeclaration?.[1] ?? importDeclaration?.[2], 'python import');
+  }
+
+  if (['.java', '.kt', '.kts', '.cs'].includes(extension)) {
+    const typeDeclaration =
+      /^\s*(?:public|private|protected|internal|abstract|final|sealed|static|data|record|\s)*\b(?:class|interface|enum|record|struct)\s+([A-Za-z_]\w*)/.exec(
+        line,
+      );
+    if (typeDeclaration) {
+      add('symbol', typeDeclaration[1], 'nominal type');
+      add('type', typeDeclaration[1], 'nominal type');
+    }
+    const method =
+      /^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|internal|static|final|abstract|virtual|override|async|suspend|open)\s+)*([A-Za-z_$][\w$<>,.?[\] ]*)\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/.exec(
+        line,
+      );
+    if (method && !['if', 'for', 'while', 'switch', 'catch'].includes(method[2] ?? '')) {
+      add('symbol', method[2], `${extension.slice(1)} method`);
+      add('type', method[1], `return of ${method[2]}`);
+      parameters(method[3] ?? '', /^(.+?)\s+([A-Za-z_$][\w$]*)$/, true);
+    }
+    const imported = /^\s*(?:import|using)\s+(?:static\s+)?([A-Za-z_$][\w$.:]*)/.exec(line);
+    add('import', imported?.[1], `${extension.slice(1)} import`);
+  }
+
+  if (extension === '.go') {
+    const declaration = /^\s*func\s*(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(.*)$/.exec(
+      line,
+    );
+    if (declaration) {
+      add('symbol', declaration[1], 'go function');
+      parameters(declaration[2] ?? '', /^([A-Za-z_]\w*)\s+(.+)$/);
+      const returns = (declaration[3] ?? '').replace(/^\(|\)$/g, '').trim();
+      if (returns) add('type', returns, `return of ${declaration[1]}`);
+    }
+    const typeDeclaration = /^\s*type\s+([A-Za-z_]\w*)\s+(?:struct|interface|=)?/.exec(line);
+    if (typeDeclaration) {
+      add('symbol', typeDeclaration[1], 'go type');
+      add('type', typeDeclaration[1], 'go type');
+    }
+    const imported = /^\s*(?:import\s+)?(?:[A-Za-z_]\w*\s+)?["`]([^"`]+)["`]/.exec(line);
+    add('import', imported?.[1], 'go import');
+  }
+
+  if (extension === '.rs') {
+    const declaration =
+      /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*(?:<[^>]+>)?\s*\(([^)]*)\)\s*(?:->\s*([^{]+))?/.exec(
+        line,
+      );
+    if (declaration) {
+      add('symbol', declaration[1], 'rust function');
+      parameters(declaration[2] ?? '', /^([A-Za-z_]\w*)\s*:\s*(.+)$/);
+      add('type', declaration[3], `return of ${declaration[1]}`);
+    }
+    const typeDeclaration =
+      /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|type)\s+([A-Za-z_]\w*)/.exec(line);
+    if (typeDeclaration) {
+      add('symbol', typeDeclaration[1], 'rust type');
+      add('type', typeDeclaration[1], 'rust type');
+    }
+    const imported = /^\s*use\s+([^;]+)/.exec(line);
+    add('import', imported?.[1], 'rust use');
+  }
   return facts;
+}
+
+function dedupeStructuralFacts(facts: StructuralFact[]): StructuralFact[] {
+  const seen = new Set<string>();
+  return facts.filter((fact) => {
+    const key = `${fact.line}:${fact.kind}:${fact.name}:${fact.detail}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function selectRepresentativeChunks(chunks: IndexedChunk[], limit: number): IndexedChunk[] {
+  if (chunks.length <= limit) return chunks;
+  const selected = new Set<number>([0, chunks.length - 1]);
+  const coverageSlots = Math.max(2, Math.ceil(limit * 0.65));
+  for (let slot = 0; slot < coverageSlots; slot += 1) {
+    selected.add(Math.round((slot / Math.max(1, coverageSlots - 1)) * (chunks.length - 1)));
+  }
+  const byStructure = chunks
+    .map((chunk, index) => ({
+      index,
+      score:
+        chunk.symbols.length * 5 +
+        chunk.types.length * 3 +
+        chunk.imports.length * 2 +
+        chunk.calls.length,
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  for (const candidate of byStructure) {
+    if (selected.size >= limit) break;
+    selected.add(candidate.index);
+  }
+  for (let index = 0; selected.size < limit && index < chunks.length; index += 1) {
+    selected.add(index);
+  }
+  return [...selected]
+    .sort((left, right) => left - right)
+    .slice(0, limit)
+    .map((index) => chunks[index])
+    .filter((chunk): chunk is IndexedChunk => Boolean(chunk));
 }
 
 function uniqueFacts(facts: StructuralFact[], kind: StructuralFact['kind']): string[] {

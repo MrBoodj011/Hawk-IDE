@@ -12,7 +12,7 @@
 //   hawk──────────┘
 //
 // The ingest HTTP server binds 127.0.0.1 only and requires a per-process
-// token in X-Pentesterflow-Token.
+// token in X-Hawk-Token.
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

@@ -81,6 +81,6 @@ installation:
 ```powershell
 $env:HAWK_NSIS_BIN = 'C:\tools\nsis'
 $env:HAWK_WIX_BIN = 'C:\tools\wix314'
-.\desktop\windows\package-installer.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.1 -Output artifacts\HawkSetup-windows-x64-0.2.1.exe
-.\desktop\windows\package-msi.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.2.1 -Output artifacts\Hawk-windows-x64-0.2.1.msi
+.\desktop\windows\package-installer.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.7.0 -Output artifacts\HawkSetup-windows-x64-0.7.0.exe
+.\desktop\windows\package-msi.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.7.0 -Output artifacts\Hawk-windows-x64-0.7.0.msi
 ```

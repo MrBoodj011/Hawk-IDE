@@ -21,7 +21,7 @@ if (args.help) {
 
 const target = requiredPath(args.target, '--target');
 const extension = resolve(
-  args.extension ?? resolve(projectRoot, 'extensions', 'pentesterflow-ide'),
+  args.extension ?? resolve(projectRoot, 'extensions', 'hawk-security-ide'),
 );
 const productPath = resolve(target, 'resources', 'app', 'product.json');
 const extensionTarget = resolve(

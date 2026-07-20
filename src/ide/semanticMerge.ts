@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 import ts from 'typescript';
 
-const AST_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx']);
+const SEMANTIC_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.mts', '.py', '.ts', '.tsx']);
 
 export interface SemanticMergeCandidateInput {
   id: string;
@@ -29,7 +29,7 @@ export interface SemanticMergeConflict {
 }
 
 export interface SemanticMergePlan {
-  engine: 'typescript-ast-v1';
+  engine: 'hawk-semantic-v2';
   primaryCandidateId: string;
   candidateIds: string[];
   filesAnalyzed: number;
@@ -84,10 +84,11 @@ interface TextOperation {
 
 /**
  * Deterministically combines compatible candidate edits before an LLM sees
- * the merge. TypeScript/JavaScript changes are compared at declaration and
- * class/interface member level, so edits in separate symbols can coexist even
- * when they touch the same file. Ambiguous edits are retained as explicit
- * semantic conflicts instead of being guessed through patch concatenation.
+ * the merge. TypeScript/JavaScript changes are compared through the compiler
+ * AST; Python changes use indentation-aware declaration boundaries. Edits in
+ * separate symbols can coexist even when they touch the same file. Ambiguous
+ * edits are retained as explicit semantic conflicts instead of being guessed
+ * through patch concatenation.
  */
 export function buildSemanticMerge(input: SemanticMergeInput): SemanticMergeResult {
   if (input.candidates.length < 2) {
@@ -96,7 +97,7 @@ export function buildSemanticMerge(input: SemanticMergeInput): SemanticMergeResu
   const files: Record<string, string | null> = { ...input.baseFiles };
   const owners = new Map<string, Set<string>>();
   const plan: SemanticMergePlan = {
-    engine: 'typescript-ast-v1',
+    engine: 'hawk-semantic-v2',
     primaryCandidateId: input.candidates[0]?.id ?? '',
     candidateIds: input.candidates.map((candidate) => candidate.id),
     filesAnalyzed: Object.keys(input.baseFiles).length,
@@ -128,7 +129,7 @@ export function buildSemanticMerge(input: SemanticMergeInput): SemanticMergeResu
         typeof base === 'string' &&
         typeof current === 'string' &&
         typeof incoming === 'string' &&
-        AST_EXTENSIONS.has(extname(path).toLowerCase())
+        SEMANTIC_EXTENSIONS.has(extname(path).toLowerCase())
       ) {
         plan.astFilesAnalyzed += 1;
         const merged = mergeAstFile(path, base, current, incoming, candidate.id, [
@@ -152,7 +153,7 @@ export function buildSemanticMerge(input: SemanticMergeInput): SemanticMergeResu
         unit: 'file',
         candidateIds: unique([...(owners.get(path) ?? []), candidate.id]),
         reason:
-          'Both candidates changed this non-AST, deleted, or newly-created file differently; manual resolution is required.',
+          'Both candidates changed this unsupported, deleted, or newly-created file differently; manual resolution is required.',
       });
     }
   }
@@ -323,7 +324,7 @@ function mergeAstFile(
             key,
             currentOwners,
             candidateId,
-            'the same AST symbol has divergent implementations',
+            'the same semantic symbol has divergent implementations',
           ),
         );
       }
@@ -361,6 +362,11 @@ function mergeAstFile(
 }
 
 function parseSource(path: string, source: string): ParsedSource {
+  if (extname(path).toLowerCase() === '.py') return parsePythonSource(source);
+  return parseTypeScriptSource(path, source);
+}
+
+function parseTypeScriptSource(path: string, source: string): ParsedSource {
   const sourceFile = ts.createSourceFile(
     path,
     source,
@@ -418,6 +424,137 @@ function parseSource(path: string, source: string): ParsedSource {
     );
   }
   return { source, units, containers };
+}
+
+function parsePythonSource(source: string): ParsedSource {
+  const lines = pythonLines(source);
+  const units = new Map<string, SemanticUnit>();
+  const containers = new Map<string, SemanticContainer>();
+  const occurrences = new Map<string, number>();
+  let order = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line || line.indent.length > 0 || !line.trimmed || line.trimmed.startsWith('#')) continue;
+    const classMatch = /^class\s+([A-Za-z_]\w*)\b/.exec(line.trimmed);
+    const functionMatch = /^(?:async\s+)?def\s+([A-Za-z_]\w*)\b/.exec(line.trimmed);
+    if (classMatch) {
+      const endIndex = pythonBlockEnd(lines, index);
+      const end = lines[endIndex]?.end ?? source.length;
+      const key = uniqueKey(`container:class:${classMatch[1]}`, occurrences);
+      const blockText = source.slice(line.start, end);
+      containers.set(key, {
+        key,
+        kind: 'class',
+        start: line.start,
+        end,
+        insertionPoint: end,
+        indent: '',
+        text: blockText,
+        headerHash: hash(line.trimmed),
+        order: order++,
+      });
+      const memberOccurrences = new Map<string, number>();
+      for (let memberIndex = index + 1; memberIndex <= endIndex; memberIndex += 1) {
+        const member = lines[memberIndex];
+        if (!member || member.indent.length === 0) continue;
+        const memberMatch = /^(?:async\s+)?def\s+([A-Za-z_]\w*)\b/.exec(member.trimmed);
+        if (!memberMatch) continue;
+        const memberEndIndex = pythonBlockEnd(lines, memberIndex);
+        const memberEnd = Math.min(end, lines[memberEndIndex]?.end ?? end);
+        const memberKey = `${key}/${uniqueKey(`member:class:${classMatch[1]}:method:${memberMatch[1]}`, memberOccurrences)}`;
+        const raw = source.slice(member.start, memberEnd);
+        units.set(memberKey, {
+          key: memberKey,
+          kind: 'method',
+          start: member.start + member.indent.length,
+          end: memberEnd,
+          text: raw.startsWith(member.indent) ? raw.slice(member.indent.length) : raw,
+          indent: member.indent,
+          hash: hash(raw),
+          order: order++,
+          containerKey: key,
+        });
+        memberIndex = Math.max(memberIndex, memberEndIndex);
+      }
+      index = Math.max(index, endIndex);
+      continue;
+    }
+    if (functionMatch) {
+      const endIndex = pythonBlockEnd(lines, index);
+      const end = lines[endIndex]?.end ?? source.length;
+      const key = uniqueKey(`function:${functionMatch[1]}`, occurrences);
+      const text = source.slice(line.start, end);
+      units.set(key, {
+        key,
+        kind: 'function',
+        start: line.start,
+        end,
+        text,
+        indent: '',
+        hash: hash(text),
+        order: order++,
+      });
+      index = Math.max(index, endIndex);
+      continue;
+    }
+    const importMatch = /^(?:from\s+([.\w]+)\s+import|import\s+([.\w]+))/.exec(line.trimmed);
+    if (importMatch) {
+      const key = uniqueKey(`import:${importMatch[1] ?? importMatch[2]}`, occurrences);
+      units.set(key, {
+        key,
+        kind: 'import',
+        start: line.start,
+        end: line.end,
+        text: source.slice(line.start, line.end).trimEnd(),
+        indent: '',
+        hash: hash(source.slice(line.start, line.end)),
+        order: order++,
+      });
+    }
+  }
+  return { source, units, containers };
+}
+
+interface PythonLine {
+  start: number;
+  end: number;
+  indent: string;
+  trimmed: string;
+}
+
+function pythonLines(source: string): PythonLine[] {
+  const output: PythonLine[] = [];
+  let start = 0;
+  for (const raw of source.match(/[^\n]*(?:\n|$)/g) ?? []) {
+    if (!raw && start >= source.length) break;
+    const line = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
+    const indent = /^\s*/.exec(line)?.[0] ?? '';
+    output.push({
+      start,
+      end: start + raw.length,
+      indent,
+      trimmed: line.trim(),
+    });
+    start += raw.length;
+  }
+  return output;
+}
+
+function pythonBlockEnd(lines: PythonLine[], startIndex: number): number {
+  const base = lines[startIndex]?.indent.length ?? 0;
+  let last = startIndex;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line) break;
+    if (!line.trimmed || line.trimmed.startsWith('#')) {
+      last = index;
+      continue;
+    }
+    if (line.indent.length <= base) break;
+    last = index;
+  }
+  return last;
 }
 
 function containerIdentity(
@@ -549,7 +686,7 @@ function rejectOverlappingOperations(
           operation.unit,
           currentOwners,
           candidateId,
-          `AST edit overlaps ${overlap.unit}; explicit resolution is required`,
+          `semantic edit overlaps ${overlap.unit}; explicit resolution is required`,
         ),
       );
       continue;

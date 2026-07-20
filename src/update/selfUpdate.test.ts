@@ -7,7 +7,7 @@ describe('assertInstallerURL (L10)', () => {
       assertInstallerURL('https://raw.githubusercontent.com/MrBoodj011/hawk/main/install.sh'),
     ).not.toThrow();
     expect(() =>
-      assertInstallerURL('https://raw.githubusercontent.com/MrBoodj011/hawk/v0.2.0/install.sh'),
+      assertInstallerURL('https://raw.githubusercontent.com/MrBoodj011/hawk/v0.7.0/install.sh'),
     ).not.toThrow();
   });
 

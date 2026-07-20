@@ -10,7 +10,7 @@ fs.mkdirSync(previewDirectory, { recursive: true });
 
 buildSync({
   entryPoints: [
-    path.join(root, 'extensions', 'pentesterflow-ide', 'src', 'agentPanelHtml.ts'),
+    path.join(root, 'extensions', 'hawk-security-ide', 'src', 'agentPanelHtml.ts'),
   ],
   bundle: true,
   platform: 'node',
@@ -145,7 +145,7 @@ html = html.replace(
 );
 
 fs.copyFileSync(
-  path.join(root, 'extensions', 'pentesterflow-ide', 'resources', 'hawk-mark.svg'),
+  path.join(root, 'extensions', 'hawk-security-ide', 'resources', 'hawk-mark.svg'),
   path.join(previewDirectory, 'hawk-mark.svg'),
 );
 fs.writeFileSync(path.join(previewDirectory, 'welcome.html'), welcomeHtml);

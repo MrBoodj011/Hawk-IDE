@@ -6,7 +6,7 @@
 // Source of truth for state is the live registry on the agent. Each
 // toggle goes through agent.setSkillEnabled (which rebuilds the system
 // prompt) and the optional persistDisabledSkills callback (which writes
-// ~/.pentesterflow/config.json). We force a re-render by bumping a local
+// ~/.hawk/config.json). We force a re-render by bumping a local
 // tick counter so the read of registry.list() / isDisabled() picks up
 // the new state.
 

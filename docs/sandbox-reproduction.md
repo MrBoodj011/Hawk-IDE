@@ -44,6 +44,13 @@ docker build -t hawk-worker:local docker/hawk-worker
 
 The desktop image setting is `hawk.reproduction.image`.
 
+The current deterministic recipe catalog covers credential-like assignments,
+disabled TLS verification, dynamic `eval`, interpolated SQL-looking calls,
+wildcard credentialed CORS, interpolated shell commands, inbound-request data
+flowing directly to outbound URL or filesystem APIs, unsafe native
+deserialization, and weak MD5/SHA-1 use with password-like data. These are
+textual signals, not vulnerability verdicts.
+
 ## Mission Control
 
 Run a local audit, open the prioritized security queue, and choose

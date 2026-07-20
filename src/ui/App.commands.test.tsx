@@ -24,7 +24,7 @@ vi.mock('../update/selfUpdate.js', () => ({
   runSelfUpdate: vi.fn(async () => ({
     version: 'latest',
     installDir: '/tmp/bin',
-    output: 'installed pentesterflow',
+    output: 'installed hawk',
   })),
 }));
 

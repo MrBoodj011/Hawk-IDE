@@ -95,4 +95,67 @@ describe('buildSemanticMerge', () => {
       expect.objectContaining({ path: 'config.yaml', unit: 'file' }),
     ]);
   });
+
+  it('transplants independent Python methods with declaration-aware boundaries', () => {
+    const base = [
+      'class Policy:',
+      '    def authorize(self, role: str) -> bool:',
+      "        return role == 'admin'",
+      '',
+    ].join('\n');
+    const candidateA = base.replace("role == 'admin'", "role in {'admin', 'owner'}");
+    const candidateB = base.replace(
+      '\n',
+      ['', '    def audit(self, role: str) -> str:', '        return f"checked:{role}"', ''].join(
+        '\n',
+      ),
+    );
+
+    const result = buildSemanticMerge({
+      baseFiles: { 'policy.py': base },
+      candidates: [
+        { id: 'python-auth', files: { 'policy.py': candidateA } },
+        { id: 'python-audit', files: { 'policy.py': candidateB } },
+      ],
+    });
+
+    expect(result.files['policy.py']).toContain("role in {'admin', 'owner'}");
+    expect(result.files['policy.py']).toContain('    def audit(self, role: str) -> str:');
+    expect(result.plan.engine).toBe('hawk-semantic-v2');
+    expect(result.plan.conflicts).toEqual([]);
+    expect(result.plan.automaticallyMergedUnits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: 'python-audit',
+          unit: expect.stringContaining('method:audit'),
+          strategy: 'ast-add',
+        }),
+      ]),
+    );
+  });
+
+  it('reports divergent Python edits to the same method', () => {
+    const base = [
+      'class Score:',
+      '    def calculate(self, value: int) -> int:',
+      '        return value',
+      '',
+    ].join('\n');
+    const result = buildSemanticMerge({
+      baseFiles: { 'score.py': base },
+      candidates: [
+        { id: 'double', files: { 'score.py': base.replace('return value', 'return value * 2') } },
+        { id: 'offset', files: { 'score.py': base.replace('return value', 'return value + 10') } },
+      ],
+    });
+
+    expect(result.files['score.py']).toContain('return value * 2');
+    expect(result.plan.conflicts).toEqual([
+      expect.objectContaining({
+        path: 'score.py',
+        unit: expect.stringContaining('method:calculate'),
+        candidateIds: ['double', 'offset'],
+      }),
+    ]);
+  });
 });

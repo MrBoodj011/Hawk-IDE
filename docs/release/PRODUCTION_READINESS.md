@@ -1,6 +1,6 @@
 # Hawk production release readiness
 
-Status captured on 2026-07-18. This separates implemented release controls from
+Status updated on 2026-07-20. This separates implemented release controls from
 owner credentials and third-party approvals that source code cannot create.
 
 ## Implemented
@@ -19,6 +19,16 @@ owner credentials and third-party approvals that source code cannot create.
 - Chrome Web Store listing/privacy/permission pack and upload/submission script.
 - PortSwigger BApp Store description, setup, security, and submission pack.
 - External Hawk pentest scope and private beta acceptance plan.
+- A machine-readable production-readiness gate for signing configuration,
+  current release assets, GitHub CI, five real beta sessions, and independent
+  pentest evidence. The gate validates evidence but never fabricates it.
+- A Hawk-only branding gate across product paths, packages, commands, docs,
+  installers, and release assets. Required Apache attribution is isolated to
+  `NOTICE`.
+- A real signed installer upgrade job. The first signed 0.7.x release becomes
+  the baseline; every later 0.7.x release installs the previous signed EXE,
+  upgrades it, verifies the installed Hawk version/signature/identity, and
+  cleans the ephemeral runner.
 - Reproducible internal validation against Microsoft TypeScript, Microsoft
   Visual Studio Code, and OWASP Juice Shop, recorded in
   `docs/audit/INTERNAL_VALIDATION_2026-07-18.md`.
@@ -53,7 +63,9 @@ Never commit the PFX or password. The workflow validates the private key,
 Code Signing EKU, RSA key type, expiry, timestamp, Windows trust, and final
 signer before it can publish.
 
-The historical `v0.2.1` installer is SHA-verified but unsigned. It cannot be
+The historical `v0.2.1` installer is SHA-verified but unsigned. The source is
+now version `v0.7.0`, but no official signed `v0.7.0` release exists yet. The
+historical installer cannot be
 made signed in place: signing changes the binary and its hash, so a new release
 must be built after the certificate is configured.
 
@@ -111,3 +123,8 @@ Provide the signed release candidate and
 self-test is useful engineering evidence but cannot honestly be called an
 external pentest. Complete the scenarios and exit criteria in
 `docs/audit/BETA_TEST_PLAN.md` with real projects before public launch.
+
+Place assessor evidence using
+`docs/audit/EXTERNAL_PENTEST_EVIDENCE.example.json` as the schema reference,
+then point `HAWK_EXTERNAL_PENTEST_EVIDENCE` at the private evidence file.
+Run `npm run release:readiness:enforce` for the final owner-controlled gate.

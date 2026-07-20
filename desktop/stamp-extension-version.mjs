@@ -12,7 +12,7 @@ if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
   process.exit(1);
 }
 
-const packagePath = resolve(projectRoot, 'extensions', 'pentesterflow-ide', 'package.json');
+const packagePath = resolve(projectRoot, 'extensions', 'hawk-security-ide', 'package.json');
 const packageJson = JSON.parse(await readFile(packagePath, 'utf8'));
 packageJson.version = version;
 await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);

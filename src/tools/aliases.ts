@@ -1,4 +1,4 @@
-// Tool-name equivalence map. pentesterflow registers each capability
+// Tool-name equivalence map. Hawk registers each capability
 // tool under TWO names — the Unix-style canonical (shell, file_read,
 // file_write, file_edit) and the PascalCase alias (BashTool,
 // FileReadTool, FileWriteTool, FileEditTool). Models trained against

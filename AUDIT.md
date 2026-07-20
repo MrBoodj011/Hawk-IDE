@@ -63,7 +63,7 @@ See also the concise list in the review session output and the new `/memory inte
 
 ## Capability-impact triage — "fix without limiting the operator"
 
-PentesterFlow's mission is to help authorized pentesters/bug-hunters/security-engineers work
+Hawk's mission is to help authorized pentesters/bug-hunters/security-engineers work
 **without limits**. Every fix below is classified so none of them neuter that mission. Fix rules:
 
 - **Gates remain prompts, never hard blocks.** `allow-once / allow-session / deny`, and **YOLO /
@@ -294,7 +294,7 @@ for models that nest think blocks. **Fix:** balance nesting or strip all `</thin
   mid-run, and `.log.1` is clobbered with no generational retention.
 - **L9** `src/logger/sessionDebug.ts:26-48` — debug log writes raw tool I/O (HTTP bodies, args,
   stacks) **unredacted**. Opt-in + `0o600` + local, but asymmetric with every other path.
-- **L10** `src/update/selfUpdate.ts:20,55-56` — `PENTESTERFLOW_REPO` is interpolated into a
+- **L10** `src/update/selfUpdate.ts:20,55-56` — `HAWK_REPO` is interpolated into a
   download-and-`sh` URL with **no checksum/signature** verification. Needs attacker-controlled env
   (already game-over) or CDN/MITM; hardening gap, not a remote vector.
 - **L11** `src/tools/privateHost.ts:60` — `localhost.` (trailing dot) missed by the name check;

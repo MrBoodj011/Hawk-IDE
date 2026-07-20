@@ -2,4 +2,3 @@ src/**
 tsconfig.json
 *.tsbuildinfo
 node_modules/**
-resources/pentesterflow-mark.png

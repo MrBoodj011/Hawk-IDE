@@ -154,7 +154,7 @@ describe('listModels', () => {
     expect(models).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat']);
   });
 
-  it('parses Gemini models and sorts PentesterFlow recommendations first', async () => {
+  it('parses Gemini models and sorts Hawk recommendations first', async () => {
     const models = await listModels('gemini', `http://127.0.0.1:${port}/gemini`, 'gemini-key');
     expect(models).toEqual([
       'models/gemini-3.5-flash',

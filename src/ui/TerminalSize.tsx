@@ -4,7 +4,7 @@
 // stdout's `resize` event so dimensions stay live as the user resizes
 // their terminal window.
 //
-// Built on Ink's useStdout hook; pentesterflow uses functional
+// Built on Ink's useStdout hook; Hawk uses functional
 // components throughout.
 
 import { useStdout } from 'ink';

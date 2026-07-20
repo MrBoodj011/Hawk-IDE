@@ -1,8 +1,7 @@
 node_modules/
 dist/
 *.vsix
-/extensions/pentesterflow-ide/resources/hawk-mark.png
-/extensions/pentesterflow-ide/resources/pentesterflow-mark.png
+/extensions/hawk-security-ide/resources/hawk-mark.png
 /coverage/
 /artifacts/
 /integrations/burp/build/
@@ -32,5 +31,4 @@ dist/
 /findings/
 /recon/
 /.hawk/
-/.pentesterflow/
 bughunter-report-*.md

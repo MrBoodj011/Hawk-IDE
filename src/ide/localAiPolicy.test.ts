@@ -3,7 +3,7 @@ import {
   localAiModelOptions,
   recommendLocalAiModel,
   validateOllamaReleaseAsset,
-} from '../../extensions/pentesterflow-ide/src/localAiPolicy.js';
+} from '../../extensions/hawk-security-ide/src/localAiPolicy.js';
 
 describe('Hawk local AI policy', () => {
   it('selects a bounded coding model for the available memory', () => {

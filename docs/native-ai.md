@@ -64,13 +64,14 @@ file.
 - **Pause** stops the worker while retaining its worktree and saved agent
   memory. **Resume** continues it without recreating the task.
 - Background lanes recover after daemon restart and auto-resume when enabled.
-- **AST Semantic Merge** scores review-ready lanes, reads their isolated file
-  states, and compares TypeScript/JavaScript declarations, imports, containers,
-  and members. Compatible whole-file and symbol edits are transplanted into a
-  fresh worktree deterministically. Same-symbol divergence, removal-versus-
-  modification, base drift, and non-AST collisions become a structured
-  conflict plan for the merge agent instead of patch concatenation. The result
-  remains an ordinary review-gated diff.
+- **Semantic Merge v2** scores review-ready lanes, reads their isolated file
+  states, and compares TypeScript/JavaScript compiler-AST declarations,
+  imports, containers, and members. Python functions, classes, and methods use
+  indentation-aware declaration boundaries. Compatible whole-file and symbol
+  edits are transplanted into a fresh worktree deterministically. Same-symbol
+  divergence, removal-versus-modification, base drift, and unsupported-language
+  collisions become a structured conflict plan for the merge agent instead of
+  patch concatenation. The result remains an ordinary review-gated diff.
 - **Hawk: Run Automatic Debug / Test / Fix Loop** captures native DAP threads,
   frames, scopes, variables, breakpoints, and diagnostics, redacts secret-like
   values, and starts an isolated fix task. After a separate approval showing

@@ -111,7 +111,7 @@ jobs:
           fi
           # The Bun-compiled binary doesn't run tsup's --define, so it reads
           # the FALLBACK in version.ts. Patch it to the release version so
-          # `pentesterflow --version` reports correctly. No-op if unmatched.
+          # `hawk --version` reports correctly. No-op if unmatched.
           sed -i "s/const FALLBACK = 'dev';/const FALLBACK = '${VER}';/" src/version/version.ts
       - name: Compile standalone binary
         run: |
@@ -145,7 +145,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: hawk-security-ide-vsix
-          path: extensions/pentesterflow-ide/*.vsix
+          path: extensions/hawk-security-ide/*.vsix
           if-no-files-found: error
 
   # Collect every binary + a combined SHA256SUMS into one GitHub Release.
