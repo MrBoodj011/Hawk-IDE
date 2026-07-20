@@ -33,6 +33,9 @@ The current local-first slice provides:
     patches, and regression tests.
 11. Distribute dependency-ready work across capability-aware Docker agent
     instances using critical-path, health, load, CPU/RAM, and lease signals.
+12. Reproduce supported deterministic audit signals through an expiring,
+    hash-approved baseline/control/reproduction DAG inside a read-only,
+    zero-network Docker sandbox.
 
 ## Runtime layout
 
@@ -45,6 +48,7 @@ Hawk IDE daemon
     +-- Agent core
     +-- Security graph
     +-- Findings and evidence
+    +-- Sandbox reproduction planner and history
     +-- Tool runtime and permissions
     +-- MCP gateway
     +-- Browser and Burp bridge
@@ -83,6 +87,7 @@ navigate in both directions:
 
 ```text
 HTTP request -> route -> source code -> patch -> regression test
+static signal -> sandbox reproduction evidence -> required verification gates
 ```
 
 ## Extension and MCP boundary

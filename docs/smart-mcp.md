@@ -162,6 +162,9 @@ for:
 - `hawk_run_control`
 - `hawk_run_execute_task`
 - `hawk_evidence_verify`
+- `hawk_reproduction_plan`
+- `hawk_reproduction_execute`
+- `hawk_reproductions_list`
 - `hawk_memory`
 - `hawk_mcp_security_audit`
 - `hawk_patch_tournament`

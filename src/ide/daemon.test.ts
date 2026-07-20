@@ -1,8 +1,15 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startIdeDaemon } from './daemon.js';
+import type {
+  OrchestrationSnapshot,
+  OrchestrationSpec,
+  OrchestrationTaskSnapshot,
+} from './orchestrator.js';
 
 const temporaryRoots: string[] = [];
 
@@ -17,7 +24,11 @@ describe('startIdeDaemon', () => {
     const root = await mkdtemp(join(tmpdir(), 'pentesterflow-ide-daemon-'));
     temporaryRoots.push(root);
     await writeFile(join(root, 'server.ts'), "app.get('/api/profile', handler);\n");
-    const daemon = await startIdeDaemon({ workspaceRoot: root, token: 'test-token' });
+    const daemon = await startIdeDaemon({
+      workspaceRoot: root,
+      token: 'test-token',
+      reproductionOrchestrator: new SuccessfulReproductionOrchestrator(root),
+    });
     try {
       const blocked = await fetch(`${daemon.url}/v1/health`);
       expect(blocked.status).toBe(401);
@@ -25,7 +36,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 9 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 10 });
 
       const predictionEvaluation = await fetch(`${daemon.url}/v1/ai/edit-prediction/evaluation`, {
         headers,
@@ -54,6 +65,63 @@ describe('startIdeDaemon', () => {
 
       const finding = audited.findings.find((item) => item.ruleId === 'dynamic-code-execution');
       expect(finding).toBeDefined();
+      const reproductionPlanResponse = await fetch(
+        `${daemon.url}/v1/findings/${finding?.id}/reproduction-plan`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: 'hawk-worker:test' }),
+        },
+      );
+      expect(reproductionPlanResponse.status).toBe(201);
+      const reproductionPlan = (await reproductionPlanResponse.json()) as {
+        id: string;
+        planHash: string;
+      };
+      expect(reproductionPlan).toMatchObject({
+        id: expect.stringMatching(/^repro-plan-/),
+        planHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const reproductionResponse = await fetch(
+        `${daemon.url}/v1/findings/${finding?.id}/reproduce`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            approved: true,
+            planId: reproductionPlan.id,
+            planHash: reproductionPlan.planHash,
+          }),
+        },
+      );
+      expect(reproductionResponse.status).toBe(200);
+      await expect(reproductionResponse.json()).resolves.toMatchObject({
+        status: 'reproduced',
+        lifecycle: 'reproduced',
+        promotedToVerified: false,
+      });
+      const reproductions = await fetch(`${daemon.url}/v1/reproductions`, { headers });
+      expect(reproductions.status).toBe(200);
+      await expect(reproductions.json()).resolves.toMatchObject({
+        reproductions: [
+          expect.objectContaining({
+            findingId: finding?.id,
+            status: 'reproduced',
+            promotedToVerified: false,
+          }),
+        ],
+      });
+      const reproducedGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
+      expect(reproducedGraph.status).toBe(200);
+      await expect(reproducedGraph.json()).resolves.toMatchObject({
+        summary: { reproductions: 1 },
+        edges: expect.arrayContaining([
+          expect.objectContaining({
+            relation: 'reproduces-signal',
+            attributes: expect.objectContaining({ verified: false }),
+          }),
+        ]),
+      });
       await writeFile(join(root, 'risky.ts'), 'const safe = true;\n');
       const retest = await fetch(`${daemon.url}/v1/findings/${finding?.id}/retest`, {
         method: 'POST',
@@ -214,11 +282,12 @@ describe('startIdeDaemon', () => {
       const securityGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
       expect(securityGraph.status).toBe(200);
       await expect(securityGraph.json()).resolves.toMatchObject({
-        protocolVersion: 9,
+        protocolVersion: 10,
         summary: {
           routes: 1,
           requests: expect.any(Number),
           correlatedRequests: 1,
+          reproductions: 1,
         },
         nodes: expect.arrayContaining([
           expect.objectContaining({ kind: 'route' }),
@@ -247,3 +316,81 @@ describe('startIdeDaemon', () => {
     }
   });
 });
+
+class SuccessfulReproductionOrchestrator {
+  private snapshot: OrchestrationSnapshot | undefined;
+
+  constructor(private readonly root: string) {}
+
+  async start(spec: OrchestrationSpec): Promise<OrchestrationSnapshot> {
+    const sourceDigest = createHash('sha256')
+      .update(readFileSync(join(this.root, 'risky.ts')))
+      .digest('hex');
+    const tasks = (['baseline', 'control', 'reproduction'] as const).map((id) =>
+      successfulTask(id, this.root, sourceDigest),
+    );
+    this.snapshot = {
+      protocolVersion: 2,
+      id: 'run-daemon-reproduction',
+      status: 'succeeded',
+      image: spec.image,
+      workspaceRoot: this.root,
+      outputRoot: join(this.root, '.hawk', 'orchestrations', 'run-daemon-reproduction'),
+      maxParallel: 1,
+      cpuPerWorker: 0.5,
+      memoryMbPerWorker: 256,
+      artifactMbPerWorker: 32,
+      networkMode: 'none',
+      inheritedEnv: [],
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      cancelRequested: false,
+      scheduler: {
+        strategy: 'latency',
+        leaseSeconds: 30,
+        instances: [],
+        decisions: [],
+      },
+      summary: {
+        total: 3,
+        pending: 0,
+        running: 0,
+        succeeded: 3,
+        failed: 0,
+        skipped: 0,
+        cancelled: 0,
+      },
+      tasks,
+    };
+    return this.snapshot;
+  }
+
+  get(): OrchestrationSnapshot | undefined {
+    return this.snapshot;
+  }
+
+  async shutdown(): Promise<void> {}
+}
+
+function successfulTask(
+  id: 'baseline' | 'control' | 'reproduction',
+  root: string,
+  sourceDigest: string,
+): OrchestrationTaskSnapshot {
+  return {
+    id,
+    title: id,
+    status: 'succeeded',
+    dependsOn: id === 'baseline' ? [] : [id === 'control' ? 'baseline' : 'control'],
+    attempt: 1,
+    artifactDirectory: join(root, '.hawk', id),
+    assignedInstanceId: 'reproduction-sandbox',
+    reassignments: 0,
+    durationMs: 5,
+    output: JSON.stringify({
+      gate: id,
+      observed: true,
+      digest: id === 'baseline' ? sourceDigest : 'a'.repeat(64),
+    }),
+  };
+}

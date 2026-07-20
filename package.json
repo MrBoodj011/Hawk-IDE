@@ -1,6 +1,6 @@
 {
   "name": "@hawk/ide",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Hawk is a security-native AI development environment for evidence-driven code review and authorized testing.",
   "type": "module",
   "workspaces": [
@@ -39,7 +39,7 @@
     "generate:browser-icons": "node scripts/generate-browser-icons.mjs",
     "publish:browser-store": "node scripts/publish-browser-store.mjs",
     "package:extension": "npm run build && npm --workspace hawk-security-ide run package",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1 --fileParallelism=false",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",

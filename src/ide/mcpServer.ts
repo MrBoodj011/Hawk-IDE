@@ -9,13 +9,14 @@ import { importHawkHealthReport } from './hawkReport.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import { SandboxVulnerabilityReproducer } from './sandboxReproduction.js';
 import { SmartMcpBrain } from './smartBrain.js';
 import { createCoreCapabilityExecutor } from './smartExecutor.js';
 import { registerSmartMcp } from './smartMcp.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
 const SERVER_NAME = 'hawk-ide';
-const SERVER_VERSION = '0.5.0';
+const SERVER_VERSION = '0.6.0';
 
 interface ParsedArgs {
   workspaceRoot: string;
@@ -74,6 +75,11 @@ async function main(): Promise<void> {
   const brain = new SmartMcpBrain(args.workspaceRoot, executor);
   brainReference.current = brain;
   await brain.initialize();
+  const reproducer = new SandboxVulnerabilityReproducer(
+    args.workspaceRoot,
+    brain.store,
+    orchestrator,
+  );
   const durableTaskStore = new DurableMcpTaskStore(
     brain.store,
     () => new Date(),
@@ -190,6 +196,77 @@ async function main(): Promise<void> {
         ),
       );
     },
+  );
+  mcp.registerTool(
+    'hawk_reproduction_plan',
+    {
+      title: 'Plan an offline sandbox reproduction',
+      description:
+        'Create an expiring, hash-bound plan for a supported static finding. The plan uses an existing local Docker image, a read-only workspace, no network, dropped capabilities, and bounded resources. Planning does not execute code.',
+      inputSchema: {
+        finding_id: z.string().min(1).max(256),
+        image: z.string().min(1).max(256).optional().default('hawk-worker:local'),
+      },
+    },
+    async (input) => {
+      try {
+        const report = await scanWorkspaceSecurity(args.workspaceRoot);
+        const finding = report.findings.find((candidate) => candidate.id === input.finding_id);
+        if (!finding) throw new Error(`Current static finding not found: ${input.finding_id}`);
+        return textResult(
+          JSON.stringify(await reproducer.createPlan(finding, input.image), null, 2),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_reproduction_execute',
+    {
+      title: 'Execute an approved offline sandbox reproduction',
+      description:
+        'Execute the exact approved plan through baseline, safe negative-control, and deterministic reproduction gates. A reproduced signal remains unverified until independent identity, impact, scope, and review gates pass.',
+      inputSchema: {
+        finding_id: z.string().min(1).max(256),
+        plan_id: z.string().regex(/^repro-plan-[a-f0-9-]{36}$/),
+        plan_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        approved: z.literal(true),
+      },
+    },
+    async (input) => {
+      try {
+        const report = await scanWorkspaceSecurity(args.workspaceRoot);
+        const finding = report.findings.find((candidate) => candidate.id === input.finding_id);
+        if (!finding) throw new Error(`Current static finding not found: ${input.finding_id}`);
+        return textResult(
+          JSON.stringify(
+            await reproducer.execute(finding, {
+              planId: input.plan_id,
+              planHash: input.plan_hash,
+              approved: input.approved,
+            }),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_reproductions_list',
+    {
+      title: 'List sandbox reproduction history',
+      description:
+        'List persisted offline reproduction attempts and their proof-gate status. Results never imply that a vulnerability was independently verified.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(500).optional().default(100),
+      },
+    },
+    async (input) =>
+      textResult(JSON.stringify({ reproductions: await reproducer.list(input.limit) }, null, 2)),
   );
   mcp.registerTool(
     'hawk_parallel_estimate',
@@ -513,7 +590,9 @@ async function main(): Promise<void> {
   registerSmartMcp(mcp, brain, args.workspaceRoot, orchestrator, durableTaskStore);
   await mcp.connect(new StdioServerTransport());
   const shutdown = (): void => {
-    void brain.runs.shutdown().finally(() => process.exit(0));
+    void Promise.allSettled([brain.runs.shutdown(), reproducer.shutdown()]).finally(() =>
+      process.exit(0),
+    );
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

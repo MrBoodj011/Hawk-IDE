@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 9;
+export const IDE_PROTOCOL_VERSION = 10;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -214,6 +214,67 @@ export interface EvidencePackReport {
   artifacts: EvidencePackArtifact[];
 }
 
+export type SandboxReproductionGateId = 'baseline' | 'control' | 'reproduction';
+
+export interface SandboxReproductionPlan {
+  protocolVersion: number;
+  id: string;
+  findingId: string;
+  ruleId: string;
+  title: string;
+  createdAt: string;
+  expiresAt: string;
+  planHash: string;
+  image: string;
+  mode: 'offline-signal';
+  source: { file: string; line: number; sha256: string };
+  isolation: {
+    workspace: 'read-only';
+    rootFilesystem: 'read-only';
+    network: 'none';
+    capabilities: 'dropped';
+    maxCpu: number;
+    maxMemoryMb: number;
+    maxSeconds: number;
+    maxArtifactMb: number;
+  };
+  gates: Array<{
+    id: SandboxReproductionGateId;
+    title: string;
+    purpose: string;
+  }>;
+  statement: string;
+}
+
+export interface SandboxReproductionGateResult {
+  id: SandboxReproductionGateId;
+  status: 'passed' | 'failed';
+  durationMs: number;
+  instanceId?: string;
+  evidenceDigest?: string;
+  message: string;
+}
+
+/** A sandbox observation, never an automatic vulnerability verdict. */
+export interface SandboxReproductionResult {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  planHash: string;
+  findingId: string;
+  ruleId: string;
+  image: string;
+  orchestrationRunId: string;
+  status: 'reproduced' | 'not-reproduced' | 'failed';
+  lifecycle: 'signal' | 'reproduced';
+  promotedToVerified: false;
+  startedAt: string;
+  completedAt: string;
+  gates: SandboxReproductionGateResult[];
+  missingVerificationGates: string[];
+  statement: string;
+}
+
 export interface SecurityGraphNode {
   id: string;
   kind:
@@ -254,6 +315,7 @@ export interface SecurityGraphResponse {
     evidence: number;
     patches: number;
     tests: number;
+    reproductions: number;
     correlatedRequests: number;
     sourceLinkedFindings: number;
     evidenceLinkedFindings: number;

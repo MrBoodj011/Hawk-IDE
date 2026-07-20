@@ -25,6 +25,13 @@ interface AuditRule {
   evidenceSummary(match: string): string;
 }
 
+export interface StaticAuditReproductionRecipe {
+  ruleId: string;
+  patternSource: string;
+  patternFlags: string;
+  safeControl: string;
+}
+
 const RULES: AuditRule[] = [
   {
     id: 'hardcoded-secret',
@@ -83,6 +90,19 @@ const RULES: AuditRule[] = [
       'Wildcard origin and credentials:true appear in the same CORS configuration.',
   },
 ];
+
+export function getStaticAuditReproductionRecipe(
+  ruleId: string,
+): StaticAuditReproductionRecipe | undefined {
+  const rule = RULES.find((candidate) => candidate.id === ruleId);
+  if (!rule) return undefined;
+  return {
+    ruleId: rule.id,
+    patternSource: rule.pattern.source,
+    patternFlags: rule.pattern.flags,
+    safeControl: 'const value = process.env.HAWK_SAFE_CONTROL;',
+  };
+}
 
 /**
  * Runs a passive, text-only security audit. It never starts the application,

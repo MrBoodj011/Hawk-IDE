@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-20
+
+### Added
+
+- **Automatic offline sandbox reproduction** — supported static findings can
+  create an expiring, SHA-256-bound plan and, only after exact operator
+  approval, run baseline, safe negative-control, and deterministic
+  reproduction gates in a local Docker worker. The workspace and root
+  filesystem are read-only, network is disabled, Linux capabilities are
+  dropped, and CPU, RAM, time, logs, and artifacts remain bounded.
+- **Native reproduction workflow** — the loopback daemon, Hawk MCP server,
+  Mission Control, reproduction history, and Security Graph now share the same
+  persisted result. A reproduced signal is explicitly never auto-promoted to a
+  verified vulnerability; independent identity, impact, scope, evidence, and
+  review gates remain mandatory.
+- MCP tools `hawk_reproduction_plan`, `hawk_reproduction_execute`, and
+  `hawk_reproductions_list`.
+
+### Changed
+
+- **Pixel-polished Hawk identity** — Mission Control now has one consistent
+  Hawk wordmark, a six-card operational scoreline, explicit local trust
+  boundaries, a branded Sandbox Lab, clearer finding actions, and dedicated
+  responsive layouts verified at desktop and 390 px mobile widths.
+- The local IDE API protocol is now version 10.
+
 ## [0.5.0] - 2026-07-20
 
 ### Added

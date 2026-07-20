@@ -25,6 +25,7 @@ import {
   type InlineCompletionRequest,
   createInlineCompletion,
 } from './inlineCompletion.js';
+import { HawkDockerOrchestrator } from './orchestrator.js';
 import { ProofGraph } from './proofGraph.js';
 import {
   type DaemonHealth,
@@ -34,6 +35,8 @@ import {
   type HawkHealthReport,
   IDE_PROTOCOL_VERSION,
   type RetestResult,
+  type SandboxReproductionPlan,
+  type SandboxReproductionResult,
   type SecurityFinding,
   type TrafficInventory,
   type WorkspaceInventory,
@@ -43,6 +46,10 @@ import {
   type WorkspaceScanTemplatesResponse,
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import {
+  type ReproductionOrchestrator,
+  SandboxVulnerabilityReproducer,
+} from './sandboxReproduction.js';
 import { buildUnifiedSecurityGraph, securityGraphResponse } from './securityGraph.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
@@ -61,6 +68,7 @@ export interface IdeDaemonOptions {
   port?: number;
   token?: string;
   now?: () => Date;
+  reproductionOrchestrator?: ReproductionOrchestrator;
 }
 
 export interface IdeDaemonHandle {
@@ -90,7 +98,14 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   let importedTraffic: TrafficInventory | null = null;
   const evidencePacks: EvidencePackReport[] = [];
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
-  const proofGraph = new ProofGraph(new DurableStore(workspaceRoot), now);
+  const durableStore = new DurableStore(workspaceRoot);
+  const proofGraph = new ProofGraph(durableStore, now);
+  const reproducer = new SandboxVulnerabilityReproducer(
+    workspaceRoot,
+    durableStore,
+    opts.reproductionOrchestrator ?? new HawkDockerOrchestrator(workspaceRoot),
+    now,
+  );
   const aiSessions = new AiSessionManager({ workspaceRoot, now });
   await aiSessions.initialize();
   const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot, {
@@ -143,6 +158,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       },
       aiSessions,
       proofGraph,
+      reproducer,
       semanticIndex,
       editPredictions,
       completionLatencies: () => [...completionLatencies],
@@ -171,7 +187,11 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         captureToken: captureServer.token,
         inventory: () => latestInventory,
         close: async () => {
-          await Promise.all([aiSessions.dispose(), editPredictions.dispose()]);
+          await Promise.all([
+            aiSessions.dispose(),
+            editPredictions.dispose(),
+            reproducer.shutdown(),
+          ]);
           await Promise.all([closeServer(server), captureServer.close()]);
         },
       });
@@ -195,6 +215,7 @@ interface RequestContext {
   setHawkHealth(value: HawkHealthReport): Promise<void>;
   aiSessions: AiSessionManager;
   proofGraph: ProofGraph;
+  reproducer: SandboxVulnerabilityReproducer;
   semanticIndex: SemanticWorkspaceIndex;
   editPredictions: EditPredictionEngine;
   completionLatencies(): number[];
@@ -419,6 +440,7 @@ async function handleRequest(
         traffic: context.traffic(),
         evidencePacks: context.evidencePacks(),
         sessions: await context.aiSessions.list(50),
+        reproductions: await context.reproducer.list(100),
       });
       const nodeId = requestURL.searchParams.get('nodeId')?.trim();
       if (!nodeId) {
@@ -803,6 +825,50 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/reproductions') {
+    sendJSON(res, 200, { reproductions: await context.reproducer.list(100) });
+    return;
+  }
+
+  const reproductionPlanMatch = pathname.match(/^\/v1\/findings\/([^/]+)\/reproduction-plan$/);
+  if (req.method === 'POST' && reproductionPlanMatch?.[1]) {
+    try {
+      const findingId = decodeURIComponent(reproductionPlanMatch[1]);
+      const finding = context.findings().find((candidate) => candidate.id === findingId);
+      if (!finding) {
+        sendJSON(res, 404, { ok: false, error: 'finding not found' });
+        return;
+      }
+      const input = parseReproductionPlanRequest(await readBody(req));
+      const plan: SandboxReproductionPlan = await context.reproducer.createPlan(
+        finding,
+        input.image,
+      );
+      sendJSON(res, 201, plan);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const reproduceMatch = pathname.match(/^\/v1\/findings\/([^/]+)\/reproduce$/);
+  if (req.method === 'POST' && reproduceMatch?.[1]) {
+    try {
+      const findingId = decodeURIComponent(reproduceMatch[1]);
+      const finding = context.findings().find((candidate) => candidate.id === findingId);
+      if (!finding) {
+        sendJSON(res, 404, { ok: false, error: 'finding not found' });
+        return;
+      }
+      const input = parseReproductionExecuteRequest(await readBody(req));
+      const result: SandboxReproductionResult = await context.reproducer.execute(finding, input);
+      sendJSON(res, 200, result);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   const retestMatch = pathname.match(/^\/v1\/findings\/([^/]+)\/retest$/);
   if (req.method === 'POST' && retestMatch?.[1]) {
     try {
@@ -947,6 +1013,31 @@ function parseEvidencePackRequest(body: Buffer): { approved: true } {
     throw new Error('operator approval is required to build an evidence pack');
   }
   return { approved: true };
+}
+
+function parseReproductionPlanRequest(body: Buffer): { image?: string } {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (request.image === undefined) return {};
+  if (typeof request.image !== 'string' || request.image.length > 255)
+    throw new Error('reproduction image must be a bounded string');
+  return { image: request.image };
+}
+
+function parseReproductionExecuteRequest(body: Buffer): {
+  planId: string;
+  planHash: string;
+  approved: true;
+} {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (request.approved !== true)
+    throw new Error('operator approval is required for sandbox reproduction');
+  if (typeof request.planId !== 'string' || !/^repro-plan-[a-f0-9-]{36}$/.test(request.planId)) {
+    throw new Error('valid reproduction plan id is required');
+  }
+  if (typeof request.planHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.planHash)) {
+    throw new Error('valid reproduction approval hash is required');
+  }
+  return { planId: request.planId, planHash: request.planHash, approved: true };
 }
 
 function parseMissionRequest(body: Buffer): {

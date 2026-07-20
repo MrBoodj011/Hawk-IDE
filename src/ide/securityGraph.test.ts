@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DurableStore } from './durableStore.js';
 import { ProofGraph } from './proofGraph.js';
-import type { SecurityFinding, WorkspaceInventory } from './protocol.js';
+import type { SandboxReproductionResult, SecurityFinding, WorkspaceInventory } from './protocol.js';
 import { buildUnifiedSecurityGraph } from './securityGraph.js';
 
 const temporaryRoots: string[] = [];
@@ -48,12 +48,56 @@ describe('buildUnifiedSecurityGraph', () => {
       route: { method: 'GET', path: '/api/orders/:id' },
       evidence: [{ kind: 'code', summary: 'Lookup uses an untrusted route parameter.' }],
     };
+    const reproduction: SandboxReproductionResult = {
+      protocolVersion: 10,
+      id: 'reproduction-orders',
+      planId: 'repro-plan-11111111-1111-4111-8111-111111111111',
+      planHash: 'a'.repeat(64),
+      findingId: finding.id,
+      ruleId: finding.ruleId,
+      status: 'reproduced',
+      lifecycle: 'reproduced',
+      promotedToVerified: false,
+      image: 'hawk-worker:test',
+      orchestrationRunId: 'run-reproduction-orders',
+      startedAt: '2026-07-20T12:00:00.000Z',
+      completedAt: '2026-07-20T12:00:01.000Z',
+      gates: [
+        {
+          id: 'baseline',
+          status: 'passed',
+          durationMs: 5,
+          message: 'Baseline identified the signal.',
+        },
+        {
+          id: 'control',
+          status: 'passed',
+          durationMs: 5,
+          message: 'Safe control stayed negative.',
+        },
+        {
+          id: 'reproduction',
+          status: 'passed',
+          durationMs: 5,
+          message: 'Signal reproduced.',
+        },
+      ],
+      missingVerificationGates: [
+        'independent reproduction',
+        'identity',
+        'impact',
+        'scope',
+        'review',
+      ],
+      statement: 'Offline signal reproduced. Verification gates remain mandatory.',
+    };
 
     const response = await buildUnifiedSecurityGraph(
       new ProofGraph(new DurableStore(root), () => new Date('2026-07-20T12:00:00.000Z')),
       {
         inventory,
         findings: [finding],
+        reproductions: [reproduction],
         traffic: {
           protocolVersion: 9,
           importedAt: '2026-07-20T12:00:00.000Z',
@@ -82,10 +126,11 @@ describe('buildUnifiedSecurityGraph', () => {
       routes: 1,
       requests: 1,
       findings: 1,
-      evidence: 1,
+      evidence: 2,
       correlatedRequests: 1,
       sourceLinkedFindings: 1,
-      evidenceLinkedFindings: 1,
+      evidenceLinkedFindings: 2,
+      reproductions: 1,
     });
     expect(response.edges).toEqual(
       expect.arrayContaining([
@@ -95,6 +140,10 @@ describe('buildUnifiedSecurityGraph', () => {
         expect.objectContaining({ relation: 'source-context-for' }),
         expect.objectContaining({ relation: 'runtime-context-for' }),
         expect.objectContaining({ relation: 'supports' }),
+        expect.objectContaining({
+          relation: 'reproduces-signal',
+          attributes: expect.objectContaining({ verified: false }),
+        }),
       ]),
     );
     expect(

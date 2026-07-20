@@ -18,6 +18,7 @@
 | Provider-key exposure | environment-variable key indirection, local config, secret redaction, no Hawk cloud |
 | Malicious capture content | localhost pairing token, size limits, sanitization, evidence redaction |
 | Unsafe parallel execution | Docker isolation, resource budgets, approval gates, durable task state |
+| Unsafe or misleading reproduction | expiring exact-plan hash, explicit approval, immutable source location, read-only filesystems, zero network, dropped capabilities, negative control, bounded runtime, no automatic verification |
 | CI credential compromise | least-privilege workflow permissions and no secret values in artifacts |
 
 ## Personal validation

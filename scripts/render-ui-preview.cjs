@@ -120,6 +120,7 @@ const state = {
       correlatedRequests: 26,
       sourceLinkedFindings: 10,
       evidenceLinkedFindings: 11,
+      reproductions: 1,
     },
     nodes: [
       {
@@ -162,8 +163,8 @@ const state = {
         id: 'edge-evidence-finding',
         from: 'evidence-authz',
         to: 'finding-authz',
-        relation: 'supports',
-        attributes: { confidence: 0.75 },
+        relation: 'reproduces-signal',
+        attributes: { confidence: 0.9, verified: false },
       },
       {
         id: 'edge-request-finding',
@@ -191,19 +192,44 @@ const state = {
   },
   findings: [
     {
+      id: 'finding-authz',
+      ruleId: 'dynamic-code-execution',
       severity: 'high',
+      status: 'suspected',
       title: 'Authorization decision can be bypassed',
       source: { file: 'src/api/users.ts', line: 141 },
     },
     {
+      id: 'finding-webhook',
+      ruleId: 'tls-verification-disabled',
       severity: 'medium',
+      status: 'suspected',
       title: 'Webhook signature uses non-constant comparison',
       source: { file: 'src/api/billing.ts', line: 79 },
     },
     {
+      id: 'finding-errors',
+      ruleId: 'wildcard-cors-credentials',
       severity: 'low',
+      status: 'suspected',
       title: 'Verbose error metadata reaches client',
       source: { file: 'src/api/reports.ts', line: 46 },
+    },
+  ],
+  reproductions: [
+    {
+      id: 'reproduction-authz',
+      findingId: 'finding-authz',
+      ruleId: 'dynamic-code-execution',
+      status: 'reproduced',
+      lifecycle: 'reproduced',
+      promotedToVerified: false,
+      completedAt: '2026-07-20T16:10:00.000Z',
+      gates: [
+        { id: 'baseline', status: 'passed' },
+        { id: 'control', status: 'passed' },
+        { id: 'reproduction', status: 'passed' },
+      ],
     },
   ],
   hawkHealth: {

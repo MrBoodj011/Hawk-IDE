@@ -4,6 +4,7 @@ import type { ProofEdgeInput, ProofGraph, ProofNodeInput } from './proofGraph.js
 import {
   type EvidencePackReport,
   IDE_PROTOCOL_VERSION,
+  type SandboxReproductionResult,
   type SecurityFinding,
   type SecurityGraphEdge,
   type SecurityGraphNode,
@@ -35,6 +36,7 @@ export interface SecurityGraphBuildInput {
   traffic?: TrafficInventory | null;
   evidencePacks?: EvidencePackReport[];
   sessions?: AiSessionSummary[];
+  reproductions?: SandboxReproductionResult[];
 }
 
 export interface SecurityTrafficCorrelation {
@@ -273,6 +275,42 @@ export async function buildUnifiedSecurityGraph(
     }
   }
 
+  for (const reproduction of input.reproductions?.slice(0, 500) ?? []) {
+    const finding = findings.find((candidate) => candidate.id === reproduction.findingId);
+    if (!finding) continue;
+    const reproductionId = `evidence-reproduction-${stableHash(reproduction.id)}`;
+    addNode({
+      id: reproductionId,
+      kind: 'evidence',
+      label:
+        reproduction.status === 'reproduced'
+          ? `Sandbox reproduced ${finding.title}`
+          : `Sandbox attempt: ${finding.title}`,
+      attributes: {
+        reproductionId: reproduction.id,
+        status: reproduction.status,
+        lifecycle: reproduction.lifecycle,
+        promotedToVerified: false,
+        planHash: reproduction.planHash,
+        orchestrationRunId: reproduction.orchestrationRunId,
+        file: finding.source?.file ?? '',
+        line: finding.source?.line ?? 1,
+        provenance: 'hawk-sandbox-reproducer',
+      },
+    });
+    addEdge({
+      from: reproductionId,
+      to: findingNodeId(finding),
+      relation:
+        reproduction.status === 'reproduced' ? 'reproduces-signal' : 'attempted-reproduction',
+      attributes: {
+        confidence: reproduction.status === 'reproduced' ? 0.9 : 0.4,
+        provenance: 'hawk-sandbox-reproducer',
+        verified: false,
+      },
+    });
+  }
+
   for (const session of input.sessions?.slice(0, 100) ?? []) {
     const agentId = `agent-${stableHash(session.id)}`;
     addNode({
@@ -385,11 +423,18 @@ export function securityGraphResponse(
       evidence: count('evidence'),
       patches: count('patch'),
       tests: count('test'),
+      reproductions: snapshot.edges.filter(
+        (edge) =>
+          edge.relation === 'reproduces-signal' || edge.relation === 'attempted-reproduction',
+      ).length,
       correlatedRequests: snapshot.edges.filter((edge) => edge.relation === 'observed-at').length,
       sourceLinkedFindings: snapshot.edges.filter((edge) => edge.relation === 'source-context-for')
         .length,
       evidenceLinkedFindings: snapshot.edges.filter(
-        (edge) => edge.relation === 'supports' || edge.relation === 'documents',
+        (edge) =>
+          edge.relation === 'supports' ||
+          edge.relation === 'documents' ||
+          edge.relation === 'reproduces-signal',
       ).length,
     },
     nodes,

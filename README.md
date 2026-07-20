@@ -62,6 +62,13 @@ local-first Code-OSS-compatible Hawk security workspace.
   `eval`, interpolated SQL-looking calls, and risky CORS combinations.
   Signals are explicitly not confirmed vulnerabilities: they require manual
   validation.
+- Automatic offline sandbox reproduction for those supported deterministic
+  signals. Hawk creates an expiring, exact-hash plan, then runs baseline,
+  negative-control, and reproduction gates in a read-only, zero-network,
+  capability-dropped Docker worker with bounded CPU, RAM, time, logs, and
+  artifacts. Results enter the Security Graph and reproduction history but
+  remain unverified until the independent identity, impact, scope, evidence,
+  and review gates pass.
 - HAR import that stays on-device, redacts sensitive query values, never
   replays requests, and never retains request or response bodies. Imported
   traffic can be combined with a live, redacted Browser/Burp timeline.
@@ -197,6 +204,10 @@ security boundary and longer-term security graph.
 
 See [parallel Docker orchestration](docs/parallel-orchestration.md) for worker
 isolation, the MCP tools, image setup, and long-running task examples.
+
+See [automatic sandbox reproduction](docs/sandbox-reproduction.md) for the
+approval contract, isolation boundary, supported rules, UI and MCP workflow,
+and proof limitations.
 
 See [Smart MCP Brain](docs/smart-mcp.md) for the goal, policy, planner,
 orchestration, ProofGraph, memory, Sentinel, MCP App, A2A bridge, and Eval Lab
