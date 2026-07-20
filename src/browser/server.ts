@@ -9,6 +9,10 @@ import * as logger from '../logger/logger.js';
 import type { CaptureStore } from './store.js';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MiB — bigger than any reasonable single response body slice
+// Keep the localhost capture bridge bounded against slowloris and idle-client abuse.
+const REQUEST_TIMEOUT_MS = 30_000;
+const HEADERS_TIMEOUT_MS = 10_000;
+const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 
 export interface IngestServerOptions {
   store: CaptureStore;
@@ -30,6 +34,9 @@ export function startIngestServer(opts: IngestServerOptions): Promise<IngestServ
   const host = opts.host ?? '127.0.0.1';
   const token = opts.token ?? randomBytes(16).toString('hex');
   const server = createServer((req, res) => handle(req, res, opts.store, token, opts.onEvent));
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, host, () => {
@@ -214,6 +221,10 @@ function readBody(req: IncomingMessage): Promise<string> {
 function sendJSON(res: ServerResponse, status: number, payload: unknown): void {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   res.end(JSON.stringify(payload));
 }
 
@@ -239,11 +250,20 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 function validLoopbackHost(req: IncomingMessage): boolean {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
   const raw = req.headers.host;
   if (!raw) return true;
-  const host = raw
-    .replace(/:\d+$/, '')
-    .replace(/^\[|\]$/g, '')
-    .toLowerCase();
-  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  try {
+    const parsed = new URL(`http://${raw}`);
+    const host = parsed.hostname.replace(/^\[|\]$/g, '');
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase().replace(/^::ffff:/, '');
+  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
 }

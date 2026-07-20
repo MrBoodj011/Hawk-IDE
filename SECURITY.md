@@ -24,3 +24,7 @@ system remain outside Hawk's control.
 
 Never access another user's data, degrade service, use social engineering, or
 retain sensitive data. Stop after proving impact with the minimum evidence.
+
+For the independent assessment procedure, lab fault matrix, release-chain
+checks, and retest gate, see
+[`docs/audit/EXTERNAL_PENTEST_RUNBOOK.md`](docs/audit/EXTERNAL_PENTEST_RUNBOOK.md).

@@ -13,11 +13,12 @@
 
 | Threat | Primary controls |
 | --- | --- |
-| Malicious artifact substitution | private releases, SHA-256 checksums, optional Windows signature, pinned build inputs |
+| Malicious artifact substitution | private releases, SHA-256 checksums, required Windows signature on production updates, pinned build inputs, downgrade/redirect checks |
 | Prompt/tool injection | permission gates, scoped missions, untrusted-output handling, MCP isolation, diff review |
 | Provider-key exposure | environment-variable key indirection, local config, secret redaction, no Hawk cloud |
-| Malicious capture content | localhost pairing token, size limits, sanitization, evidence redaction |
-| Unsafe parallel execution | Docker isolation, resource budgets, approval gates, durable task state |
+| Malicious capture content | localhost socket + Host validation, pairing token, size limits, sanitization, no-store JSON responses, evidence redaction |
+| Persistence path attack | workspace-bound `.hawk` paths, symlink/junction refusal, private state files, exact preimage checks, artifact-tree validation |
+| Unsafe parallel execution | Docker isolation, resource budgets, approval gates, digest-pinned images, durable task state, recovery leases |
 | Unsafe or misleading reproduction | expiring exact-plan hash, explicit approval, immutable source location, read-only filesystems, zero network, dropped capabilities, negative control, bounded runtime, no automatic verification |
 | CI credential compromise | least-privilege workflow permissions and no secret values in artifacts |
 

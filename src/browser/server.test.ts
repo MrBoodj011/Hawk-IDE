@@ -27,6 +27,8 @@ describe('browser ingest server', () => {
       headers: { 'X-Hawk-Token': 'secret-token' },
     });
     expect(authedStatus.status).toBe(200);
+    expect(authedStatus.headers.get('cache-control')).toBe('no-store');
+    expect(authedStatus.headers.get('x-content-type-options')).toBe('nosniff');
 
     const authedPost = await fetch(`${base}/ingest`, {
       method: 'POST',
@@ -46,6 +48,18 @@ describe('browser ingest server', () => {
 
     const status = await rawStatusRequest(handle.port, {
       Host: 'evil.example',
+      'X-Hawk-Token': 'secret-token',
+    });
+
+    expect(status).toBe(403);
+  });
+
+  it('rejects malformed Host headers instead of normalizing them', async () => {
+    const store = new CaptureStore();
+    handle = await startIngestServer({ store, port: 0, token: 'secret-token' });
+
+    const status = await rawStatusRequest(handle.port, {
+      Host: '127.0.0.1.evil:80',
       'X-Hawk-Token': 'secret-token',
     });
 

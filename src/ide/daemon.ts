@@ -61,6 +61,10 @@ import {
 } from './workspaceScan.js';
 
 const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
+// Bound control-plane connections so a local client cannot hold sockets forever.
+const REQUEST_TIMEOUT_MS = 30_000;
+const HEADERS_TIMEOUT_MS = 10_000;
+const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 
 export interface IdeDaemonOptions {
   workspaceRoot?: string;
@@ -168,6 +172,9 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       },
     });
   });
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
 
   return await new Promise<IdeDaemonHandle>((resolveHandle, reject) => {
     server.once('error', (err) => {
@@ -933,13 +940,27 @@ function isLoopbackHost(host: string): boolean {
 }
 
 function validLoopbackHost(req: IncomingMessage): boolean {
+  // Binding the server to loopback is the primary boundary. Check the peer as
+  // well so a future proxy/transport change cannot turn a spoofed Host header
+  // into an authorization bypass. Node reports IPv4 peers as ::ffff:x.x.x.x
+  // when the listener is dual-stack on some platforms.
+  if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
   const raw = req.headers.host;
   if (!raw) return true;
-  const host = raw
-    .replace(/:\d+$/, '')
-    .replace(/^\[|\]$/g, '')
-    .toLowerCase();
-  return isLoopbackHost(host);
+  try {
+    // URL parsing gives us strict bracket/port handling and rejects malformed
+    // Host values instead of attempting to sanitize them with a regex.
+    const parsed = new URL(`http://${raw}`);
+    return isLoopbackHost(parsed.hostname.replace(/^\[|\]$/g, ''));
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.toLowerCase().replace(/^::ffff:/, '');
+  return isLoopbackHost(normalized);
 }
 
 function consumeBody(req: IncomingMessage): Promise<void> {
@@ -968,6 +989,9 @@ function sendJSON(res: ServerResponse, status: number, value: unknown): void {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   res.end(JSON.stringify(value));
 }
 

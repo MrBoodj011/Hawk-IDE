@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, readdir } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -185,6 +185,7 @@ export class HawkDockerOrchestrator {
 
   async initialize(): Promise<void> {
     let directories: string[] = [];
+    await assertNoSymlinkPath(this.outputBase, this.workspaceRoot);
     try {
       directories = (await readdir(this.outputBase, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory() && entry.name.startsWith('run-'))
@@ -196,6 +197,7 @@ export class HawkDockerOrchestrator {
     for (const directory of directories) {
       try {
         const outputRoot = join(this.outputBase, directory);
+        await assertNoSymlinkPath(outputRoot, this.workspaceRoot);
         const [snapshot, persistedSpec] = await Promise.all([
           readJsonFile<OrchestrationSnapshot>(join(outputRoot, 'run.json')),
           readJsonFile<OrchestrationSpec>(join(outputRoot, 'spec.json')),
@@ -278,6 +280,11 @@ export class HawkDockerOrchestrator {
 
   async start(spec: OrchestrationSpec): Promise<OrchestrationSnapshot> {
     const normalized = normalizeSpec(spec);
+    // The workspace is intentionally untrusted. Never follow a pre-created
+    // .hawk symlink/junction while persisting worker state or artifacts.
+    await assertNoSymlinkPath(this.outputBase, this.workspaceRoot);
+    await mkdir(this.outputBase, { recursive: true, mode: 0o700 });
+    await assertNoSymlinkPath(this.outputBase, this.workspaceRoot);
     const availability = await this.runtime.availability();
     if (!availability.available) {
       throw new Error(
@@ -289,7 +296,9 @@ export class HawkDockerOrchestrator {
       : normalized.image;
     const id = `run-${randomUUID()}`;
     const outputRoot = join(this.outputBase, id);
+    await assertNoSymlinkPath(outputRoot, this.workspaceRoot);
     await mkdir(outputRoot, { recursive: true });
+    await assertNoSymlinkPath(outputRoot, this.workspaceRoot);
     const createdAt = this.now().toISOString();
     const tasks = new Map<string, InternalTask>();
     for (const task of normalized.tasks) {
@@ -545,7 +554,24 @@ export class HawkDockerOrchestrator {
     );
     heartbeat.unref();
     try {
-      const result = await this.runtime.run(this.taskContext(run, task));
+      let result: WorkerTaskResult;
+      try {
+        result = await this.runtime.run(this.taskContext(run, task));
+      } catch (error) {
+        // A runtime implementation must normally convert process/network
+        // errors into WorkerTaskResult, but keep the scheduler durable when an
+        // adapter itself throws (for example, a Docker socket disappearing
+        // mid-run). Treat it exactly like a retryable worker failure instead
+        // of allowing the run loop to reject and leave the run stuck.
+        result = {
+          exitCode: -1,
+          output: '',
+          outputTruncated: false,
+          timedOut: false,
+          cancelled: false,
+          error: `Worker runtime error: ${errorMessage(error)}`,
+        };
+      }
       await this.applyTaskResult(run, task, result);
     } finally {
       clearInterval(heartbeat);
@@ -573,9 +599,14 @@ export class HawkDockerOrchestrator {
       this.releaseTaskAssignment(run, task);
       await this.persist(run);
     } catch (error) {
-      task.status = 'failed';
-      task.error = `Worker recovery failed: ${errorMessage(error)}`;
-      task.completedAt = this.now().toISOString();
+      if (task.attempt <= (task.spec.retries ?? 0)) {
+        task.status = 'pending';
+        task.error = `Worker recovery failed: ${errorMessage(error)}; retry scheduled`;
+      } else {
+        task.status = 'failed';
+        task.error = `Worker recovery failed: ${errorMessage(error)}`;
+        task.completedAt = this.now().toISOString();
+      }
       this.releaseTaskAssignment(run, task);
       await this.persist(run);
     }
@@ -643,6 +674,7 @@ export class HawkDockerOrchestrator {
     }
     if (result.exitCode === 0 && !result.timedOut) {
       task.status = 'succeeded';
+      task.error = undefined;
       task.completedAt = this.now().toISOString();
       await this.persist(run);
       return;
@@ -841,7 +873,7 @@ export class DockerWorkerRuntime implements WorkerRuntime {
         });
       });
       child.once('close', (code) => {
-        void this.copyArtifacts(containerName, context.outputDirectory)
+        void this.copyArtifacts(containerName, context.outputDirectory, context.workspaceRoot)
           .then(() => undefined)
           .catch((error) => `Hawk could not collect worker artifacts: ${errorMessage(error)}`)
           .then(async (artifactError) => {
@@ -904,7 +936,7 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       outputTruncated = true;
     }
     try {
-      await this.copyArtifacts(containerName, context.outputDirectory);
+      await this.copyArtifacts(containerName, context.outputDirectory, context.workspaceRoot);
     } catch (error) {
       exitCode = -1;
       output = `${output}\nHawk could not collect worker artifacts: ${errorMessage(error)}`.trim();
@@ -962,13 +994,22 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     }
   }
 
-  private async copyArtifacts(containerName: string, outputDirectory: string): Promise<void> {
+  private async copyArtifacts(
+    containerName: string,
+    outputDirectory: string,
+    workspaceRoot: string,
+  ): Promise<void> {
+    await assertNoSymlinkPath(outputDirectory, workspaceRoot);
     await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
+    await assertNoSymlinkPath(outputDirectory, workspaceRoot);
     await execFileAsync('docker', ['cp', `${containerName}:/output/.`, outputDirectory], {
       encoding: 'utf8',
       timeout: 60_000,
       windowsHide: true,
     });
+    // Docker copies untrusted worker output. Refuse symlinks and special files
+    // before any later report/evidence reader can accidentally follow them.
+    await assertSafeArtifactTree(outputDirectory);
   }
 
   private async removeContainer(containerName: string): Promise<void> {
@@ -1290,6 +1331,60 @@ function errorCode(error: unknown): string | undefined {
 function isInside(candidate: string, parent: string): boolean {
   const path = relative(resolve(parent), resolve(candidate));
   return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+}
+
+/**
+ * Reject symbolic links in a Hawk-owned persistence path. A malicious
+ * workspace can contain a pre-created `.hawk` junction/symlink; following it
+ * would let worker state or artifacts overwrite arbitrary user files. Missing
+ * path components are safe and are created by the caller immediately after
+ * this check.
+ */
+async function assertNoSymlinkPath(path: string, boundary: string): Promise<void> {
+  const root = resolve(boundary);
+  const candidate = resolve(path);
+  if (!isInside(candidate, root)) throw new Error('Hawk persistence path escaped the workspace');
+  const segments = relative(root, candidate).split(sep).filter(Boolean);
+  let current = root;
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      const stat = await lstat(current);
+      if (stat.isSymbolicLink()) {
+        throw new Error(
+          `Hawk persistence path contains a symbolic link: ${relative(root, current)}`,
+        );
+      }
+      if (!stat.isDirectory()) {
+        throw new Error(`Hawk persistence path is not a directory: ${relative(root, current)}`);
+      }
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') break;
+      throw error;
+    }
+  }
+}
+
+async function assertSafeArtifactTree(root: string): Promise<void> {
+  const pending = [resolve(root)];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+    const entries = await readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const child = join(current, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Worker artifact contains a symbolic link: ${relative(root, child)}`);
+      }
+      if (entry.isDirectory()) {
+        pending.push(child);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw new Error(`Worker artifact contains a special file: ${relative(root, child)}`);
+      }
+    }
+  }
 }
 
 async function readJsonFile<T>(file: string): Promise<T | undefined> {

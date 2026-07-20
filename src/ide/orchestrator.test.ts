@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -103,6 +103,18 @@ describe('HawkDockerOrchestrator', () => {
         tasks: [{ id: 'valid', title: 'Tiny output quota', command: ['scan'] }],
       }),
     ).rejects.toThrow('artifactMbPerWorker');
+  });
+
+  it('refuses workspace persistence when .hawk is replaced by a file', async () => {
+    const root = await temporaryWorkspace();
+    await writeFile(join(root, '.hawk'), 'attacker-controlled path');
+    const orchestrator = new HawkDockerOrchestrator(root, new FakeRuntime());
+    await expect(
+      orchestrator.start({
+        image: 'hawk-worker:test',
+        tasks: [{ id: 'safe', title: 'Safe task', command: ['scan'] }],
+      }),
+    ).rejects.toThrow('Hawk persistence path is not a directory');
   });
 
   it('governs resources across concurrent runs and pins the resolved image identity', async () => {

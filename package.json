@@ -34,6 +34,7 @@
     "preview:ui": "node scripts/render-ui-preview.cjs",
     "test:update-real": "node scripts/test-private-update.mjs --from 0.2.0 --to v0.2.1",
     "test:update-signed-real": "node scripts/test-private-update.mjs --from 0.0.0 --require-signature",
+    "test:chaos": "vitest run src/ide/chaos.test.ts --maxWorkers=1 --fileParallelism=false",
     "benchmark:index-memory": "node --expose-gc --import tsx scripts/index-memory-gate.ts",
     "benchmark:beta-index": "node --expose-gc --import tsx scripts/beta-index-benchmark.ts --clone --enforce-memory",
     "check:extension": "npm --workspace hawk-security-ide run check",
