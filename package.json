@@ -1,6 +1,7 @@
 {
   "name": "@hawk/ide",
   "version": "0.7.0",
+  "packageManager": "npm@10.8.2",
   "description": "Hawk is a security-native AI development environment for evidence-driven code review and authorized testing.",
   "type": "module",
   "workspaces": [

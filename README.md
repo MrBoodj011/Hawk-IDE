@@ -243,7 +243,7 @@ The **Copy MCP config** command copies a local-only configuration:
 
 ## NPM command center
 
-The root package is the `@hawk/ide` workspace. NPM is used as the reproducible build and operations layer for the IDE, daemon, MCP server, extension, tests, benchmarks, Docker proxy, and release checks. Hawk is currently consumed from this repository; a hosted Hawk service or mandatory registry account is not required.
+The root package is the `@hawk/ide` workspace. NPM 10.8.2 is pinned as the reproducible build and operations layer for the IDE, daemon, MCP server, extension, tests, benchmarks, Docker proxy, and release checks. Hawk is currently consumed from this repository; a hosted Hawk service or mandatory registry account is not required.
 
 <details>
 <summary><strong>Show the complete NPM script map</strong></summary>
