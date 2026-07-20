@@ -28,6 +28,11 @@ The current local-first slice provides:
 9. Compile review, remediation, and authorized-validation missions from the
    desktop into persisted Smart MCP goals, DAGs, and policy decisions without
    silently approving or executing them.
+10. Build one durable Security Graph that links source files and symbols to
+    routes, redacted HTTP observations, findings, evidence packs, agent
+    patches, and regression tests.
+11. Distribute dependency-ready work across capability-aware Docker agent
+    instances using critical-path, health, load, CPU/RAM, and lease signals.
 
 ## Runtime layout
 
@@ -49,7 +54,7 @@ Hawk Smart MCP Brain
     +-- Policy and exact-plan approvals
     +-- Semantic capability registry
     +-- Model and agent router
-    +-- Durable DAG engine and worker leases
+    +-- Intelligent distributed scheduler and worker leases
     +-- ProofGraph and evidence verifier
     +-- Governed memory and MCP Sentinel
     +-- MCP App, Tasks, resources, and prompts
@@ -66,12 +71,15 @@ headers, or request/response bodies. Live companions are disabled by default,
 use a separate loopback pairing token, enforce explicit scope/rate limits, and
 retain sensitive bodies only when the operator separately enables that option.
 
-## ProofGraph
+## Security Graph
 
-The implemented local ProofGraph connects `Repository`, `Commit`, `File`,
+The implemented local Security Graph is backed by ProofGraph and connects `Repository`, `Commit`, `File`,
 `Symbol`, `Route`, `Identity`, `Request`, `Response`, `Finding`, `Evidence`,
 `Patch`, `Test`, `Run`, `Agent`, `Tool`, and `Model` records.
-The graph lets the IDE navigate in both directions:
+The native daemon and Smart MCP build the same graph. Every edge can carry
+confidence and provenance. A runtime request linked to a static signal is
+labelled as context, not as proof of exploitability. The graph lets the IDE
+navigate in both directions:
 
 ```text
 HTTP request -> route -> source code -> patch -> regression test

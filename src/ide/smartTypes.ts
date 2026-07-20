@@ -237,6 +237,7 @@ export interface ProofEdge {
   from: string;
   to: string;
   relation: string;
+  attributes: Record<string, string | number | boolean>;
   createdAt: string;
 }
 

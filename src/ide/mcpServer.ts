@@ -15,7 +15,7 @@ import { registerSmartMcp } from './smartMcp.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
 const SERVER_NAME = 'hawk-ide';
-const SERVER_VERSION = '0.4.0';
+const SERVER_VERSION = '0.5.0';
 
 interface ParsedArgs {
   workspaceRoot: string;
@@ -248,6 +248,7 @@ async function main(): Promise<void> {
         JSON.stringify(
           {
             ...runtime,
+            scheduler: orchestrator.schedulerStatus(),
             isolation: {
               workspace: 'read-only',
               output: '.hawk/orchestrations/<run>/<task>',
@@ -260,6 +261,16 @@ async function main(): Promise<void> {
         ),
       );
     },
+  );
+  mcp.registerTool(
+    'hawk_scheduler_status',
+    {
+      title: 'Inspect the distributed Hawk agent scheduler',
+      description:
+        'Read Docker agent instances, capabilities, health, load, resource reservations, leases, and recent placement decisions without changing runtime state.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(orchestrator.schedulerStatus(), null, 2)),
   );
   mcp.registerTool(
     'hawk_docker_desktop_status',
@@ -350,6 +361,16 @@ async function main(): Promise<void> {
               depends_on: z.array(z.string()).max(32).optional(),
               timeout_seconds: z.number().int().min(10).max(43_200).optional(),
               retries: z.number().int().min(0).max(3).optional(),
+              required_capabilities: z
+                .array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/))
+                .max(16)
+                .optional(),
+              preferred_capabilities: z
+                .array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/))
+                .max(16)
+                .optional(),
+              priority: z.number().int().min(0).max(100).optional(),
+              estimated_seconds: z.number().int().min(1).max(86_400).optional(),
             }),
           )
           .min(1)
@@ -383,6 +404,26 @@ async function main(): Promise<void> {
           .describe(
             'Must be true to enable network access or inherit credentials. This can trigger external API usage and cost across every parallel worker.',
           ),
+        schedule_strategy: z.enum(['balanced', 'latency', 'throughput']).optional(),
+        lease_seconds: z.number().int().min(15).max(600).optional(),
+        agent_instances: z
+          .array(
+            z.object({
+              id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/),
+              capabilities: z
+                .array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/))
+                .max(32)
+                .optional(),
+              max_concurrent: z.number().int().min(1).max(8).optional(),
+              cpu_capacity: z.number().min(0.25).max(64).optional(),
+              memory_mb_capacity: z.number().int().min(128).max(65_536).optional(),
+            }),
+          )
+          .max(32)
+          .optional()
+          .describe(
+            'Optional logical Docker agent pool. Every assignment still launches a separate isolated task container.',
+          ),
       },
     },
     async (input) => {
@@ -396,6 +437,10 @@ async function main(): Promise<void> {
             dependsOn: task.depends_on,
             timeoutSeconds: task.timeout_seconds,
             retries: task.retries,
+            requiredCapabilities: task.required_capabilities,
+            preferredCapabilities: task.preferred_capabilities,
+            priority: task.priority,
+            estimatedSeconds: task.estimated_seconds,
           })),
           maxParallel: input.max_parallel,
           cpuPerWorker: input.cpu_per_worker,
@@ -404,6 +449,15 @@ async function main(): Promise<void> {
           networkMode: input.network_mode,
           inheritEnv: input.inherit_env,
           approvedExternalAccess: input.approved_external_access,
+          scheduleStrategy: input.schedule_strategy,
+          leaseSeconds: input.lease_seconds,
+          agentInstances: input.agent_instances?.map((instance) => ({
+            id: instance.id,
+            capabilities: instance.capabilities,
+            maxConcurrent: instance.max_concurrent,
+            cpuCapacity: instance.cpu_capacity,
+            memoryMbCapacity: instance.memory_mb_capacity,
+          })),
         });
         return textResult(JSON.stringify(run, null, 2));
       } catch (err) {

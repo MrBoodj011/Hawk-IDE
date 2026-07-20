@@ -23,6 +23,7 @@ export interface ProofEdgeInput {
   from: string;
   to: string;
   relation: string;
+  attributes?: ProofEdge['attributes'];
 }
 
 export class ProofGraph {
@@ -69,7 +70,12 @@ export class ProofGraph {
     });
   }
 
-  async connect(from: string, to: string, relation: string): Promise<ProofEdge> {
+  async connect(
+    from: string,
+    to: string,
+    relation: string,
+    attributes: ProofEdge['attributes'] = {},
+  ): Promise<ProofEdge> {
     return await this.serialize(async () => {
       const graph = await this.snapshot();
       if (!graph.nodes.some((node) => node.id === from))
@@ -79,12 +85,19 @@ export class ProofGraph {
       const existing = graph.edges.find(
         (edge) => `${edge.from}\u0000${edge.to}\u0000${edge.relation}` === key,
       );
-      if (existing) return existing;
+      if (existing) {
+        const updated = { ...existing, attributes: sanitizeAttributes(attributes) };
+        graph.edges = graph.edges.map((edge) => (edge.id === existing.id ? updated : edge));
+        graph.updatedAt = this.now().toISOString();
+        await this.store.writeJson('proof-graphs', GRAPH_ID, graph);
+        return updated;
+      }
       const edge: ProofEdge = {
         id: `edge-${randomUUID()}`,
         from,
         to,
         relation: relation.trim().slice(0, 100),
+        attributes: sanitizeAttributes(attributes),
         createdAt: this.now().toISOString(),
       };
       graph.edges = [...graph.edges, edge].slice(-50_000);
@@ -117,26 +130,31 @@ export class ProofGraph {
         ...incoming.values(),
       ].slice(-20_000);
       const nodeIds = new Set(graph.nodes.map((node) => node.id));
-      const edgeKeys = new Set(
-        graph.edges.map((edge) => `${edge.from}\u0000${edge.to}\u0000${edge.relation}`),
+      const existingEdges = new Map(
+        graph.edges.map((edge) => [`${edge.from}\u0000${edge.to}\u0000${edge.relation}`, edge]),
       );
-      const additions: ProofEdge[] = [];
+      const incomingEdges = new Map<string, ProofEdge>();
       for (const candidate of edges) {
         if (!nodeIds.has(candidate.from)) throw new Error(`Unknown proof node: ${candidate.from}`);
         if (!nodeIds.has(candidate.to)) throw new Error(`Unknown proof node: ${candidate.to}`);
         const relation = candidate.relation.trim().slice(0, 100);
         const key = `${candidate.from}\u0000${candidate.to}\u0000${relation}`;
-        if (edgeKeys.has(key)) continue;
-        edgeKeys.add(key);
-        additions.push({
-          id: `edge-${randomUUID()}`,
+        const existing = incomingEdges.get(key) ?? existingEdges.get(key);
+        incomingEdges.set(key, {
+          id: existing?.id ?? `edge-${randomUUID()}`,
           from: candidate.from,
           to: candidate.to,
           relation,
-          createdAt: this.now().toISOString(),
+          attributes: sanitizeAttributes(candidate.attributes ?? {}),
+          createdAt: existing?.createdAt ?? this.now().toISOString(),
         });
       }
-      graph.edges = [...graph.edges, ...additions]
+      graph.edges = [
+        ...graph.edges.filter(
+          (edge) => !incomingEdges.has(`${edge.from}\u0000${edge.to}\u0000${edge.relation}`),
+        ),
+        ...incomingEdges.values(),
+      ]
         .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
         .slice(-50_000);
       graph.updatedAt = this.now().toISOString();

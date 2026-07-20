@@ -25,7 +25,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 8 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 9 });
 
       const predictionEvaluation = await fetch(`${daemon.url}/v1/ai/edit-prediction/evaluation`, {
         headers,
@@ -72,7 +72,10 @@ describe('startIdeDaemon', () => {
           log: {
             entries: [
               {
-                request: { method: 'GET', url: 'https://api.example.test/orders?token=private' },
+                request: {
+                  method: 'GET',
+                  url: 'https://api.example.test/api/profile?token=private',
+                },
                 response: { status: 200 },
               },
             ],
@@ -82,7 +85,9 @@ describe('startIdeDaemon', () => {
       expect(traffic.status).toBe(200);
       await expect(traffic.json()).resolves.toMatchObject({
         requests: [
-          expect.objectContaining({ url: 'https://api.example.test/orders?token=REDACTED' }),
+          expect.objectContaining({
+            url: 'https://api.example.test/api/profile?token=REDACTED',
+          }),
         ],
       });
 
@@ -204,6 +209,21 @@ describe('startIdeDaemon', () => {
             format: 'sarif',
             sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
           }),
+        ]),
+      });
+      const securityGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
+      expect(securityGraph.status).toBe(200);
+      await expect(securityGraph.json()).resolves.toMatchObject({
+        protocolVersion: 9,
+        summary: {
+          routes: 1,
+          requests: expect.any(Number),
+          correlatedRequests: 1,
+        },
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ kind: 'route' }),
+          expect.objectContaining({ kind: 'request' }),
+          expect.objectContaining({ kind: 'evidence' }),
         ]),
       });
       const mission = await fetch(`${daemon.url}/v1/missions/plan`, {

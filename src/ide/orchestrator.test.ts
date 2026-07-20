@@ -160,12 +160,91 @@ describe('HawkDockerOrchestrator', () => {
     expect(recoveryRuntime.cleanupCalls).toHaveLength(1);
     expect([...(recoveryRuntime.cleanupCalls[0] ?? [])]).toEqual([expect.stringMatching(/^hawk-/)]);
   });
+
+  it('assigns specialized tasks to capability-matched Docker agent instances', async () => {
+    const root = await temporaryWorkspace();
+    const runtime = new FakeRuntime();
+    const orchestrator = new HawkDockerOrchestrator(root, runtime);
+    const started = await orchestrator.start({
+      image: 'hawk-worker:test',
+      maxParallel: 2,
+      scheduleStrategy: 'latency',
+      agentInstances: [
+        { id: 'code-agent', capabilities: ['code', 'test'] },
+        { id: 'security-agent', capabilities: ['security', 'traffic'] },
+      ],
+      tasks: [
+        {
+          id: 'audit',
+          title: 'Audit',
+          command: ['audit'],
+          requiredCapabilities: ['security'],
+          priority: 90,
+        },
+        {
+          id: 'patch',
+          title: 'Patch',
+          command: ['patch'],
+          requiredCapabilities: ['code'],
+          preferredCapabilities: ['test'],
+        },
+      ],
+    });
+
+    const completed = await waitForTerminal(orchestrator, started.id);
+    expect(completed.status).toBe('succeeded');
+    expect(runtime.assignments).toEqual(
+      expect.arrayContaining([
+        ['audit', 'security-agent'],
+        ['patch', 'code-agent'],
+      ]),
+    );
+    expect(completed.scheduler.decisions).toHaveLength(2);
+    expect(completed.tasks.every((task) => Boolean(task.leaseId))).toBe(true);
+  });
+
+  it('rebalances an authorized retry away from an agent that just failed', async () => {
+    const root = await temporaryWorkspace();
+    const runtime = new FailOnceRuntime();
+    const orchestrator = new HawkDockerOrchestrator(root, runtime);
+    const started = await orchestrator.start({
+      image: 'hawk-worker:test',
+      maxParallel: 1,
+      scheduleStrategy: 'latency',
+      agentInstances: [
+        { id: 'agent-a', capabilities: ['general'] },
+        { id: 'agent-b', capabilities: ['general'] },
+      ],
+      tasks: [
+        {
+          id: 'retryable',
+          title: 'Retryable analysis',
+          command: ['analyze'],
+          requiredCapabilities: ['general'],
+          retries: 1,
+        },
+      ],
+    });
+
+    const completed = await waitForTerminal(orchestrator, started.id);
+    expect(completed.status).toBe('succeeded');
+    expect(runtime.assignments).toEqual([
+      ['retryable', 'agent-a'],
+      ['retryable', 'agent-b'],
+    ]);
+    expect(completed.tasks[0]).toMatchObject({
+      attempt: 2,
+      reassignments: 1,
+      assignedInstanceId: 'agent-b',
+    });
+  });
 });
 
 class FakeRuntime implements WorkerRuntime {
   active = 0;
   maxActive = 0;
   readonly started: string[] = [];
+  readonly assignments: Array<[string, string]> = [];
 
   constructor(private readonly failures = new Set<string>()) {}
 
@@ -177,6 +256,7 @@ class FakeRuntime implements WorkerRuntime {
     this.active += 1;
     this.maxActive = Math.max(this.maxActive, this.active);
     this.started.push(context.task.id);
+    this.assignments.push([context.task.id, context.instanceId]);
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
     this.active -= 1;
     const failed = this.failures.has(context.task.id);
@@ -234,6 +314,23 @@ class ResolvingRuntime extends FakeRuntime {
   override async run(context: WorkerTaskContext): Promise<WorkerTaskResult> {
     this.images.push(context.image);
     return await super.run(context);
+  }
+}
+
+class FailOnceRuntime extends FakeRuntime {
+  private calls = 0;
+
+  override async run(context: WorkerTaskContext): Promise<WorkerTaskResult> {
+    this.calls += 1;
+    if (this.calls > 1) return await super.run(context);
+    this.assignments.push([context.task.id, context.instanceId]);
+    return {
+      exitCode: 1,
+      output: 'transient failure',
+      outputTruncated: false,
+      timedOut: false,
+      cancelled: false,
+    };
   }
 }
 

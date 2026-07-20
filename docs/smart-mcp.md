@@ -10,8 +10,8 @@ Objective
   -> policy and budgets
   -> immutable agent DAG and model routes
   -> exact-plan approval when required
-  -> durable parallel execution
-  -> ProofGraph artifacts
+  -> intelligent distributed Docker scheduling
+  -> durable Security Graph artifacts
   -> independent verification
   -> patch and regression decision
 ```
@@ -62,7 +62,7 @@ Every plan node records:
 Deterministic analysis wins over an LLM whenever it can do the job. Hosted
 models are selected only when the GoalSpec explicitly allows hosted data.
 
-## Durable runs
+## Durable runs and distributed scheduling
 
 `hawk_run_start` creates an idempotent local run under `.hawk/brain/`. The
 engine supports:
@@ -75,6 +75,14 @@ engine supports:
 - pause, resume, cancel, and abort propagation;
 - restart recovery for incomplete passive nodes;
 - structured, redacted artifacts addressed by `hawk://` URIs.
+
+Docker task graphs add capability-aware agent instances. Ready nodes are
+ranked by priority and remaining critical path. Placement then scores hard
+capability/CPU/RAM fit, preferred capability affinity, active load, failure
+rate, and observed duration under `balanced`, `latency`, or `throughput`
+strategy. Each assignment receives a renewable lease; retryable work may move
+to another healthy compatible instance. `hawk_scheduler_status` exposes this
+state without mutating it.
 
 `hawk_run_execute_task` exposes the same engine through the experimental MCP
 Tasks protocol. MCP task state is also durable instead of using the SDK's
@@ -90,11 +98,19 @@ Workers run non-root with read-only source/root filesystems, quota-limited
 artifact tmpfs, and cross-run CPU/RAM/worker ceilings. Startup removes orphaned
 Hawk containers only when their workspace label matches this workspace.
 
-## ProofGraph and verification
+## Security Graph and verification
 
-`hawk://workspace/graph` links repositories, files, symbols, routes,
+`hawk://workspace/graph` and the native `/v1/security/graph` endpoint link
+repositories, files, symbols, routes,
 identities, requests, responses, findings, evidence, patches, tests, runs,
 agents, tools, and models.
+
+The native builder records provenance and confidence for every deterministic
+relationship. It correlates redacted HTTP observations to route patterns,
+links routes and findings only through explicit route/source context, attaches
+sanitized evidence snippets and exported evidence packs, and records agent
+patch/test lineage. Context links never auto-promote a signal to a verified
+finding.
 
 `hawk_evidence_verify` applies nine mandatory gates:
 

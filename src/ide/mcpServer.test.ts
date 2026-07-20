@@ -44,6 +44,8 @@ describe('Hawk Smart MCP server', () => {
       expect(names).toContain('hawk_mission_control');
       expect(names).toContain('hawk_eval_lab');
       expect(names).toContain('hawk_a2a_bridge');
+      expect(names).toContain('hawk_scheduler_status');
+      expect(names).toContain('hawk_parallel_start');
       expect(
         tools.tools.find((tool) => tool.name === 'hawk_capabilities_search')?.outputSchema,
       ).toBeDefined();

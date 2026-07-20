@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { importHawkHealthReport } from './hawkReport.js';
 import type { HawkDockerOrchestrator, OrchestrationSnapshot } from './orchestrator.js';
-import type { ProofEdgeInput, ProofNodeInput } from './proofGraph.js';
 import type { HawkHealthReport, TrafficInventory, WorkspaceRoute } from './protocol.js';
+import { IDE_PROTOCOL_VERSION } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import { buildUnifiedSecurityGraph } from './securityGraph.js';
 import type { SmartMcpBrain } from './smartBrain.js';
 import type { CapabilityExecutionContext, CapabilityExecutionResult } from './smartRunEngine.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
@@ -98,95 +99,25 @@ async function execute(
         scanWorkspaceSecurity(workspaceRoot),
         readTraffic(workspaceRoot),
       ]);
-      const nodes: ProofNodeInput[] = [
-        {
-          id: 'repository-workspace',
-          kind: 'repository',
-          label: 'Current workspace',
-          attributes: {
-            sourceFiles: Math.max(routes.sourceFiles, audit.sourceFiles),
-          },
+      const graph = await buildUnifiedSecurityGraph(brain.graph, {
+        inventory: {
+          protocolVersion: IDE_PROTOCOL_VERSION,
+          root: workspaceRoot,
+          indexedAt: new Date().toISOString(),
+          sourceFiles: routes.sourceFiles,
+          routes: routes.routes,
         },
-      ];
-      const edges: ProofEdgeInput[] = [];
-      for (const route of routes.routes.slice(0, 2_000)) {
-        const routeId = routeNodeId(route);
-        const fileId = `file-${shortHash(route.file)}`;
-        nodes.push(
-          { id: fileId, kind: 'file', label: route.file, attributes: { file: route.file } },
-          {
-            id: routeId,
-            kind: 'route',
-            label: `${route.method} ${route.path}`,
-            attributes: {
-              method: route.method,
-              path: route.path,
-              line: route.line,
-            },
-          },
-        );
-        edges.push(
-          { from: fileId, to: routeId, relation: 'declares' },
-          { from: 'repository-workspace', to: fileId, relation: 'contains' },
-        );
-      }
-      for (const finding of audit.findings.slice(0, 2_000)) {
-        nodes.push({
-          id: finding.id,
-          kind: 'finding',
-          label: finding.title,
-          attributes: {
-            severity: finding.severity,
-            lifecycle: 'signal',
-          },
-        });
-        if (finding.source) {
-          const fileId = `file-${shortHash(finding.source.file)}`;
-          nodes.push({
-            id: fileId,
-            kind: 'file',
-            label: finding.source.file,
-            attributes: { file: finding.source.file },
-          });
-          edges.push(
-            { from: fileId, to: finding.id, relation: 'contains-signal' },
-            { from: 'repository-workspace', to: fileId, relation: 'contains' },
-          );
-        }
-      }
-      for (const request of traffic?.requests.slice(0, 2_000) ?? []) {
-        nodes.push({
-          id: request.id,
-          kind: 'request',
-          label: `${request.method} ${request.url}`,
-          attributes: {
-            method: request.method,
-            host: request.host,
-            status: request.status ?? 0,
-          },
-        });
-      }
-      for (const match of correlate(routes.routes, traffic)) {
-        const route = routes.routes.find(
-          (candidate) =>
-            candidate.method === match.method &&
-            candidate.path === match.route &&
-            candidate.file === match.sourceFile &&
-            candidate.line === match.sourceLine,
-        );
-        if (route)
-          edges.push({
-            from: match.requestId,
-            to: routeNodeId(route),
-            relation: 'correlates-to',
-          });
-      }
-      const graph = await brain.graph.merge(nodes, edges);
+        findings: audit.findings,
+        traffic,
+      });
       return {
-        summary: `ProofGraph contains ${graph.nodes.length} nodes and ${graph.edges.length} edges`,
+        summary: `Security Graph contains ${graph.summary.nodes} nodes and ${graph.summary.edges} edges`,
         output: {
-          nodes: graph.nodes.length,
-          edges: graph.edges.length,
+          nodes: graph.summary.nodes,
+          edges: graph.summary.edges,
+          correlatedRequests: graph.summary.correlatedRequests,
+          sourceLinkedFindings: graph.summary.sourceLinkedFindings,
+          evidenceLinkedFindings: graph.summary.evidenceLinkedFindings,
           resourceUri: 'hawk://workspace/graph',
         },
       };
@@ -387,17 +318,4 @@ function routePattern(route: string): RegExp {
     .replace(/\\\[[.]{3}[^\]]+\\\]/g, '.+')
     .replace(/\\\[[^\]]+\\\]/g, '[^/]+');
   return new RegExp(`^${escaped}/?$`);
-}
-
-function routeNodeId(route: WorkspaceRoute): string {
-  return `route-${shortHash(`${route.method}\u0000${route.path}\u0000${route.file}\u0000${route.line}`)}`;
-}
-
-function shortHash(value: string): string {
-  let hash = 2166136261;
-  for (const character of value) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
 }

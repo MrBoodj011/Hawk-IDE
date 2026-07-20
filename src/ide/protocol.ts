@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 8;
+export const IDE_PROTOCOL_VERSION = 9;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -212,6 +212,55 @@ export interface EvidencePackReport {
   trafficRequests: number;
   findings: number;
   artifacts: EvidencePackArtifact[];
+}
+
+export interface SecurityGraphNode {
+  id: string;
+  kind:
+    | 'repository'
+    | 'file'
+    | 'symbol'
+    | 'route'
+    | 'request'
+    | 'finding'
+    | 'evidence'
+    | 'patch'
+    | 'test'
+    | 'agent';
+  label: string;
+  attributes: Record<string, string | number | boolean>;
+}
+
+export interface SecurityGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  relation: string;
+  attributes: Record<string, string | number | boolean>;
+}
+
+/** A bounded native view of Hawk's local source-to-runtime proof graph. */
+export interface SecurityGraphResponse {
+  protocolVersion: number;
+  updatedAt: string;
+  summary: {
+    nodes: number;
+    edges: number;
+    sourceFiles: number;
+    symbols: number;
+    routes: number;
+    requests: number;
+    findings: number;
+    evidence: number;
+    patches: number;
+    tests: number;
+    correlatedRequests: number;
+    sourceLinkedFindings: number;
+    evidenceLinkedFindings: number;
+  };
+  nodes: SecurityGraphNode[];
+  edges: SecurityGraphEdge[];
+  truncated: boolean;
 }
 
 export type GovernedMissionProfile = 'review' | 'remediate' | 'authorized-validation';

@@ -15,6 +15,7 @@ import type {
 } from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
 import { runCodingCoreBenchmark } from './codingBenchmark.js';
+import { DurableStore } from './durableStore.js';
 import { EditPredictionEngine, type EditPredictionFeedback } from './editPredictionEngine.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { createGovernedMission } from './governedMission.js';
@@ -24,6 +25,7 @@ import {
   type InlineCompletionRequest,
   createInlineCompletion,
 } from './inlineCompletion.js';
+import { ProofGraph } from './proofGraph.js';
 import {
   type DaemonHealth,
   type EvidencePackReport,
@@ -41,6 +43,7 @@ import {
   type WorkspaceScanTemplatesResponse,
 } from './protocol.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
+import { buildUnifiedSecurityGraph, securityGraphResponse } from './securityGraph.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import { importHarTraffic, importLiveTraffic, mergeTrafficInventories } from './traffic.js';
@@ -85,7 +88,9 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   let latestInventory: WorkspaceInventory | null = null;
   let findings: SecurityFinding[] = [];
   let importedTraffic: TrafficInventory | null = null;
+  const evidencePacks: EvidencePackReport[] = [];
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
+  const proofGraph = new ProofGraph(new DurableStore(workspaceRoot), now);
   const aiSessions = new AiSessionManager({ workspaceRoot, now });
   await aiSessions.initialize();
   const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot, {
@@ -126,12 +131,18 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       setTraffic: (value) => {
         importedTraffic = value;
       },
+      evidencePacks: () => [...evidencePacks],
+      addEvidencePack: (value) => {
+        evidencePacks.push(value);
+        if (evidencePacks.length > 20) evidencePacks.shift();
+      },
       hawkHealth: () => hawkHealth,
       setHawkHealth: async (value) => {
         await persistHawkHealthReport(workspaceRoot, value);
         hawkHealth = value;
       },
       aiSessions,
+      proofGraph,
       semanticIndex,
       editPredictions,
       completionLatencies: () => [...completionLatencies],
@@ -178,9 +189,12 @@ interface RequestContext {
   setFindings(value: SecurityFinding[]): void;
   traffic(): TrafficInventory | null;
   setTraffic(value: TrafficInventory): void;
+  evidencePacks(): EvidencePackReport[];
+  addEvidencePack(value: EvidencePackReport): void;
   hawkHealth(): HawkHealthReport | null;
   setHawkHealth(value: HawkHealthReport): Promise<void>;
   aiSessions: AiSessionManager;
+  proofGraph: ProofGraph;
   semanticIndex: SemanticWorkspaceIndex;
   editPredictions: EditPredictionEngine;
   completionLatencies(): number[];
@@ -382,6 +396,46 @@ async function handleRequest(
       return;
     }
     sendJSON(res, 200, traffic);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/security/graph') {
+    try {
+      let inventory = context.inventory();
+      if (!inventory) {
+        const scan = await scanWorkspaceRoutes(context.workspaceRoot);
+        inventory = {
+          protocolVersion: IDE_PROTOCOL_VERSION,
+          root: context.workspaceRoot,
+          indexedAt: context.now().toISOString(),
+          sourceFiles: scan.sourceFiles,
+          routes: scan.routes,
+        };
+        context.setInventory(inventory);
+      }
+      const graph = await buildUnifiedSecurityGraph(context.proofGraph, {
+        inventory,
+        findings: context.findings(),
+        traffic: context.traffic(),
+        evidencePacks: context.evidencePacks(),
+        sessions: await context.aiSessions.list(50),
+      });
+      const nodeId = requestURL.searchParams.get('nodeId')?.trim();
+      if (!nodeId) {
+        sendJSON(res, 200, graph);
+        return;
+      }
+      const depthValue = Number.parseInt(requestURL.searchParams.get('depth') ?? '2', 10);
+      const depth = Number.isFinite(depthValue) ? Math.max(0, Math.min(depthValue, 5)) : 2;
+      const snapshot = await context.proofGraph.subgraph(nodeId, depth);
+      if (!snapshot.nodes.some((node) => node.id === nodeId)) {
+        sendJSON(res, 404, { ok: false, error: 'security graph node not found' });
+        return;
+      }
+      sendJSON(res, 200, securityGraphResponse(snapshot));
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
     return;
   }
 
@@ -724,6 +778,7 @@ async function handleRequest(
         hawkHealth: context.hawkHealth(),
         now: context.now(),
       });
+      context.addEvidencePack(report);
       sendJSON(res, 200, report);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });

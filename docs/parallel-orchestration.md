@@ -1,9 +1,18 @@
 # Hawk parallel Docker orchestration
 
-Hawk's local MCP server can schedule an explicit dependency graph across
-isolated Docker workers. It is useful for independent test shards, repository
-analysis, report generation, and headless agent images that are already
-installed locally.
+Hawk's local MCP server schedules an explicit dependency graph across
+isolated Docker agent instances. The scheduler ranks ready work by operator
+priority and remaining critical path, then chooses a healthy instance using
+required capabilities, preferred capabilities, CPU/RAM fit, active load,
+failure history, and observed duration. It is useful for independent test
+shards, repository analysis, report generation, and headless agent images that
+are already installed locally.
+
+Each logical instance represents a schedulable agent slot. Every task
+assignment still launches a fresh isolated Docker container and receives a
+short-lived lease. A retry can be rebalanced to another compatible instance;
+restart recovery reattaches a retained container by run, task, agent, and lease
+labels.
 
 Parallelism reduces wall-clock time only when work can be split into
 independent tasks. A sequential ten-hour operation does not become a one-hour
@@ -47,6 +56,8 @@ runtime. Hawk never pulls or builds an image during `hawk_parallel_start`.
 ## MCP tools
 
 - `hawk_parallel_runtime` checks whether Docker is ready.
+- `hawk_scheduler_status` reads instances, capabilities, health, load,
+  reservations, leases, and recent placement decisions.
 - `hawk_parallel_estimate` calculates the critical path and theoretical
   scheduling floor before any containers start.
 - `hawk_docker_desktop_status` reads Docker Desktop lifecycle state.
@@ -79,10 +90,30 @@ Example arguments for `hawk_parallel_start`:
   "cpu_per_worker": 1,
   "memory_mb_per_worker": 1024,
   "artifact_mb_per_worker": 512,
+  "schedule_strategy": "latency",
+  "lease_seconds": 30,
+  "agent_instances": [
+    {
+      "id": "code-agent",
+      "capabilities": ["code", "test"],
+      "cpu_capacity": 2,
+      "memory_mb_capacity": 2048
+    },
+    {
+      "id": "security-agent",
+      "capabilities": ["security", "traffic"],
+      "cpu_capacity": 2,
+      "memory_mb_capacity": 2048
+    }
+  ],
   "tasks": [
     {
       "id": "auth-surface",
       "title": "Inventory authentication code",
+      "required_capabilities": ["security"],
+      "preferred_capabilities": ["traffic"],
+      "priority": 90,
+      "estimated_seconds": 300,
       "command": [
         "sh",
         "-lc",
@@ -92,6 +123,9 @@ Example arguments for `hawk_parallel_start`:
     {
       "id": "api-surface",
       "title": "Inventory API routes",
+      "required_capabilities": ["code"],
+      "priority": 70,
+      "estimated_seconds": 240,
       "command": [
         "sh",
         "-lc",
@@ -102,6 +136,8 @@ Example arguments for `hawk_parallel_start`:
       "id": "summary",
       "title": "Merge worker evidence",
       "depends_on": ["auth-surface", "api-surface"],
+      "required_capabilities": ["code"],
+      "preferred_capabilities": ["test"],
       "command": [
         "sh",
         "-lc",

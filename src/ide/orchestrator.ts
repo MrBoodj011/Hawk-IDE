@@ -6,6 +6,16 @@ import { cpus } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import writeFileAtomic from 'write-file-atomic';
+import {
+  type DistributedAgentInstanceSpec,
+  type DistributedScheduleStrategy,
+  type DistributedSchedulerSnapshot,
+  type DistributedTaskCandidate,
+  createAgentInstances,
+  recordAgentCompletion,
+  releaseAgentLease,
+  scheduleDistributedAgents,
+} from './distributedScheduler.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_TASKS = 64;
@@ -32,6 +42,10 @@ export interface OrchestrationTaskSpec {
   dependsOn?: string[];
   timeoutSeconds?: number;
   retries?: number;
+  requiredCapabilities?: string[];
+  preferredCapabilities?: string[];
+  priority?: number;
+  estimatedSeconds?: number;
 }
 
 export interface OrchestrationSpec {
@@ -44,6 +58,9 @@ export interface OrchestrationSpec {
   networkMode?: 'none' | 'bridge';
   inheritEnv?: string[];
   approvedExternalAccess?: boolean;
+  scheduleStrategy?: DistributedScheduleStrategy;
+  leaseSeconds?: number;
+  agentInstances?: DistributedAgentInstanceSpec[];
 }
 
 export interface OrchestrationTaskSnapshot {
@@ -59,10 +76,19 @@ export interface OrchestrationTaskSnapshot {
   output?: string;
   outputTruncated?: boolean;
   artifactDirectory: string;
+  assignedInstanceId?: string;
+  leaseId?: string;
+  leaseExpiresAt?: string;
+  schedulingScore?: number;
+  schedulingReasons?: string[];
+  criticalPathSeconds?: number;
+  reassignments: number;
+  durationMs?: number;
+  lastAttemptStartedAt?: string;
 }
 
 export interface OrchestrationSnapshot {
-  protocolVersion: 1;
+  protocolVersion: 2;
   id: string;
   status: OrchestrationStatus;
   image: string;
@@ -79,6 +105,7 @@ export interface OrchestrationSnapshot {
   startedAt?: string;
   completedAt?: string;
   cancelRequested: boolean;
+  scheduler: DistributedSchedulerSnapshot;
   summary: {
     total: number;
     pending: number;
@@ -101,6 +128,8 @@ export interface WorkerTaskContext {
   artifactMb: number;
   networkMode: 'none' | 'bridge';
   inheritEnv: string[];
+  instanceId: string;
+  leaseId: string;
   task: OrchestrationTaskSpec;
 }
 
@@ -180,14 +209,29 @@ export class HawkDockerOrchestrator {
           const spec = normalized.tasks.find((candidate) => candidate.id === taskSnapshot.id);
           if (!spec)
             throw new Error(`Persisted run ${snapshot.id} is missing task ${taskSnapshot.id}`);
-          tasks.set(taskSnapshot.id, { ...taskSnapshot, spec });
+          tasks.set(taskSnapshot.id, {
+            ...taskSnapshot,
+            reassignments: taskSnapshot.reassignments ?? 0,
+            spec,
+          });
         }
         const { summary: _summary, tasks: _tasks, ...runSnapshot } = snapshot;
         const run: InternalRun = {
           snapshot: {
             ...runSnapshot,
+            protocolVersion: 2,
             artifactMbPerWorker: snapshot.artifactMbPerWorker ?? normalized.artifactMbPerWorker,
             resolvedImage: snapshot.resolvedImage ?? snapshot.image,
+            scheduler:
+              snapshot.scheduler ??
+              createSchedulerSnapshot(
+                normalized.maxParallel,
+                normalized.cpuPerWorker,
+                normalized.memoryMbPerWorker,
+                normalized.scheduleStrategy,
+                normalized.leaseSeconds,
+                normalized.agentInstances,
+              ),
           },
           tasks,
           active: new Map(),
@@ -198,6 +242,18 @@ export class HawkDockerOrchestrator {
         if (isTerminalRun(snapshot.status)) continue;
         for (const task of tasks.values()) {
           if (task.status !== 'running') continue;
+          task.reassignments ??= 0;
+          let instance = run.snapshot.scheduler.instances.find(
+            (candidate) => candidate.id === task.assignedInstanceId,
+          );
+          instance ??= run.snapshot.scheduler.instances[0];
+          if (!instance) throw new Error(`Persisted run ${snapshot.id} has no agent instances`);
+          task.assignedInstanceId = instance.id;
+          task.leaseId ??= randomUUID();
+          task.leaseExpiresAt = leaseExpiry(this.now(), run.snapshot.scheduler.leaseSeconds);
+          if (instance && !instance.activeTaskIds.includes(task.id)) {
+            instance.activeTaskIds.push(task.id);
+          }
           this.reserveWorker(run);
           const recovery = this.recoverTask(run, task).finally(() => {
             run.active.delete(task.id);
@@ -244,12 +300,13 @@ export class HawkDockerOrchestrator {
         dependsOn: task.dependsOn ?? [],
         attempt: 0,
         artifactDirectory: join(outputRoot, task.id),
+        reassignments: 0,
         spec: task,
       });
     }
     const run: InternalRun = {
       snapshot: {
-        protocolVersion: 1,
+        protocolVersion: 2,
         id,
         status: 'queued',
         image: normalized.image,
@@ -264,6 +321,14 @@ export class HawkDockerOrchestrator {
         inheritedEnv: normalized.inheritEnv,
         createdAt,
         cancelRequested: false,
+        scheduler: createSchedulerSnapshot(
+          normalized.maxParallel,
+          normalized.cpuPerWorker,
+          normalized.memoryMbPerWorker,
+          normalized.scheduleStrategy,
+          normalized.leaseSeconds,
+          normalized.agentInstances,
+        ),
       },
       tasks,
       active: new Map(),
@@ -299,6 +364,28 @@ export class HawkDockerOrchestrator {
     return [...this.runs.values()]
       .map((run) => this.get(run.snapshot.id) as OrchestrationSnapshot)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  schedulerStatus(): {
+    activeWorkers: number;
+    reservedCpu: number;
+    reservedMemoryMb: number;
+    runs: Array<{
+      runId: string;
+      status: OrchestrationStatus;
+      scheduler: DistributedSchedulerSnapshot;
+    }>;
+  } {
+    return {
+      activeWorkers: this.activeWorkers,
+      reservedCpu: this.activeCpu,
+      reservedMemoryMb: this.activeMemoryMb,
+      runs: [...this.runs.values()].map((run) => ({
+        runId: run.snapshot.id,
+        status: run.snapshot.status,
+        scheduler: structuredClone(run.snapshot.scheduler),
+      })),
+    };
   }
 
   async cancel(runId: string): Promise<OrchestrationSnapshot> {
@@ -347,13 +434,34 @@ export class HawkDockerOrchestrator {
           task.status === 'pending' &&
           task.dependsOn.every((dependency) => run.tasks.get(dependency)?.status === 'succeeded'),
       );
-      while (
-        ready.length > 0 &&
-        run.active.size < run.snapshot.maxParallel &&
-        this.canReserveWorker(run)
-      ) {
-        const task = ready.shift();
-        if (!task) break;
+      const scheduleLimit = Math.max(0, run.snapshot.maxParallel - run.active.size);
+      const decisions = scheduleDistributedAgents(
+        ready.map((task) => schedulerCandidate(task, run)),
+        [...run.tasks.values()].map((task) => schedulerCandidate(task, run)),
+        run.snapshot.scheduler.instances,
+        run.snapshot.scheduler.strategy,
+        scheduleLimit,
+      );
+      for (const decision of decisions) {
+        if (!this.canReserveWorker(run)) break;
+        const task = run.tasks.get(decision.taskId);
+        const instance = run.snapshot.scheduler.instances.find(
+          (candidate) => candidate.id === decision.instanceId,
+        );
+        if (!task || !instance || task.status !== 'pending') continue;
+        const leaseId = randomUUID();
+        task.assignedInstanceId = instance.id;
+        task.leaseId = leaseId;
+        task.leaseExpiresAt = leaseExpiry(this.now(), run.snapshot.scheduler.leaseSeconds);
+        task.schedulingScore = decision.score;
+        task.schedulingReasons = decision.reasons;
+        task.criticalPathSeconds = decision.criticalPathSeconds;
+        task.reassignments = Math.max(0, task.attempt);
+        instance.activeTaskIds.push(task.id);
+        instance.lastAssignedAt = this.now().toISOString();
+        run.snapshot.scheduler.decisions = [...run.snapshot.scheduler.decisions, decision].slice(
+          -200,
+        );
         this.reserveWorker(run);
         const execution = this.executeTask(run, task).finally(() => {
           run.active.delete(task.id);
@@ -364,6 +472,16 @@ export class HawkDockerOrchestrator {
 
       const pending = [...run.tasks.values()].filter((task) => task.status === 'pending');
       if (run.active.size === 0) {
+        if (ready.length > 0 && decisions.length === 0 && this.canReserveWorker(run)) {
+          for (const task of ready) {
+            task.status = 'failed';
+            task.error =
+              'No healthy Docker agent instance satisfies the task capabilities and resource request';
+            task.completedAt = this.now().toISOString();
+          }
+          await this.persist(run);
+          continue;
+        }
         if (ready.length > 0 && !this.canReserveWorker(run)) {
           await resourceDelay();
           continue;
@@ -409,25 +527,29 @@ export class HawkDockerOrchestrator {
   }
 
   private async executeTask(run: InternalRun, task: InternalTask): Promise<void> {
+    if (!task.assignedInstanceId || !task.leaseId) {
+      throw new Error(`Task ${task.id} has no distributed agent lease`);
+    }
     task.status = 'running';
     task.startedAt ??= this.now().toISOString();
+    task.lastAttemptStartedAt = this.now().toISOString();
     task.attempt += 1;
     await mkdir(task.artifactDirectory, { recursive: true });
     await this.persist(run);
-
-    const result = await this.runtime.run({
-      runId: run.snapshot.id,
-      workspaceRoot: this.workspaceRoot,
-      outputDirectory: task.artifactDirectory,
-      image: run.snapshot.resolvedImage ?? run.snapshot.image,
-      cpu: run.snapshot.cpuPerWorker,
-      memoryMb: run.snapshot.memoryMbPerWorker,
-      artifactMb: run.snapshot.artifactMbPerWorker,
-      networkMode: run.snapshot.networkMode,
-      inheritEnv: run.snapshot.inheritedEnv,
-      task: task.spec,
-    });
-    await this.applyTaskResult(run, task, result);
+    const heartbeat = setInterval(
+      () => {
+        task.leaseExpiresAt = leaseExpiry(this.now(), run.snapshot.scheduler.leaseSeconds);
+        void this.persist(run);
+      },
+      Math.max(5_000, Math.floor((run.snapshot.scheduler.leaseSeconds * 1_000) / 3)),
+    );
+    heartbeat.unref();
+    try {
+      const result = await this.runtime.run(this.taskContext(run, task));
+      await this.applyTaskResult(run, task, result);
+    } finally {
+      clearInterval(heartbeat);
+    }
   }
 
   private async recoverTask(run: InternalRun, task: InternalTask): Promise<void> {
@@ -448,16 +570,29 @@ export class HawkDockerOrchestrator {
           'Worker container disappeared during restart and no idempotent retry was authorized';
         task.completedAt = this.now().toISOString();
       }
+      this.releaseTaskAssignment(run, task);
       await this.persist(run);
     } catch (error) {
       task.status = 'failed';
       task.error = `Worker recovery failed: ${errorMessage(error)}`;
       task.completedAt = this.now().toISOString();
+      this.releaseTaskAssignment(run, task);
       await this.persist(run);
     }
   }
 
+  private releaseTaskAssignment(run: InternalRun, task: InternalTask): void {
+    const instance = run.snapshot.scheduler.instances.find(
+      (candidate) => candidate.id === task.assignedInstanceId,
+    );
+    if (instance) releaseAgentLease(instance, task.id);
+    task.leaseExpiresAt = undefined;
+  }
+
   private taskContext(run: InternalRun, task: InternalTask): WorkerTaskContext {
+    if (!task.assignedInstanceId || !task.leaseId) {
+      throw new Error(`Task ${task.id} has no distributed agent lease`);
+    }
     return {
       runId: run.snapshot.id,
       workspaceRoot: this.workspaceRoot,
@@ -468,6 +603,8 @@ export class HawkDockerOrchestrator {
       artifactMb: run.snapshot.artifactMbPerWorker,
       networkMode: run.snapshot.networkMode,
       inheritEnv: run.snapshot.inheritedEnv,
+      instanceId: task.assignedInstanceId,
+      leaseId: task.leaseId,
       task: task.spec,
     };
   }
@@ -477,6 +614,23 @@ export class HawkDockerOrchestrator {
     task: InternalTask,
     result: WorkerTaskResult,
   ): Promise<void> {
+    const instance = run.snapshot.scheduler.instances.find(
+      (candidate) => candidate.id === task.assignedInstanceId,
+    );
+    const durationMs = Math.max(
+      0,
+      this.now().getTime() - Date.parse(task.lastAttemptStartedAt ?? task.startedAt ?? ''),
+    );
+    task.durationMs = Number.isFinite(durationMs) ? durationMs : 0;
+    if (instance) {
+      recordAgentCompletion(
+        instance,
+        task.id,
+        task.durationMs,
+        result.exitCode === 0 && !result.timedOut && !result.cancelled,
+      );
+    }
+    task.leaseExpiresAt = undefined;
     task.output = result.output;
     task.outputTruncated = result.outputTruncated;
     task.exitCode = result.exitCode;
@@ -593,6 +747,10 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       `hawk.run=${context.runId}`,
       '--label',
       `hawk.task=${context.task.id}`,
+      '--label',
+      `hawk.agent=${context.instanceId}`,
+      '--label',
+      `hawk.lease=${context.leaseId}`,
       '--label',
       'hawk.managed=true',
       '--label',
@@ -826,9 +984,7 @@ export class DockerWorkerRuntime implements WorkerRuntime {
   }
 }
 
-function normalizeSpec(
-  spec: OrchestrationSpec,
-): Required<
+type NormalizedOrchestrationSpec = Required<
   Pick<
     OrchestrationSpec,
     | 'image'
@@ -840,8 +996,13 @@ function normalizeSpec(
     | 'networkMode'
     | 'inheritEnv'
     | 'approvedExternalAccess'
+    | 'scheduleStrategy'
+    | 'leaseSeconds'
+    | 'agentInstances'
   >
-> {
+>;
+
+function normalizeSpec(spec: OrchestrationSpec): NormalizedOrchestrationSpec {
   if (!isSafeImageName(spec.image)) throw new Error('Docker image name is invalid');
   if (!Array.isArray(spec.tasks) || spec.tasks.length === 0)
     throw new Error('At least one worker task is required');
@@ -866,6 +1027,20 @@ function normalizeSpec(
       throw new Error(`Task ${task.id} timeout must be between 10 and 43200 seconds`);
     if (task.retries !== undefined && (task.retries < 0 || task.retries > 3))
       throw new Error(`Task ${task.id} retries must be between 0 and 3`);
+    if (
+      task.priority !== undefined &&
+      (!Number.isInteger(task.priority) || task.priority < 0 || task.priority > 100)
+    )
+      throw new Error(`Task ${task.id} priority must be an integer between 0 and 100`);
+    if (
+      task.estimatedSeconds !== undefined &&
+      (!Number.isFinite(task.estimatedSeconds) ||
+        task.estimatedSeconds < 1 ||
+        task.estimatedSeconds > 86_400)
+    )
+      throw new Error(`Task ${task.id} estimatedSeconds must be between 1 and 86400`);
+    validateCapabilities(task.requiredCapabilities, `Task ${task.id} requiredCapabilities`);
+    validateCapabilities(task.preferredCapabilities, `Task ${task.id} preferredCapabilities`);
   }
   for (const task of spec.tasks) {
     for (const dependency of task.dependsOn ?? []) {
@@ -918,6 +1093,31 @@ function normalizeSpec(
       'approvedExternalAccess must be true when enabling container network or inherited credentials',
     );
   }
+  const scheduleStrategy = spec.scheduleStrategy ?? 'balanced';
+  if (!['balanced', 'latency', 'throughput'].includes(scheduleStrategy))
+    throw new Error('scheduleStrategy must be balanced, latency, or throughput');
+  const leaseSeconds = spec.leaseSeconds ?? 30;
+  if (!Number.isInteger(leaseSeconds) || leaseSeconds < 15 || leaseSeconds > 600)
+    throw new Error('leaseSeconds must be an integer between 15 and 600');
+  const agentInstances = normalizeAgentInstances(
+    spec.agentInstances ?? [],
+    maxParallel,
+    cpuPerWorker,
+    memoryMbPerWorker,
+  );
+  for (const task of spec.tasks) {
+    const required = task.requiredCapabilities ?? [];
+    if (
+      required.length > 0 &&
+      !agentInstances.some((instance) =>
+        required.every((capability) => instance.capabilities?.includes(capability)),
+      )
+    ) {
+      throw new Error(
+        `No Docker agent instance satisfies task ${task.id} capabilities: ${required.join(', ')}`,
+      );
+    }
+  }
 
   return {
     image: spec.image,
@@ -926,6 +1126,10 @@ function normalizeSpec(
       dependsOn: [...new Set(task.dependsOn ?? [])],
       retries: task.retries ?? 0,
       timeoutSeconds: task.timeoutSeconds ?? 3600,
+      requiredCapabilities: [...new Set(task.requiredCapabilities ?? [])],
+      preferredCapabilities: [...new Set(task.preferredCapabilities ?? [])],
+      priority: task.priority ?? 50,
+      estimatedSeconds: task.estimatedSeconds ?? task.timeoutSeconds ?? 300,
     })),
     maxParallel,
     cpuPerWorker,
@@ -934,7 +1138,96 @@ function normalizeSpec(
     networkMode,
     inheritEnv,
     approvedExternalAccess,
+    scheduleStrategy,
+    leaseSeconds,
+    agentInstances,
   };
+}
+
+function normalizeAgentInstances(
+  instances: DistributedAgentInstanceSpec[],
+  maxParallel: number,
+  cpuPerWorker: number,
+  memoryMbPerWorker: number,
+): DistributedAgentInstanceSpec[] {
+  if (instances.length > MAX_PARALLEL)
+    throw new Error(`A scheduler is limited to ${MAX_PARALLEL} Docker agent instances`);
+  const defaults = ['general', 'code', 'security', 'test'];
+  const source: DistributedAgentInstanceSpec[] =
+    instances.length > 0
+      ? instances
+      : Array.from({ length: maxParallel }, (_, index) => ({
+          id: `agent-${String(index + 1).padStart(2, '0')}`,
+        }));
+  const ids = new Set<string>();
+  return source.map((instance) => {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(instance.id))
+      throw new Error(`Invalid Docker agent instance id: ${instance.id}`);
+    if (ids.has(instance.id)) throw new Error(`Duplicate Docker agent instance: ${instance.id}`);
+    ids.add(instance.id);
+    validateCapabilities(instance.capabilities, `Agent ${instance.id} capabilities`);
+    const maxConcurrent = instance.maxConcurrent ?? 1;
+    if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 8)
+      throw new Error(`Agent ${instance.id} maxConcurrent must be between 1 and 8`);
+    const cpuCapacity = instance.cpuCapacity ?? cpuPerWorker;
+    if (!Number.isFinite(cpuCapacity) || cpuCapacity < cpuPerWorker || cpuCapacity > 8)
+      throw new Error(`Agent ${instance.id} cpuCapacity cannot satisfy one worker`);
+    const memoryMbCapacity = instance.memoryMbCapacity ?? memoryMbPerWorker;
+    if (
+      !Number.isInteger(memoryMbCapacity) ||
+      memoryMbCapacity < memoryMbPerWorker ||
+      memoryMbCapacity > 16_384
+    )
+      throw new Error(`Agent ${instance.id} memoryMbCapacity cannot satisfy one worker`);
+    return {
+      id: instance.id,
+      capabilities: [...new Set(instance.capabilities?.length ? instance.capabilities : defaults)],
+      maxConcurrent,
+      cpuCapacity,
+      memoryMbCapacity,
+    };
+  });
+}
+
+function validateCapabilities(capabilities: string[] | undefined, label: string): void {
+  if ((capabilities?.length ?? 0) > 32) throw new Error(`${label} is limited to 32 values`);
+  for (const capability of capabilities ?? []) {
+    if (!/^[a-z][a-z0-9._-]{0,63}$/.test(capability))
+      throw new Error(`${label} contains an invalid value: ${capability}`);
+  }
+}
+
+function createSchedulerSnapshot(
+  maxParallel: number,
+  cpuPerWorker: number,
+  memoryMbPerWorker: number,
+  strategy: DistributedScheduleStrategy,
+  leaseSeconds: number,
+  specs: DistributedAgentInstanceSpec[],
+): DistributedSchedulerSnapshot {
+  return {
+    strategy,
+    leaseSeconds,
+    instances: createAgentInstances(maxParallel, cpuPerWorker, memoryMbPerWorker, specs),
+    decisions: [],
+  };
+}
+
+function schedulerCandidate(task: InternalTask, run: InternalRun): DistributedTaskCandidate {
+  return {
+    id: task.id,
+    dependsOn: task.dependsOn,
+    requiredCapabilities: task.spec.requiredCapabilities ?? [],
+    preferredCapabilities: task.spec.preferredCapabilities ?? [],
+    priority: task.spec.priority ?? 50,
+    estimatedSeconds: task.spec.estimatedSeconds ?? 300,
+    cpu: run.snapshot.cpuPerWorker,
+    memoryMb: run.snapshot.memoryMbPerWorker,
+  };
+}
+
+function leaseExpiry(now: Date, leaseSeconds: number): string {
+  return new Date(now.getTime() + leaseSeconds * 1_000).toISOString();
 }
 
 function snapshotOf(run: InternalRun): OrchestrationSnapshot {

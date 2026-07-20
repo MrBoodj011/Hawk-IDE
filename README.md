@@ -15,7 +15,7 @@ local-first Code-OSS-compatible Hawk security workspace.
 ## What works now
 
 - Hawk Mission Control: a full editor surface with a responsive activity-bar
-  view, local security signals, a living route graph, traffic correlation,
+  view, local security signals, a living Security Graph, traffic correlation,
   findings triage, organization posture, evidence actions, and MCP status.
 - Native Hawk AI engineering room with active-file, selection, open-tab,
   git-diff, diagnostics, and semantic-index context; durable session history; in-panel model,
@@ -79,8 +79,11 @@ local-first Code-OSS-compatible Hawk security workspace.
   local/hosted model routing,
   durable runs, worker leases, pause/resume/cancel, crash recovery,
   tamper-evident event chains, governed memory, and structured artifacts.
-- ProofGraph and independent evidence verification. Code, routes, imported
-  requests, signals, evidence, tools, runs, patches, and tests share one graph;
+- Native Security Graph and independent evidence verification. Repository
+  files, handler symbols, routes, imported/live requests, signals, evidence
+  packs, agent patches, and tests share one durable graph. Links record their
+  provenance and confidence, and request-to-finding edges remain explicitly
+  contextual instead of being promoted to vulnerability verdicts;
   a signal cannot become verified until every baseline, reproduction,
   identity, impact, scope, side-effect, redaction, and evidence gate passes.
 - MCP Security Sentinel fingerprints server manifests and detects tool
@@ -93,8 +96,10 @@ local-first Code-OSS-compatible Hawk security workspace.
 - A local A2A-compatible task-envelope bridge and Eval Lab for same-model,
   same-token-budget, same-cost-budget comparisons against a plain-agent
   baseline.
-- Approval-aware Docker orchestration in `hawk-ide-mcp`: background task
-  graphs, up to 32 bounded parallel workers, dependency scheduling, retries,
+- Approval-aware distributed Docker orchestration in `hawk-ide-mcp`: background
+  task graphs, up to 32 bounded agent instances, capability/resource matching,
+  priority and critical-path scheduling, balanced/latency/throughput strategies,
+  health/load scoring, expiring leases, retry reassignment,
   timeouts, cancellation, capped logs, per-task artifacts, restart history,
   live-container reattachment, immutable local image identities, non-root
   workers, global CPU/RAM governance, artifact disk quotas, workspace-scoped

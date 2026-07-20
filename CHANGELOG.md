@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-20
+
+### Added
+
+- **Intelligent distributed Docker agent scheduler** — capability and resource
+  matching, critical-path and operator priority ranking, balanced/latency/
+  throughput strategies, worker health and observed-duration scoring, expiring
+  leases, retry reassignment, restart reattachment, and live scheduler
+  inspection through MCP.
+- **Native Security Graph** — the local daemon now continuously connects
+  repository files, route-handler symbols, routes, redacted HTTP requests,
+  audit signals, evidence, evidence packs, agent patches, and test gates with
+  explicit confidence and provenance. Smart MCP and Mission Control use the
+  same durable graph.
+- **Traceable Mission Control graph** — the branded source-to-request surface
+  renders real backend relations and opens graph nodes at their source
+  location.
+
+### Changed
+
+- The local IDE API protocol is now version 9.
+- Docker orchestration snapshots use protocol version 2 and record instance
+  assignments, placement reasons, critical-path estimates, leases, duration,
+  and reassignment counts.
+
 ## [0.4.0] - 2026-07-20
 
 ### Added
