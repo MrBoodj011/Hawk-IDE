@@ -10,17 +10,21 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const repository = 'MrBoodj011/hawk';
 const fromVersion = argument('--from') || '0.2.0';
-const targetTag = argument('--to') || 'v0.2.1';
+const requestedTag = argument('--to');
 const requireSignature = process.argv.includes('--require-signature');
+const expectedPublisher = (process.env.HAWK_WINDOWS_PUBLISHER || '').trim();
 const outputRoot = resolve(argument('--output') || '.tmp/updater-test');
 const maxAssetBytes = 1_500_000_000;
 
 const token = await githubToken();
+const releaseEndpoint = requestedTag
+  ? `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(requestedTag)}`
+  : `https://api.github.com/repos/${repository}/releases/latest`;
 const release = await githubJson(
-  `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(targetTag)}`,
+  releaseEndpoint,
   token,
 );
-if (release.draft) throw new Error(`${targetTag} is still a draft.`);
+if (release.draft) throw new Error(`${release.tag_name} is still a draft.`);
 if (compareVersions(release.tag_name, fromVersion) <= 0) {
   throw new Error(`${release.tag_name} is not newer than ${fromVersion}.`);
 }
@@ -28,12 +32,12 @@ const architecture = process.arch === 'arm64' ? 'arm64' : 'x64';
 const asset = release.assets.find((candidate) =>
   new RegExp(`^HawkSetup-windows-${architecture}-.+\\.exe$`, 'i').test(candidate.name),
 );
-if (!asset) throw new Error(`No Windows ${architecture} installer exists in ${targetTag}.`);
+if (!asset) throw new Error(`No Windows ${architecture} installer exists in ${release.tag_name}.`);
 if (asset.size <= 0 || asset.size > maxAssetBytes) {
   throw new Error(`Installer metadata has an invalid size: ${asset.size}.`);
 }
 const checksumAsset = release.assets.find((candidate) => candidate.name === 'SHA256SUMS');
-if (!checksumAsset) throw new Error(`${targetTag} has no SHA256SUMS asset.`);
+if (!checksumAsset) throw new Error(`${release.tag_name} has no SHA256SUMS asset.`);
 const checksumBody = await downloadText(checksumAsset.url, token);
 const expectedHash = checksumForAsset(checksumBody, asset.name);
 const directory = join(outputRoot, normalizeVersion(release.tag_name));
@@ -64,6 +68,15 @@ const signature = process.platform === 'win32' ? await authenticode(installer) :
 if (requireSignature && signature?.status !== 'Valid') {
   throw new Error(`Authenticode is required but ${asset.name} is ${signature?.status ?? 'unknown'}.`);
 }
+if (
+  expectedPublisher &&
+  signature &&
+  !signature.subject.toLowerCase().includes(expectedPublisher.toLowerCase())
+) {
+  throw new Error(
+    `Authenticode publisher "${signature.subject}" does not match "${expectedPublisher}".`,
+  );
+}
 
 console.log(
   JSON.stringify(
@@ -78,6 +91,7 @@ console.log(
       checksumVerified: true,
       peHeaderVerified: true,
       authenticode: signature ?? { status: 'not-checked', reason: 'non-Windows host' },
+      expectedPublisher: expectedPublisher || undefined,
       installerLaunched: false,
       note: 'The test exercises the real private GitHub feed and full asset download but never launches the installer.',
     },
@@ -109,6 +123,7 @@ async function downloadText(url, secret) {
   assertGitHubAssetUrl(url);
   const response = await fetch(url, { headers: githubHeaders(secret, true), redirect: 'follow' });
   if (!response.ok) throw new Error(`Checksum download failed (${response.status}).`);
+  assertGitHubDownloadUrl(response.url);
   return (await response.text()).slice(0, 2_000_000);
 }
 
@@ -118,6 +133,7 @@ async function downloadFile(url, destination, secret, expectedBytes) {
   if (!response.ok || !response.body) {
     throw new Error(`Installer download failed (${response.status}).`);
   }
+  assertGitHubDownloadUrl(response.url);
   const contentLength = Number(response.headers.get('content-length') || expectedBytes);
   if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > maxAssetBytes) {
     throw new Error(`Unsafe installer Content-Length: ${contentLength}.`);
@@ -144,6 +160,21 @@ function assertGitHubAssetUrl(value) {
     (url.hostname !== 'api.github.com' && url.hostname !== 'github.com')
   ) {
     throw new Error(`Refusing non-GitHub asset URL: ${url.hostname}.`);
+  }
+}
+
+function assertGitHubDownloadUrl(value) {
+  const url = new URL(value);
+  if (
+    url.protocol !== 'https:' ||
+    ![
+      'api.github.com',
+      'github.com',
+      'objects.githubusercontent.com',
+      'release-assets.githubusercontent.com',
+    ].includes(url.hostname)
+  ) {
+    throw new Error(`Refusing redirected asset host: ${url.hostname}.`);
   }
 }
 

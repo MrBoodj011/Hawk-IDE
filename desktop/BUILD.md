@@ -37,7 +37,8 @@ Hawk account, billing, cloud-sync, store-publisher, or telemetry service.
 
 `.github/workflows/desktop-release.yml` pins the upstream Code-OSS commit and
 Node runtime from `desktop/upstream.json`, runs the full Hawk verification gate,
-and produces:
+including the semantic-index RSS budget (`npm run benchmark:index-memory`,
+strictly below 500 MiB), and produces:
 
 - Windows x64 portable ZIP, Inno Setup EXE, and WiX MSI.
 - Linux x64 tar.gz, deb, and AppImage.
@@ -54,7 +55,16 @@ Publishing is blocked unless `WINDOWS_CERTIFICATE_BASE64` and
 the documented Azure Artifact Signing account/profile secrets are configured.
 The release gate validates Code Signing EKU, key type, expiry, RFC 3161
 timestamp, Windows trust, and the final signer on Hawk.exe, EXE, and MSI.
-The private updater separately verifies every installer against `SHA256SUMS`.
+Set the repository variable `HAWK_WINDOWS_PUBLISHER` to a stable substring of
+the trusted certificate subject. The private updater separately verifies every
+installer against `SHA256SUMS`, the exact asset size, the final GitHub download
+host, and a Windows-trusted Authenticode chain before launch. The local
+`hawk.updates.expectedPublisher` setting can pin that same certificate subject.
+
+After publishing a tag, the `update-smoke` job downloads that exact installer
+from the private GitHub release feed on a Windows runner and validates the
+checksum, PE header, and Authenticode chain. It never launches the installer;
+Hawk itself asks for explicit approval before starting an update.
 
 The NSIS EXE includes a selected **Hawk Local AI runtime (Ollama)** component.
 It does not embed the roughly gigabyte-scale third-party runtime. Instead, the

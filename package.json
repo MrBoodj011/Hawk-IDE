@@ -1,6 +1,6 @@
 {
   "name": "@hawk/ide",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Hawk is a security-native AI development environment for evidence-driven code review and authorized testing.",
   "type": "module",
   "workspaces": [
@@ -33,7 +33,9 @@
     "desktop:refresh-portable": "node desktop/refresh-portable.mjs",
     "preview:ui": "node scripts/render-ui-preview.cjs",
     "test:update-real": "node scripts/test-private-update.mjs --from 0.2.0 --to v0.2.1",
-    "benchmark:beta-index": "tsx scripts/beta-index-benchmark.ts --clone",
+    "test:update-signed-real": "node scripts/test-private-update.mjs --from 0.0.0 --require-signature",
+    "benchmark:index-memory": "node --expose-gc --import tsx scripts/index-memory-gate.ts",
+    "benchmark:beta-index": "node --expose-gc --import tsx scripts/beta-index-benchmark.ts --clone --enforce-memory",
     "check:extension": "npm --workspace hawk-security-ide run check",
     "check:integrations": "node scripts/check-integrations.mjs",
     "generate:browser-icons": "node scripts/generate-browser-icons.mjs",

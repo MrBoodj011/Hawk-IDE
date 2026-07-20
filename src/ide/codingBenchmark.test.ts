@@ -29,5 +29,21 @@ describe('runCodingCoreBenchmark', () => {
     expect(benchmark.completion).toMatchObject({ samples: 3, p50Ms: 200, p95Ms: 300 });
     expect(benchmark.gates.indexUnderFiveSeconds).toBe(true);
     expect(benchmark.gates.searchP95UnderFiftyMs).toBe(true);
+    expect(benchmark.gates.rssUnder500Mb).toBe(true);
+    expect(benchmark.process.memoryBudgetBytes).toBe(500 * 1024 * 1024);
+    expect(benchmark.process.peakRssBytes).toBeGreaterThanOrEqual(benchmark.process.rssBytes);
+  });
+
+  it('fails the memory contract when observed peak RSS reaches 500 MiB', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-benchmark-budget-'));
+    roots.push(root);
+    await writeFile(join(root, 'index.ts'), 'export const value = 1;\n');
+    const benchmark = await runCodingCoreBenchmark(new SemanticWorkspaceIndex(root), [], {
+      memoryUsage: () => ({ rss: 100 * 1024 * 1024, heapUsed: 60 * 1024 * 1024 }),
+      peakRssBytes: () => 500 * 1024 * 1024,
+    });
+
+    expect(benchmark.gates.rssUnder500Mb).toBe(false);
+    expect(benchmark.process.peakRssBytes).toBe(500 * 1024 * 1024);
   });
 });

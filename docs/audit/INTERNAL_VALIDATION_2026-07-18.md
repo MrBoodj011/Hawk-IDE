@@ -5,9 +5,36 @@ pentest certificate and does not replace independent assessment.
 
 ## Semantic index beta
 
-Each repository was measured in a fresh Node.js process on Windows x64 with
-Node.js 24.18.0. The index used a persistent incremental AST/type-aware store
-with a ceiling of 8,000 files, 10,000 chunks, and 48 MiB of source.
+The original beta run exposed that a 10,000-chunk ceiling could push the
+process well above the product's memory target (868–925 MiB on the two largest
+fixtures). The release candidate therefore uses a strict 500 MiB peak-RSS
+contract, a 2,100-chunk ceiling, a 48 MiB source ceiling, bounded terms/facts,
+bounded AST parsing, a 320 MiB resident-index ceiling, and a 128 MiB
+persisted-index ceiling. Persistent indexes omit derived normalized text and
+store optional embeddings as compact Float32 payloads; corrupt or oversized
+indexes are rejected before they enter memory. The CI gate runs
+`npm run benchmark:index-memory` before every desktop release; the larger
+fixture runner can enforce the same limit with
+`npm run benchmark:beta-index`.
+
+The current Hawk workspace was measured in a fresh Node.js process on Windows
+x64 with Node.js 24.18.0:
+
+| Project | Indexed | Cold | Search p95 | Peak RSS | Memory gate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Hawk workspace | 511 files / 1,874 chunks | 2.12 s | 30.3 ms | 390.0 MiB | pass |
+
+The resident-index estimate for this run was 44.4 MiB against its 320 MiB
+internal ceiling. The higher process RSS includes the Node/V8 runtime and
+compiler working memory; the separate process gate is the authoritative
+release check.
+
+Cold-index and search latency remain visible benchmark gates for beta tuning;
+the release-blocking requirement in this release is the hard 500 MiB RSS
+budget.
+
+The earlier beta fixtures were measured in a fresh Node.js process on Windows
+x64 with Node.js 24.18.0 using the pre-release 10,000-chunk ceiling:
 
 | Project | Indexed | Cold | Warm | Incremental | Search samples | RSS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -15,10 +42,11 @@ with a ceiling of 8,000 files, 10,000 chunks, and 48 MiB of source.
 | Microsoft Visual Studio Code | 1,680 files / 9,987 chunks | 5.70 s | 0.72 s | 0.53 s | 45–47 ms | 925 MiB |
 | OWASP Juice Shop | 966 files / 2,906 chunks | 1.93 s | 0.17 s | 0.11 s | 11–13 ms | 409 MiB |
 
-The TypeScript and VS Code runs reached the bounded chunk ceiling as expected.
-Queries still returned relevant code for language services, type checking,
-module resolution, debug adapters, inline completion, and extension-host
-lifecycle. Juice Shop was indexed without truncation.
+The TypeScript and VS Code runs reached the old bounded chunk ceiling as
+expected. Their RSS values are retained as historical evidence only; they are
+not release-gate results. Queries still returned relevant code for language
+services, type checking, module resolution, debug adapters, inline completion,
+and extension-host lifecycle. Juice Shop was indexed without truncation.
 
 The beta exposed and fixed two robustness defects before release:
 

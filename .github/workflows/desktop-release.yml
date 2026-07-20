@@ -86,6 +86,8 @@ jobs:
           node-version: '24.18.0'
           cache: npm
       - run: npm ci
+      - name: Enforce semantic index memory budget
+        run: npm run benchmark:index-memory
       - run: npm run ci
 
   integrations:
@@ -157,6 +159,7 @@ jobs:
         secrets.AZURE_TENANT_ID != '' &&
         secrets.AZURE_CLIENT_ID != '' &&
         secrets.AZURE_CLIENT_SECRET != '' }}
+      HAWK_WINDOWS_PUBLISHER: ${{ vars.HAWK_WINDOWS_PUBLISHER }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -239,6 +242,29 @@ jobs:
           if (!$signtool) { throw 'signtool.exe was not found in the Windows SDK.' }
           $signtool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      # Materialise the PFX once in the ephemeral runner. Keeping the path in
+      # GITHUB_ENV means the application and both installer packages are
+      # signed with the exact same identity, while the certificate/password
+      # never enter the repository or an artifact.
+      - name: Materialise Windows signing certificate
+        if: matrix.platform == 'win32' && env.HAWK_PFX_SIGNING_CONFIGURED == 'true'
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
+          try {
+            $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+          } catch {
+            throw 'WINDOWS_CERTIFICATE_BASE64 is not valid base64.'
+          }
+          if ($bytes.Length -lt 512) { throw 'The Windows PFX is unexpectedly small.' }
+          [IO.File]::WriteAllBytes($path, $bytes)
+          "HAWK_CERT_PATH=$path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Restrict the temporary file to the runner account where supported.
+          & icacls.exe $path /inheritance:r /grant:r "${env:USERNAME}:(R)" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not restrict access to the temporary signing certificate.' }
+
       - name: Build Windows desktop
         if: matrix.platform == 'win32'
         working-directory: ${{ runner.temp }}/hawk-codeoss
@@ -265,6 +291,9 @@ jobs:
         shell: pwsh
         run: |
           $publishing = '${{ needs.prepare.outputs.publish }}' -eq 'true'
+          if ($publishing -and !$env:HAWK_WINDOWS_PUBLISHER) {
+            throw 'Published Hawk releases require the HAWK_WINDOWS_PUBLISHER repository variable.'
+          }
           $artifactSigning = $env:AZURE_ARTIFACT_SIGNING_ENDPOINT -and `
             $env:AZURE_ARTIFACT_SIGNING_ACCOUNT -and `
             $env:AZURE_ARTIFACT_SIGNING_PROFILE -and `
@@ -280,15 +309,11 @@ jobs:
             'Dry-run build: no trusted Windows certificate is configured; publication is blocked.'
             exit 0
           }
-          $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
-          [IO.File]::WriteAllBytes(
-            $certificate,
-            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
-          )
           & "$env:GITHUB_WORKSPACE\desktop\windows\sign-artifacts.ps1" `
             -Artifact (Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}\Hawk.exe") `
-            -CertificatePath $certificate `
-            -CertificatePassword $env:WINDOWS_CERTIFICATE_PASSWORD
+            -CertificatePath $env:HAWK_CERT_PATH `
+            -CertificatePassword $env:WINDOWS_CERTIFICATE_PASSWORD `
+            -ExpectedSubject $env:HAWK_WINDOWS_PUBLISHER
 
       - name: Sign Windows application with Azure Artifact Signing
         if: >-
@@ -318,6 +343,7 @@ jobs:
         run: |
           & "$env:GITHUB_WORKSPACE\desktop\windows\sign-artifacts.ps1" `
             -Artifact (Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}\Hawk.exe") `
+            -ExpectedSubject $env:HAWK_WINDOWS_PUBLISHER `
             -VerifyOnly
 
       - name: Build Windows installers
@@ -349,6 +375,9 @@ jobs:
         shell: pwsh
         run: |
           $publishing = '${{ needs.prepare.outputs.publish }}' -eq 'true'
+          if ($publishing -and !$env:HAWK_WINDOWS_PUBLISHER) {
+            throw 'Published Hawk releases require the HAWK_WINDOWS_PUBLISHER repository variable.'
+          }
           $artifactSigning = $env:AZURE_ARTIFACT_SIGNING_ENDPOINT -and `
             $env:AZURE_ARTIFACT_SIGNING_ACCOUNT -and `
             $env:AZURE_ARTIFACT_SIGNING_PROFILE -and `
@@ -362,13 +391,17 @@ jobs:
             'Dry-run installers remain unsigned; publication is blocked.'
             exit 0
           }
-          $certificate = Join-Path $env:RUNNER_TEMP 'hawk-signing.pfx'
-          $targets = @(Get-ChildItem artifacts -Include *.exe,*.msi -File | ForEach-Object FullName)
+          $targets = @(
+            Get-ChildItem artifacts -File |
+              Where-Object { $_.Extension.ToLowerInvariant() -in @('.exe', '.msi') } |
+              ForEach-Object FullName
+          )
           if ($targets.Count -lt 2) { throw 'Expected EXE and MSI signing targets.' }
           & "$env:GITHUB_WORKSPACE\desktop\windows\sign-artifacts.ps1" `
             -Artifact $targets `
-            -CertificatePath $certificate `
-            -CertificatePassword $env:WINDOWS_CERTIFICATE_PASSWORD
+            -CertificatePath $env:HAWK_CERT_PATH `
+            -CertificatePassword $env:WINDOWS_CERTIFICATE_PASSWORD `
+            -ExpectedSubject $env:HAWK_WINDOWS_PUBLISHER
 
       - name: Sign Windows installers with Azure Artifact Signing
         if: >-
@@ -397,9 +430,14 @@ jobs:
           env.HAWK_AZURE_SIGNING_CONFIGURED == 'true')
         shell: pwsh
         run: |
-          $targets = @(Get-ChildItem artifacts -Include *.exe,*.msi -File | ForEach-Object FullName)
+          $targets = @(
+            Get-ChildItem artifacts -File |
+              Where-Object { $_.Extension.ToLowerInvariant() -in @('.exe', '.msi') } |
+              ForEach-Object FullName
+          )
           & "$env:GITHUB_WORKSPACE\desktop\windows\sign-artifacts.ps1" `
             -Artifact $targets `
+            -ExpectedSubject $env:HAWK_WINDOWS_PUBLISHER `
             -VerifyOnly
 
       - name: Build Linux desktop and packages
@@ -488,3 +526,25 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease }}
           make_latest: ${{ needs.prepare.outputs.prerelease == 'false' }}
           files: dist/*
+
+  update-smoke:
+    needs: [prepare, release]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+      - name: Exercise real signed private-feed update
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HAWK_WINDOWS_PUBLISHER: ${{ vars.HAWK_WINDOWS_PUBLISHER }}
+        shell: pwsh
+        run: |
+          node scripts/test-private-update.mjs `
+            --from 0.0.0 `
+            --to '${{ needs.prepare.outputs.tag }}' `
+            --require-signature

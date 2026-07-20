@@ -13,8 +13,9 @@ owner credentials and third-party approvals that source code cannot create.
   download, size validation, PE validation, and SHA-256 verification.
 - RSA code-signing validation, RFC 3161 timestamping, and Authenticode trust
   verification for Hawk.exe, the EXE installer, and MSI.
-- A hard publication gate: GitHub cannot publish a desktop release without the
-  Windows certificate secrets.
+- A hard publication gate: GitHub cannot publish a desktop release without a
+  trusted Windows signing configuration (PFX or Azure Artifact Signing) and
+  the expected publisher pin.
 - Chrome Web Store listing/privacy/permission pack and upload/submission script.
 - PortSwigger BApp Store description, setup, security, and submission pack.
 - External Hawk pentest scope and private beta acceptance plan.
@@ -45,6 +46,8 @@ For a password-protected PFX, add these private repository secrets:
 
 - `WINDOWS_CERTIFICATE_BASE64`
 - `WINDOWS_CERTIFICATE_PASSWORD`
+- Repository variable `HAWK_WINDOWS_PUBLISHER`, matching the trusted
+  certificate subject.
 
 Never commit the PFX or password. The workflow validates the private key,
 Code Signing EKU, RSA key type, expiry, timestamp, Windows trust, and final
@@ -53,6 +56,21 @@ signer before it can publish.
 The historical `v0.2.1` installer is SHA-verified but unsigned. It cannot be
 made signed in place: signing changes the binary and its hash, so a new release
 must be built after the certificate is configured.
+
+Every published desktop release now runs a post-publication Windows smoke test
+against the real private GitHub feed. It downloads the new installer and
+verifies the release SHA-256 manifest, exact byte size, PE header, trusted
+redirect host, and a `Valid` Authenticode chain without launching it.
+When `HAWK_WINDOWS_PUBLISHER` is configured, the smoke test also checks that
+the final installer signer matches that trusted subject pin.
+
+The updater checks the private feed at startup (and from **Hawk: Check for
+Private Release Updates**), sorts the selected stable/beta channel by semantic
+version, downloads only the matching Windows installer, and asks for explicit
+install approval. On Windows it independently validates the Authenticode chain
+and optional `hawk.updates.expectedPublisher` subject pin before launching the
+installer. This keeps updates real and unattended-download capable without
+silently executing a remote binary.
 
 For Azure Artifact Signing, create a verified account/profile with the Code
 Signing profile signer role and add:

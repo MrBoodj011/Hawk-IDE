@@ -36,7 +36,7 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 10 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 11 });
 
       const predictionEvaluation = await fetch(`${daemon.url}/v1/ai/edit-prediction/evaluation`, {
         headers,
@@ -282,7 +282,7 @@ describe('startIdeDaemon', () => {
       const securityGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
       expect(securityGraph.status).toBe(200);
       await expect(securityGraph.json()).resolves.toMatchObject({
-        protocolVersion: 10,
+        protocolVersion: 11,
         summary: {
           routes: 1,
           requests: expect.any(Number),

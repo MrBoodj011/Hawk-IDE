@@ -1,22 +1,42 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
-const INDEX_VERSION = 2;
+// Bump this whenever the on-disk representation changes. Version 4 stores
+// embeddings in compact Float32/base64 form and derives `normalized` text on
+// load, which avoids retaining a second large copy of every chunk in the
+// persisted JSON parse tree.
+const INDEX_VERSION = 4;
 const MAX_FILES = 8_000;
 const MAX_FILE_BYTES = 2_500_000;
 const MAX_TOTAL_BYTES = 48 * 1024 * 1024;
-const MAX_PERSISTED_INDEX_BYTES = 256 * 1024 * 1024;
-const MAX_CHUNKS = 10_000;
+const MAX_PERSISTED_INDEX_BYTES = 128 * 1024 * 1024;
+const MAX_CHUNKS = 2_100;
+// The resident index is deliberately below the process-level 500 MiB gate so
+// the daemon still has room for the TypeScript parser, HTTP server, and LLM
+// request buffers while a rebuild is in progress.
+const MAX_RESIDENT_INDEX_BYTES = 320 * 1024 * 1024;
+const MAX_INDEX_CONTENT_BYTES = 64 * 1024 * 1024;
 const MAX_TERMS_PER_CHUNK = 128;
 const MAX_FACTS_PER_FILE = 4_000;
-const CHUNK_LINES = 64;
-const CHUNK_OVERLAP = 12;
+const MAX_AST_FILE_BYTES = 512 * 1024;
+const CHUNK_LINES = 96;
+const CHUNK_OVERLAP = 16;
 const MAX_RESULT_LIMIT = 30;
 const EMBEDDING_BATCH_SIZE = 24;
 const MAX_EMBEDDING_CHARS = 3_000;
+const MAX_EMBEDDING_DIMENSIONS = 1_024;
 const EMBEDDING_TIMEOUT_MS = 45_000;
 
 const SOURCE_EXTENSIONS = new Set([
@@ -96,6 +116,12 @@ export interface SemanticIndexStats {
   reusedFiles: number;
   changedFiles: number;
   persistent: boolean;
+  memory: {
+    /** Conservative estimate of the resident index data (not process RSS). */
+    residentBytes: number;
+    /** Hard resident-index ceiling; the process gate remains 500 MiB RSS. */
+    budgetBytes: number;
+  };
   embedding: {
     enabled: boolean;
     model?: string;
@@ -151,8 +177,10 @@ interface IndexedFile {
   chunks: IndexedChunk[];
 }
 
-interface StoredChunk extends Omit<IndexedChunk, 'terms'> {
+interface StoredChunk extends Omit<IndexedChunk, 'terms' | 'normalized' | 'embedding'> {
   terms: Array<[string, number]>;
+  /** Float32 embedding bytes encoded as base64 to avoid JSON number bloat. */
+  embedding?: string;
 }
 
 interface StoredFile extends Omit<IndexedFile, 'chunks'> {
@@ -280,6 +308,16 @@ export class SemanticWorkspaceIndex {
     }
     await this.embedChangedChunks(indexed.chunks);
     this.files.set(file, indexed);
+    this.enforceResidentBudget();
+    if (this.estimateResidentBytes() > MAX_RESIDENT_INDEX_BYTES) {
+      this.files.delete(file);
+      return await this.commitStats({
+        startedAt: Date.now(),
+        truncated: true,
+        reusedFiles: Math.max(0, this.files.size - 1),
+        changedFiles: 1,
+      });
+    }
     return await this.commitStats({
       startedAt: Date.now(),
       truncated: false,
@@ -304,12 +342,17 @@ export class SemanticWorkspaceIndex {
     const startedAt = Date.now();
     await this.loadPersistentIndex();
     const discovered = await collectSourceFiles(this.root);
+    // Keep the previous map only as a lookup table while rebuilding. Removing
+    // entries as they are consumed releases old chunk strings early instead of
+    // retaining a full old + new resident index until the final swap.
+    const previousFiles = this.files;
     const nextFiles = new Map<string, IndexedFile>();
     const changedChunks: IndexedChunk[] = [];
     let bytes = 0;
     let reusedFiles = 0;
     let changedFiles = 0;
     let chunkCount = 0;
+    let residentBytes = 0;
     let truncated = discovered.truncated;
 
     for (const absolutePath of discovered.paths) {
@@ -324,17 +367,30 @@ export class SemanticWorkspaceIndex {
         break;
       }
       const file = relative(this.root, absolutePath).replaceAll('\\', '/');
-      const previous = this.files.get(file);
+      const previous = previousFiles.get(file);
       if (previous && previous.size === info.size && previous.mtimeMs === info.mtimeMs) {
+        const previousResidentBytes = estimateIndexedFileBytes(previous);
+        if (residentBytes + previousResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
+          truncated = true;
+          break;
+        }
         nextFiles.set(file, previous);
+        previousFiles.delete(file);
         bytes += previous.bytes;
         chunkCount += previous.chunks.length;
+        residentBytes += previousResidentBytes;
         reusedFiles += 1;
         continue;
       }
       const indexed = await this.indexOneFile(absolutePath, file, info.size, info.mtimeMs);
+      previousFiles.delete(file);
       if (!indexed) continue;
       if (chunkCount + indexed.chunks.length > MAX_CHUNKS) {
+        truncated = true;
+        break;
+      }
+      const indexedResidentBytes = estimateIndexedFileBytes(indexed);
+      if (residentBytes + indexedResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
         truncated = true;
         break;
       }
@@ -342,11 +398,14 @@ export class SemanticWorkspaceIndex {
       changedChunks.push(...indexed.chunks);
       bytes += indexed.bytes;
       chunkCount += indexed.chunks.length;
+      residentBytes += indexedResidentBytes;
       changedFiles += 1;
     }
-    changedFiles += [...this.files.keys()].filter((file) => !nextFiles.has(file)).length;
+    changedFiles += previousFiles.size;
+    previousFiles.clear();
     this.files = nextFiles;
     await this.embedChangedChunks(changedChunks);
+    this.enforceResidentBudget();
     return await this.commitStats({
       startedAt,
       truncated,
@@ -427,6 +486,10 @@ export class SemanticWorkspaceIndex {
       reusedFiles: input.reusedFiles,
       changedFiles: input.changedFiles,
       persistent: true,
+      memory: {
+        residentBytes: this.estimateResidentBytes(),
+        budgetBytes: MAX_RESIDENT_INDEX_BYTES,
+      },
       embedding: {
         enabled: this.embeddings.enabled,
         ...(this.embeddings.enabled ? { model: this.embeddings.model } : {}),
@@ -442,7 +505,9 @@ export class SemanticWorkspaceIndex {
           : {}),
       },
     };
-    if (input.persist !== false) await this.persist();
+    if (input.persist !== false) {
+      this.currentStats.persistent = await this.persist();
+    }
     return this.currentStats;
   }
 
@@ -511,9 +576,11 @@ export class SemanticWorkspaceIndex {
       }
       let storedChunks = 0;
       let storedBytes = 0;
+      let storedContentBytes = 0;
       for (const file of stored.files) {
         if (
           typeof file.path !== 'string' ||
+          typeof file.hash !== 'string' ||
           !Number.isFinite(file.bytes) ||
           file.bytes < 0 ||
           !Array.isArray(file.chunks)
@@ -524,45 +591,131 @@ export class SemanticWorkspaceIndex {
         storedChunks += file.chunks.length;
         storedBytes += file.bytes;
         if (storedChunks > MAX_CHUNKS || storedBytes > MAX_TOTAL_BYTES) return;
+        for (const chunk of file.chunks) {
+          if (
+            typeof chunk.id !== 'string' ||
+            typeof chunk.file !== 'string' ||
+            !Number.isFinite(chunk.startLine) ||
+            !Number.isFinite(chunk.endLine) ||
+            typeof chunk.content !== 'string' ||
+            chunk.content.length > MAX_FILE_BYTES ||
+            typeof chunk.structural !== 'string' ||
+            !Array.isArray(chunk.terms) ||
+            chunk.terms.length > MAX_TERMS_PER_CHUNK ||
+            !chunk.terms.every(
+              (term) =>
+                Array.isArray(term) &&
+                term.length === 2 &&
+                typeof term[0] === 'string' &&
+                Number.isFinite(term[1]),
+            ) ||
+            !isBoundedStringArray(chunk.symbols) ||
+            !isBoundedStringArray(chunk.types) ||
+            !isBoundedStringArray(chunk.imports) ||
+            !isBoundedStringArray(chunk.calls)
+          ) {
+            return;
+          }
+          storedContentBytes += Buffer.byteLength(chunk.content);
+          if (storedContentBytes > MAX_INDEX_CONTENT_BYTES) return;
+          if (chunk.embedding !== undefined && !decodeEmbedding(chunk.embedding)) return;
+        }
       }
-      this.files = new Map(
-        stored.files.map((file) => [
-          file.path,
-          {
-            ...file,
-            chunks: file.chunks.map((chunk) => ({
-              ...chunk,
-              terms: new Map(chunk.terms),
-            })),
-          },
-        ]),
-      );
+      const files: IndexedFile[] = stored.files.map((file) => ({
+        path: file.path,
+        size: file.size,
+        mtimeMs: file.mtimeMs,
+        hash: file.hash,
+        bytes: file.bytes,
+        chunks: file.chunks.map((chunk): IndexedChunk => {
+          const embedding = chunk.embedding ? decodeEmbedding(chunk.embedding) : undefined;
+          return {
+            id: chunk.id,
+            file: chunk.file,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            content: chunk.content,
+            normalized: normalizeText(chunk.content),
+            terms: new Map(chunk.terms),
+            symbols: chunk.symbols,
+            types: chunk.types,
+            imports: chunk.imports,
+            calls: chunk.calls,
+            structural: chunk.structural,
+            ...(embedding ? { embedding } : {}),
+          };
+        }),
+      }));
+      const residentBytes = estimateIndexMemoryBytes(files);
+      if (residentBytes > MAX_RESIDENT_INDEX_BYTES) return;
+      this.files = new Map(files.map((file) => [file.path, file]));
       this.chunks = [...this.files.values()].flatMap((file) => file.chunks);
       this.documentFrequency = buildDocumentFrequency(this.chunks);
-      this.currentStats = stored.stats;
+      this.currentStats = {
+        ...stored.stats,
+        memory: {
+          residentBytes,
+          budgetBytes: MAX_RESIDENT_INDEX_BYTES,
+        },
+      };
     } catch {
       // Missing, old or corrupt indexes are rebuilt from source.
     }
   }
 
-  private async persist(): Promise<void> {
-    if (!this.currentStats) return;
-    const body: StoredIndex = {
+  private async persist(): Promise<boolean> {
+    if (!this.currentStats) return false;
+    // Keep the durable format compact. `normalized` is derived from content on
+    // load and embeddings are quantized to Float32 before base64 encoding.
+    const files: StoredFile[] = [...this.files.values()].map((file) => ({
+      path: file.path,
+      size: file.size,
+      mtimeMs: file.mtimeMs,
+      hash: file.hash,
+      bytes: file.bytes,
+      chunks: file.chunks.map((chunk) => ({
+        id: chunk.id,
+        file: chunk.file,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+        content: chunk.content,
+        terms: [...chunk.terms.entries()],
+        symbols: chunk.symbols,
+        types: chunk.types,
+        imports: chunk.imports,
+        calls: chunk.calls,
+        structural: chunk.structural,
+        ...(chunk.embedding?.length ? { embedding: encodeEmbedding(chunk.embedding) } : {}),
+      })),
+    }));
+    const body = {
       version: INDEX_VERSION,
       rootHash: this.rootHash,
-      files: [...this.files.values()].map((file) => ({
-        ...file,
-        chunks: file.chunks.map((chunk) => ({
-          ...chunk,
-          terms: [...chunk.terms],
-        })),
-      })),
+      files,
       stats: this.currentStats,
     };
+    const serialized = `${JSON.stringify(body)}\n`;
+    if (Buffer.byteLength(serialized) > MAX_PERSISTED_INDEX_BYTES) {
+      await unlink(this.indexPath).catch(() => undefined);
+      return false;
+    }
     await mkdir(dirname(this.indexPath), { recursive: true, mode: 0o700 });
     const temporary = `${this.indexPath}.${randomUUID()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(body)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600 });
     await rename(temporary, this.indexPath);
+    return true;
+  }
+
+  /** Drop optional vectors before they can consume the daemon's resident budget. */
+  private enforceResidentBudget(): void {
+    if (this.estimateResidentBytes() <= MAX_RESIDENT_INDEX_BYTES) return;
+    for (const file of this.files.values()) {
+      for (const chunk of file.chunks) chunk.embedding = undefined;
+    }
+  }
+
+  private estimateResidentBytes(): number {
+    return estimateIndexMemoryBytes([...this.files.values()]);
   }
 }
 
@@ -646,7 +799,10 @@ function chunkFile(file: string, content: string): IndexedChunk[] {
 
 function analyzeStructure(file: string, content: string): StructuralFact[] {
   const extension = extname(file).toLowerCase();
-  if (['.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx'].includes(extension)) {
+  if (
+    content.length <= MAX_AST_FILE_BYTES &&
+    ['.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx'].includes(extension)
+  ) {
     try {
       return analyzeTypeScript(file, content, extension);
     } catch {
@@ -838,6 +994,110 @@ function buildDocumentFrequency(chunks: IndexedChunk[]): Map<string, number> {
   return frequencies;
 }
 
+/**
+ * Conservative resident-size estimate used before accepting a persisted or
+ * newly built index. V8 object headers vary by runtime, so this intentionally
+ * overestimates strings, map entries, and array elements. It is a guardrail,
+ * not a replacement for the process RSS benchmark.
+ */
+function estimateIndexMemoryBytes(
+  files: ReadonlyArray<{
+    path: string;
+    hash?: string;
+    chunks: ReadonlyArray<{
+      content?: unknown;
+      normalized?: unknown;
+      structural?: unknown;
+      terms?: unknown;
+      symbols?: unknown;
+      types?: unknown;
+      imports?: unknown;
+      calls?: unknown;
+      embedding?: unknown;
+    }>;
+  }>,
+): number {
+  let total = 0;
+  for (const file of files) {
+    total += 512 + byteLength(file.path) + byteLength(file.hash);
+    for (const chunk of file.chunks) {
+      total += 768;
+      total += byteLength(chunk.content) * 2;
+      total += byteLength(chunk.normalized) * 2;
+      total += byteLength(chunk.structural) * 2;
+      total += estimateCollectionBytes(chunk.terms, 72);
+      total += estimateCollectionBytes(chunk.symbols, 40);
+      total += estimateCollectionBytes(chunk.types, 40);
+      total += estimateCollectionBytes(chunk.imports, 40);
+      total += estimateCollectionBytes(chunk.calls, 40);
+      if (Array.isArray(chunk.embedding)) {
+        total += 64 + chunk.embedding.length * 4;
+      } else if (typeof chunk.embedding === 'string') {
+        total += 64 + byteLength(chunk.embedding) * 2;
+      }
+    }
+  }
+  return total;
+}
+
+function estimateIndexedFileBytes(file: IndexedFile): number {
+  return estimateIndexMemoryBytes([file]);
+}
+
+function estimateCollectionBytes(value: unknown, perItem: number): number {
+  if (value instanceof Map) {
+    let total = 64;
+    for (const [key, item] of value) total += perItem + byteLength(key) + byteLength(item);
+    return total;
+  }
+  if (!Array.isArray(value)) return 0;
+  let total = 64;
+  for (const item of value) {
+    total += perItem + (typeof item === 'string' ? byteLength(item) : 0);
+  }
+  return total;
+}
+
+function byteLength(value: unknown): number {
+  return typeof value === 'string' ? Buffer.byteLength(value) : 0;
+}
+
+function isBoundedStringArray(value: unknown, max = 64): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= max &&
+    value.every((item) => typeof item === 'string' && item.length <= 240)
+  );
+}
+
+function encodeEmbedding(vector: number[]): string {
+  const values = Float32Array.from(vector.slice(0, MAX_EMBEDDING_DIMENSIONS));
+  return Buffer.from(values.buffer, values.byteOffset, values.byteLength).toString('base64');
+}
+
+function decodeEmbedding(value: unknown): number[] | undefined {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 6_000 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(value)
+  ) {
+    return undefined;
+  }
+  const bytes = Buffer.from(value, 'base64');
+  if (bytes.length === 0 || bytes.length % 4 !== 0 || bytes.length / 4 > MAX_EMBEDDING_DIMENSIONS) {
+    return undefined;
+  }
+  // Do not create a typed-array view over the Buffer: pooled Node buffers can
+  // have an unaligned byteOffset, which would throw for an otherwise valid
+  // embedding. Reading little-endian scalars is a little slower on load but
+  // keeps persistence portable across runtimes.
+  const output = Array.from({ length: bytes.byteLength / 4 }, (_, index) =>
+    bytes.readFloatLE(index * 4),
+  );
+  return output.every((item) => Number.isFinite(item)) ? output : undefined;
+}
+
 function termFrequency(value: string): Map<string, number> {
   const frequencies = new Map<string, number>();
   for (const token of tokenize(value, MAX_TERMS_PER_CHUNK * 4)) {
@@ -892,8 +1152,13 @@ async function requestEmbeddings(
     const body = (await response.json()) as { embeddings?: unknown };
     if (
       !Array.isArray(body.embeddings) ||
+      body.embeddings.length !== input.length ||
       !body.embeddings.every(
-        (vector) => Array.isArray(vector) && vector.every((value) => typeof value === 'number'),
+        (vector) =>
+          Array.isArray(vector) &&
+          vector.length > 0 &&
+          vector.length <= MAX_EMBEDDING_DIMENSIONS &&
+          vector.every((value) => typeof value === 'number' && Number.isFinite(value)),
       )
     ) {
       throw new Error('Ollama returned an invalid embedding response.');

@@ -126,8 +126,13 @@ local-first Code-OSS-compatible Hawk security workspace.
   Linux deb/AppImage/tar, plus locally installed Browser and Burp companions.
   Releases include SHA-256 checksums; publication now requires a trusted RSA
   Authenticode certificate and verifies timestamp and Windows trust. The desktop
-  can check the private GitHub release feed, verify an installer against
-  `SHA256SUMS`, and launch it only after explicit approval.
+  can check the private GitHub release feed and launch an installer only after
+  exact-size, trusted-host, `SHA256SUMS`, and Windows Authenticode verification
+  plus explicit approval. A post-release Windows job retests that real feed.
+- A measured semantic-index performance contract: AST/type-aware indexing,
+  incremental persistence, and search stay below 500 MiB peak process RSS or
+  fail the local/CI benchmark gate. Large files, embeddings, resident chunks,
+  and persisted data all have explicit memory ceilings.
 - A deliberately solo/local architecture: no Hawk account, team system,
   Stripe/billing, licenses, cloud synchronization, telemetry collector, Apple
   build, or hosted Hawk backend. Store listing/submission packs exist, but

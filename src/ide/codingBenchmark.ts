@@ -1,5 +1,17 @@
 import type { SemanticIndexStats, SemanticWorkspaceIndex } from './semanticIndex.js';
 
+export const INDEX_MEMORY_BUDGET_BYTES = 500 * 1024 * 1024;
+
+interface BenchmarkMemoryUsage {
+  rss: number;
+  heapUsed: number;
+}
+
+interface CodingCoreBenchmarkOptions {
+  memoryUsage?: () => BenchmarkMemoryUsage;
+  peakRssBytes?: () => number;
+}
+
 export interface CodingCoreBenchmark {
   measuredAt: string;
   semanticIndex: SemanticIndexStats;
@@ -16,13 +28,17 @@ export interface CodingCoreBenchmark {
     p95Ms?: number;
   };
   process: {
+    baselineRssBytes: number;
     rssBytes: number;
+    peakRssBytes: number;
+    rssDeltaBytes: number;
     heapUsedBytes: number;
+    memoryBudgetBytes: number;
   };
   gates: {
     indexUnderFiveSeconds: boolean;
     searchP95UnderFiftyMs: boolean;
-    rssUnderOneGigabyte: boolean;
+    rssUnder500Mb: boolean;
   };
 }
 
@@ -37,8 +53,15 @@ const BENCHMARK_QUERIES = [
 export async function runCodingCoreBenchmark(
   index: SemanticWorkspaceIndex,
   completionLatencies: number[] = [],
+  options: CodingCoreBenchmarkOptions = {},
 ): Promise<CodingCoreBenchmark> {
+  const memoryUsage = options.memoryUsage ?? (() => process.memoryUsage());
+  const peakRssBytes =
+    options.peakRssBytes ?? (() => Math.max(0, process.resourceUsage().maxRSS * 1024));
+  const baseline = memoryUsage();
+  const samples: BenchmarkMemoryUsage[] = [baseline];
   const semanticIndex = await index.build();
+  samples.push(memoryUsage());
   const latencies: number[] = [];
   let resultsReturned = 0;
   for (let iteration = 0; iteration < 5; iteration += 1) {
@@ -47,8 +70,11 @@ export async function runCodingCoreBenchmark(
       resultsReturned += index.search(query, 12).length;
       latencies.push(performance.now() - startedAt);
     }
+    samples.push(memoryUsage());
   }
-  const memory = process.memoryUsage();
+  const memory = memoryUsage();
+  samples.push(memory);
+  const observedPeakRss = Math.max(peakRssBytes(), ...samples.map((sample) => sample.rss));
   return {
     measuredAt: new Date().toISOString(),
     semanticIndex,
@@ -69,13 +95,17 @@ export async function runCodingCoreBenchmark(
         : {}),
     },
     process: {
+      baselineRssBytes: baseline.rss,
       rssBytes: memory.rss,
+      peakRssBytes: observedPeakRss,
+      rssDeltaBytes: Math.max(0, memory.rss - baseline.rss),
       heapUsedBytes: memory.heapUsed,
+      memoryBudgetBytes: INDEX_MEMORY_BUDGET_BYTES,
     },
     gates: {
       indexUnderFiveSeconds: semanticIndex.durationMs < 5_000,
       searchP95UnderFiftyMs: percentile(latencies, 0.95) < 50,
-      rssUnderOneGigabyte: memory.rss < 1024 * 1024 * 1024,
+      rssUnder500Mb: observedPeakRss < INDEX_MEMORY_BUDGET_BYTES,
     },
   };
 }

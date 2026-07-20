@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -91,6 +91,30 @@ describe('SemanticWorkspaceIndex', () => {
     expect(incremental.changedFiles).toBe(1);
     expect(warm.search('PolicyEngine denyExpired')[0]?.file).toBe('src/service.ts');
     expect(warm.search('Authorizer')).toHaveLength(0);
+  });
+
+  it('reports a resident budget and keeps the persistent index compact', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-semantic-memory-'));
+    roots.push(root);
+    const storageRoot = join(root, '.index-cache');
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(
+      join(root, 'src', 'memory.ts'),
+      Array.from(
+        { length: 220 },
+        (_, index) => `export const token${index} = 'hawk-${index}';`,
+      ).join('\n'),
+    );
+
+    const index = new SemanticWorkspaceIndex(root, { storageRoot });
+    const stats = await index.build();
+    const persisted = await readFile(join(storageRoot, 'semantic-index-v2.json'), 'utf8');
+
+    expect(stats.memory.residentBytes).toBeGreaterThan(stats.bytes);
+    expect(stats.memory.residentBytes).toBeLessThanOrEqual(stats.memory.budgetBytes);
+    // Normalized text is derived on load; it must not double the durable source
+    // payload or make JSON parse transient memory spikes worse.
+    expect(persisted).not.toContain('"normalized"');
   });
 
   it('walks pathologically deep TypeScript ASTs without overflowing the call stack', async () => {

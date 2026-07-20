@@ -3,10 +3,12 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { INDEX_MEMORY_BUDGET_BYTES } from '../src/ide/codingBenchmark.js';
 import { SemanticWorkspaceIndex } from '../src/ide/semanticIndex.js';
 
 const execFileAsync = promisify(execFile);
 const clone = process.argv.includes('--clone');
+const enforceMemory = process.argv.includes('--enforce-memory');
 const defaultRoot =
   process.platform === 'win32'
     ? join(process.env.SystemDrive || 'C:', 'hawk-beta')
@@ -48,6 +50,8 @@ if (selectedProjects.length === 0) {
 await mkdir(root, { recursive: true });
 const results: Array<Record<string, unknown>> = [];
 for (const project of selectedProjects) {
+  const baselineMemory = process.memoryUsage();
+  const memorySamples = [baselineMemory.rss];
   const projectRoot = join(root, slug(project.name));
   if (!(await directoryExists(projectRoot))) {
     if (!clone) throw new Error(`${project.name} is missing. Re-run with --clone.`);
@@ -76,6 +80,7 @@ for (const project of selectedProjects) {
   const coldStarted = performance.now();
   const cold = await coldIndex.build();
   const coldMs = Math.round(performance.now() - coldStarted);
+  memorySamples.push(process.memoryUsage().rss);
   const searchSamples = project.queries.map((query) => {
     const started = performance.now();
     const matches = coldIndex.search(query, 8);
@@ -88,19 +93,31 @@ for (const project of selectedProjects) {
       results: matches.length,
     };
   });
+  memorySamples.push(process.memoryUsage().rss);
+  const firstFile = findFirstResultFile(coldIndex, project.queries);
+  coldIndex = undefined;
+  (globalThis as { gc?: () => void }).gc?.();
+  memorySamples.push(process.memoryUsage().rss);
   let warmIndex: SemanticWorkspaceIndex | undefined = new SemanticWorkspaceIndex(projectRoot, {
     storageRoot,
   });
   const warmStarted = performance.now();
   const warm = await warmIndex.build();
   const warmMs = Math.round(performance.now() - warmStarted);
-  const firstFile = findFirstResultFile(coldIndex, project.queries);
+  memorySamples.push(process.memoryUsage().rss);
   let incrementalMs: number | null = null;
   if (firstFile) {
     const incrementalStarted = performance.now();
     await warmIndex.updateFile(firstFile);
     incrementalMs = Math.round(performance.now() - incrementalStarted);
+    memorySamples.push(process.memoryUsage().rss);
   }
+  const finalMemory = process.memoryUsage();
+  memorySamples.push(finalMemory.rss);
+  const peakRssBytes = Math.max(
+    process.resourceUsage().maxRSS * 1024,
+    ...memorySamples,
+  );
   results.push({
     project: project.name,
     source: project.url,
@@ -109,9 +126,15 @@ for (const project of selectedProjects) {
     warm: { measuredMs: warmMs, ...warm },
     incremental: { file: firstFile, measuredMs: incrementalMs },
     search: searchSamples,
-    processMemory: process.memoryUsage(),
+    memory: {
+      baselineRssBytes: baselineMemory.rss,
+      finalRssBytes: finalMemory.rss,
+      rssDeltaBytes: Math.max(0, finalMemory.rss - baselineMemory.rss),
+      peakRssBytes,
+      budgetBytes: INDEX_MEMORY_BUDGET_BYTES,
+      passed: peakRssBytes < INDEX_MEMORY_BUDGET_BYTES,
+    },
   });
-  coldIndex = undefined;
   warmIndex = undefined;
   (globalThis as { gc?: () => void }).gc?.();
 }
@@ -120,13 +143,25 @@ const report = {
   schema: 1,
   measuredAt: new Date().toISOString(),
   host: { platform: process.platform, arch: process.arch, node: process.version },
-  limits: { maxFiles: 8_000, maxChunks: 10_000, maxSourceBytes: 48 * 1024 * 1024 },
+  limits: {
+    maxFiles: 8_000,
+    maxChunks: 2_100,
+    maxSourceBytes: 48 * 1024 * 1024,
+    maxProcessRssBytes: INDEX_MEMORY_BUDGET_BYTES,
+  },
   isolatedProject: requestedProject || null,
   projects: results,
 };
 await mkdir(resolve(output, '..'), { recursive: true });
 await writeFile(output, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+if (
+  enforceMemory &&
+  results.some((result) => (result.memory as { passed?: boolean } | undefined)?.passed !== true)
+) {
+  process.stderr.write('Hawk beta index exceeded the strict 500 MiB peak RSS budget.\n');
+  process.exitCode = 1;
+}
 
 function findFirstResultFile(index: SemanticWorkspaceIndex, queries: string[]): string | undefined {
   for (const query of queries) {

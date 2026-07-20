@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-20
+
+### Added
+
+- **Strict sub-500 MiB index contract** — Hawk now records baseline, final,
+  delta, and process-lifetime peak RSS, fails a repeatable memory gate at
+  500 MiB, and enforces the same limit in large-project beta benchmarks.
+- **Real signed-update smoke gate** — every published desktop release is
+  downloaded again from the private GitHub feed on Windows and must pass
+  release selection, exact-size, SHA-256, PE, trusted-host, and Authenticode
+  verification without launching the installer.
+
+### Changed
+
+- The persistent semantic index uses wider chunks, bounded large-file AST
+  parsing, 2,200 resident chunks, a 128 MiB persistent file ceiling, and
+  bounded finite local embeddings to keep indexing responsive under the new
+  memory budget.
+- Windows updates cannot launch unless their Authenticode chain is trusted.
+  Production publication also requires a pinned `HAWK_WINDOWS_PUBLISHER`
+  certificate subject in addition to the PFX or Azure signing identity.
+- The local IDE API protocol is now version 11.
+
 ## [0.6.0] - 2026-07-20
 
 ### Added
