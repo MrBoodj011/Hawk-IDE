@@ -70,6 +70,25 @@ file.
 - **Hawk: Diagnose and Fix Stopped Debugger** captures native DAP threads,
   frames, scopes, variables, breakpoints, and diagnostics, redacts secret-like
   values, and starts an isolated fix task.
+- **Hawk: Show Next Edit Model Evaluation** compares every model configuration
+  observed by Hawk Tab using structured-edit validity, explicit editor
+  acceptance/rejection feedback, cache reuse, and p50/p95 generation latency.
+  Recommendations are labelled low, medium, or high evidence confidence.
+
+## Next Edit acceleration and evaluation
+
+Hawk keeps a bounded, TTL-controlled prediction cache in daemon memory. An
+exact repeated request is returned immediately. Concurrent identical requests
+join one model call, and when an operator manually types the beginning of a
+cached insertion Hawk can return the remaining text without another call.
+Index rebuilds and provider/model configuration changes invalidate reuse
+through the cache key.
+
+The model scorecard persists only aggregate counters and the latest bounded
+latency samples under `~/.hawk/ide/prediction-evaluation/`. It never stores
+prompts, source, diagnostics, file names, or generated edits. The acceptance
+rate is explicitly an operator-feedback proxy rather than a synthetic accuracy
+claim. **Hawk: Clear Next Edit Cache** removes the in-memory source cache.
 
 ## Persistence
 
@@ -110,6 +129,9 @@ POST /v1/ai/sessions/:id/pause
 POST /v1/ai/sessions/:id/resume
 POST /v1/ai/inline-completion
 POST /v1/ai/edit-prediction
+POST /v1/ai/edit-prediction/feedback
+GET  /v1/ai/edit-prediction/evaluation
+DELETE /v1/ai/edit-prediction/cache
 POST /v1/workspace/semantic-index
 PUT  /v1/workspace/semantic-index/file
 DELETE /v1/workspace/semantic-index/file

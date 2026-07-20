@@ -35,11 +35,13 @@ export interface RecentEdit {
 export interface EditPredictionRequest extends InlineCompletionRequest {
   recentEdits?: RecentEdit[];
   diagnostics?: string[];
+  minConfidence?: number;
 }
 
 export interface EditPredictionResponse extends InlineCompletionResponse {
   replaceText: string;
   kind: 'next-edit';
+  confidence: number;
 }
 
 export async function createInlineCompletion(
@@ -85,8 +87,8 @@ export async function createInlineCompletion(
     const response = await client.chat({ model: client.model(), messages }, controller.signal);
     return {
       text: sanitizeCompletion(response.message.content, suffix),
-      provider: client.name(),
-      model: client.model(),
+      provider: response.route?.provider ?? client.name(),
+      model: response.route?.model ?? client.model(),
       latencyMs: Date.now() - startedAt,
       contextFiles: related.map((result) => result.file),
     };
@@ -121,6 +123,7 @@ export async function createEditPrediction(
       text: '',
       replaceText: '',
       kind: 'next-edit',
+      confidence: 0,
       latencyMs: 0,
       contextFiles: [],
     };
@@ -129,7 +132,7 @@ export async function createEditPrediction(
   await index.ensureBuilt();
   const related = await index.searchHybrid(
     `${file}\n${recentEdits.map((edit) => `${edit.before}\n${edit.after}`).join('\n')}\n${completionQuery(prefix, file)}`,
-    6,
+    4,
   );
   const cfg = config.load();
   const client =
@@ -152,10 +155,12 @@ export async function createEditPrediction(
         content: [
           'You are Hawk Next Edit, a precise multiline edit prediction engine.',
           'Infer the next coherent edit from the recent changes, diagnostics, nearby code, and repository context.',
-          'Return one JSON object only: {"old_text":"exact prefix copied from CODE AFTER CURSOR, or empty","new_text":"replacement text"}.',
+          'Return one JSON object only: {"old_text":"exact prefix copied from CODE AFTER CURSOR, or empty","new_text":"replacement text","confidence":0.0}.',
           'old_text must be an exact character-for-character prefix of CODE AFTER CURSOR.',
+          'confidence must be a number from 0 to 1 reflecting how strongly the recent edits imply this exact change.',
+          'Do not modify code unrelated to the pattern demonstrated by the recent edits.',
           'Do not use Markdown, comments about the edit, ellipses, or text outside the JSON object.',
-          'Prefer a small high-confidence edit. If no edit is justified, return empty strings.',
+          `Prefer a small high-confidence edit. If confidence is below ${boundedConfidence(request.minConfidence)}, return empty strings.`,
         ].join(' '),
       },
       {
@@ -172,12 +177,16 @@ export async function createEditPrediction(
       },
     ];
     const response = await client.chat({ model: client.model(), messages }, controller.signal);
-    const parsed = parseEditPrediction(response.message.content, suffix);
+    const parsed = parseEditPrediction(
+      response.message.content,
+      suffix,
+      boundedConfidence(request.minConfidence),
+    );
     return {
       ...parsed,
       kind: 'next-edit',
-      provider: client.name(),
-      model: client.model(),
+      provider: response.route?.provider ?? client.name(),
+      model: response.route?.model ?? client.model(),
       latencyMs: Date.now() - startedAt,
       contextFiles: related.map((result) => result.file),
     };
@@ -236,7 +245,9 @@ function buildEditPrompt(input: {
     `File: ${input.file}`,
     `Language: ${input.languageId}`,
     `RECENT EDITS:\n${edits}`,
-    input.diagnostics.length ? `DIAGNOSTICS:\n${input.diagnostics.join('\n')}` : '',
+    input.diagnostics.length
+      ? `DIAGNOSTICS:\n${input.diagnostics.map((item) => String(item).slice(0, 600)).join('\n')}`
+      : '',
     context ? `REPOSITORY CONTEXT:\n${context}` : '',
     `CODE BEFORE CURSOR:\n${input.prefix}`,
     `CODE AFTER CURSOR:\n${input.suffix}`,
@@ -266,28 +277,41 @@ function sanitizeCompletion(value: string, suffix: string): string {
 function parseEditPrediction(
   value: string,
   suffix: string,
-): Pick<EditPredictionResponse, 'text' | 'replaceText'> {
+  minConfidence: number,
+): Pick<EditPredictionResponse, 'text' | 'replaceText' | 'confidence'> {
   const candidate = value
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
-  if (start < 0 || end <= start) return { text: '', replaceText: '' };
+  if (start < 0 || end <= start) return { text: '', replaceText: '', confidence: 0 };
   try {
     const parsed = JSON.parse(candidate.slice(start, end + 1)) as {
       old_text?: unknown;
       new_text?: unknown;
+      confidence?: unknown;
     };
     const replaceText =
       typeof parsed.old_text === 'string' ? parsed.old_text.slice(0, MAX_EDIT_CHARS) : '';
     const text =
       typeof parsed.new_text === 'string' ? parsed.new_text.slice(0, MAX_EDIT_CHARS) : '';
-    if (!text || text === replaceText || !suffix.startsWith(replaceText)) {
-      return { text: '', replaceText: '' };
+    const confidence =
+      typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.6;
+    if (
+      !text ||
+      text === replaceText ||
+      !suffix.startsWith(replaceText) ||
+      confidence < minConfidence
+    ) {
+      return { text: '', replaceText: '', confidence };
     }
-    return { text, replaceText };
+    return { text, replaceText, confidence };
   } catch {
-    return { text: '', replaceText: '' };
+    return { text: '', replaceText: '', confidence: 0 };
   }
+}
+
+function boundedConfidence(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.max(0.3, Math.min(0.95, Number(value))) : 0.55;
 }

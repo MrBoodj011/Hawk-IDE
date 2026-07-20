@@ -25,7 +25,17 @@ describe('startIdeDaemon', () => {
       const headers = { 'X-Hawk-Token': daemon.token };
       const health = await fetch(`${daemon.url}/v1/health`, { headers });
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 6 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 7 });
+
+      const predictionEvaluation = await fetch(`${daemon.url}/v1/ai/edit-prediction/evaluation`, {
+        headers,
+      });
+      expect(predictionEvaluation.status).toBe(200);
+      await expect(predictionEvaluation.json()).resolves.toMatchObject({
+        cache: { enabled: true, requests: 0 },
+        totals: { generations: 0, feedbackSamples: 0 },
+        models: [],
+      });
 
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);

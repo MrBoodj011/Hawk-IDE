@@ -30,7 +30,11 @@ local-first Code-OSS-compatible Hawk security workspace.
 - Hawk Next Edit predicts an exact, bounded multiline replacement from recent
   edits, diagnostics, surrounding code, and repository context. The editor
   discards the result unless the model's old text exactly matches the current
-  document suffix.
+  document suffix and its confidence clears the configured threshold. Exact
+  requests, concurrent requests, and partially typed insertions reuse a
+  bounded in-memory cache. A privacy-safe persistent scorecard compares
+  configured models by structured-edit validity, operator acceptance,
+  cache reuse, and p50/p95 generation latency without retaining code.
 - Hawk Debug Agent reads native Debug Adapter Protocol threads, stack frames,
   scopes, variables, breakpoints, and diagnostics, redacts secret-shaped
   values, and launches an isolated fix-and-regression loop after approval.

@@ -15,13 +15,13 @@ import type {
 } from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
 import { runCodingCoreBenchmark } from './codingBenchmark.js';
+import { EditPredictionEngine, type EditPredictionFeedback } from './editPredictionEngine.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import {
   type EditPredictionRequest,
   type InlineCompletionRequest,
-  createEditPrediction,
   createInlineCompletion,
 } from './inlineCompletion.js';
 import {
@@ -95,6 +95,8 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       model: process.env.HAWK_IDE_EMBEDDING_MODEL,
     },
   });
+  const editPredictions = new EditPredictionEngine(workspaceRoot, semanticIndex);
+  await editPredictions.initialize();
   const completionLatencies: number[] = [];
   const captureStore = new CaptureStore({ maxEntries: 5_000 });
   const captureServer = await startIngestServer({
@@ -131,6 +133,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       },
       aiSessions,
       semanticIndex,
+      editPredictions,
       completionLatencies: () => [...completionLatencies],
       recordCompletionLatency: (latencyMs) => {
         completionLatencies.push(latencyMs);
@@ -157,7 +160,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         captureToken: captureServer.token,
         inventory: () => latestInventory,
         close: async () => {
-          await aiSessions.dispose();
+          await Promise.all([aiSessions.dispose(), editPredictions.dispose()]);
           await Promise.all([closeServer(server), captureServer.close()]);
         },
       });
@@ -179,6 +182,7 @@ interface RequestContext {
   setHawkHealth(value: HawkHealthReport): Promise<void>;
   aiSessions: AiSessionManager;
   semanticIndex: SemanticWorkspaceIndex;
+  editPredictions: EditPredictionEngine;
   completionLatencies(): number[];
   recordCompletionLatency(latencyMs: number): void;
 }
@@ -306,12 +310,39 @@ async function handleRequest(
   if (req.method === 'POST' && pathname === '/v1/ai/edit-prediction') {
     try {
       const input = parseJSONBody<EditPredictionRequest>(await readBody(req));
-      const prediction = await createEditPrediction(input, context.semanticIndex);
+      const prediction = await context.editPredictions.predict(input);
       context.recordCompletionLatency(prediction.latencyMs);
       sendJSON(res, 200, prediction);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/edit-prediction/feedback') {
+    try {
+      const input = parseJSONBody<EditPredictionFeedback>(await readBody(req));
+      if (
+        typeof input.predictionId !== 'string' ||
+        (input.outcome !== 'accepted' && input.outcome !== 'rejected')
+      ) {
+        throw new Error('predictionId and a valid outcome are required');
+      }
+      sendJSON(res, 200, context.editPredictions.recordFeedback(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/ai/edit-prediction/evaluation') {
+    sendJSON(res, 200, context.editPredictions.report());
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname === '/v1/ai/edit-prediction/cache') {
+    context.editPredictions.clearCache();
+    sendJSON(res, 200, { ok: true });
     return;
   }
 

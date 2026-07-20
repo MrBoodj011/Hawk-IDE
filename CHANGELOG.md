@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-20
+
+### Added
+
+- **Fast, evaluated Hawk Next Edit** — bounded exact and partial-typing
+  continuation caches, concurrent-request deduplication, confidence filtering,
+  editor acceptance/rejection feedback, and a persistent per-model scorecard
+  for valid-edit rate, acceptance proxy, cache reuse, and p50/p95 latency.
+- **Privacy-safe evaluation** — the scorecard stores only aggregate counters
+  and bounded latency samples. Prompts, source, diagnostics, file names, and
+  generated edits remain in memory and are never persisted by evaluation.
+
 ## [0.3.0] - 2026-07-18
 
 ### Added

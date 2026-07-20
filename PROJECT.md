@@ -73,6 +73,10 @@ completion and safe multiline Next Edit. Each prediction is cancellable and
 bounded to a prefix, suffix, recent edit history, diagnostics, and the
 highest-ranked local code regions. A multiline prediction can replace only an
 exact prefix of the text after the cursor, so stale model output is discarded.
+Low-confidence proposals are filtered. Exact requests are cached, duplicate
+requests share one model call, and a partially typed insertion is continued
+from memory. Aggregate acceptance/rejection feedback and latency form a
+privacy-safe persistent scorecard that can compare multiple configured models.
 
 The semantic index persists outside the repository, reuses unchanged files,
 and updates saved/deleted/renamed files incrementally. TypeScript and JavaScript
@@ -88,6 +92,9 @@ primary route emits streamed output, preventing duplicated partial answers.
 
 The coding benchmark measures index time, search p50/p95, recent Hawk Tab
 latency, heap/RSS, and fixed performance gates for large-repository tuning.
+**Hawk: Show Next Edit Model Evaluation** renders cache hit rate, structured
+edit validity, operator acceptance proxy, feedback coverage, model latency,
+and an evidence-confidence-labelled recommendation.
 
 ## Hawk Local AI
 

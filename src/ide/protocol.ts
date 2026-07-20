@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 6;
+export const IDE_PROTOCOL_VERSION = 7;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 

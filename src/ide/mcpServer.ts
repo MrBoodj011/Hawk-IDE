@@ -15,7 +15,7 @@ import { registerSmartMcp } from './smartMcp.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
 const SERVER_NAME = 'hawk-ide';
-const SERVER_VERSION = '0.3.0';
+const SERVER_VERSION = '0.3.1';
 
 interface ParsedArgs {
   workspaceRoot: string;

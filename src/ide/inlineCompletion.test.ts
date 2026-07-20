@@ -63,9 +63,11 @@ describe('createInlineCompletion', () => {
             old_text: 'return fetch(url);',
             new_text:
               'return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });\n// guarded request',
+            confidence: 0.92,
           }),
         },
         finishReason: 'stop',
+        route: { provider: 'fallback-provider', model: 'fallback-edit-model' },
       }),
     };
     const result = await createEditPrediction(
@@ -88,7 +90,52 @@ describe('createInlineCompletion', () => {
     );
 
     expect(result.kind).toBe('next-edit');
+    expect(result.confidence).toBe(0.92);
+    expect(result.provider).toBe('fallback-provider');
+    expect(result.model).toBe('fallback-edit-model');
     expect(result.replaceText).toBe('return fetch(url);');
     expect(result.text).toContain('AbortSignal.timeout');
+  });
+
+  it('filters a syntactically valid edit when the model reports low confidence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-edit-confidence-'));
+    roots.push(root);
+    await writeFile(join(root, 'service.ts'), 'export const enabled = true;\n');
+    const client: Client = {
+      name: () => 'test',
+      model: () => 'edit-test',
+      chat: async () => ({
+        message: {
+          role: 'assistant',
+          content: JSON.stringify({
+            old_text: 'return enabled;',
+            new_text: 'return false;',
+            confidence: 0.31,
+          }),
+        },
+        finishReason: 'stop',
+      }),
+    };
+    const result = await createEditPrediction(
+      {
+        file: 'client.ts',
+        languageId: 'typescript',
+        prefix: 'export function status() {\n  ',
+        suffix: 'return enabled;\n}',
+        minConfidence: 0.7,
+        recentEdits: [
+          {
+            file: 'service.ts',
+            line: 1,
+            before: 'export const enabled = false;',
+            after: 'export const enabled = true;',
+          },
+        ],
+      },
+      new SemanticWorkspaceIndex(root),
+      { client },
+    );
+
+    expect(result).toMatchObject({ text: '', replaceText: '', confidence: 0.31 });
   });
 });

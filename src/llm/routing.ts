@@ -74,7 +74,7 @@ class RoutedClient implements StreamingClient {
     const errors: string[] = [];
     for (const client of this.clients) {
       try {
-        return await client.chat({ ...request, model: client.model() }, signal);
+        return withRoute(await client.chat({ ...request, model: client.model() }, signal), client);
       } catch (error) {
         if (signal?.aborted) throw error;
         errors.push(`${client.name()}: ${errorMessage(error)}`);
@@ -95,15 +95,18 @@ class RoutedClient implements StreamingClient {
         if (!isStreaming(client)) {
           const response = await client.chat({ ...request, model: client.model() }, signal);
           if (response.message.content) onDelta(response.message.content);
-          return response;
+          return withRoute(response, client);
         }
-        return await client.chatStream(
-          { ...request, model: client.model() },
-          (delta) => {
-            emitted = true;
-            onDelta(delta);
-          },
-          signal,
+        return withRoute(
+          await client.chatStream(
+            { ...request, model: client.model() },
+            (delta) => {
+              emitted = true;
+              onDelta(delta);
+            },
+            signal,
+          ),
+          client,
         );
       } catch (error) {
         if (signal?.aborted || emitted) throw error;
@@ -160,4 +163,14 @@ function hydrateConfig(cfg: Config): Config {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function withRoute(response: ChatResponse, client: Client): ChatResponse {
+  return {
+    ...response,
+    route: {
+      provider: client.name(),
+      model: client.model(),
+    },
+  };
 }

@@ -57,6 +57,11 @@ export type FinishReason = 'stop' | 'length' | 'tool_calls' | (string & {});
 export interface ChatResponse {
   message: Message;
   finishReason: FinishReason;
+  /** Actual route used when a configured fallback router handled the call. */
+  route?: {
+    provider: string;
+    model: string;
+  };
 }
 
 /**
