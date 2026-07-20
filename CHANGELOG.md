@@ -32,6 +32,9 @@ All notable changes to this project are documented here. The format is based on
 - Canonical Windows junction roots now retain workspace-relative semantic-index
   paths, and sensitive-file matching canonicalizes existing path aliases before
   evaluating home-directory credential locations.
+- AI-session shutdown now owns and awaits worker line processing/finalization,
+  preventing a disposed manager from racing the restarted recovery process;
+  atomic Windows session replacement also tolerates bounded scanner/read locks.
 - The local IDE API protocol is now version 12.
 
 ## [0.7.0] - 2026-07-20

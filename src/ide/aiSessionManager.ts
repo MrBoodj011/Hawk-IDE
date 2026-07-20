@@ -157,6 +157,7 @@ export class AiSessionManager {
   private readonly workerLaunch: WorkerLaunch;
   private readonly now: () => Date;
   private readonly workers = new Map<string, ChildProcessWithoutNullStreams>();
+  private readonly workerLifecycles = new Map<string, Promise<void>>();
   private readonly testControllers = new Map<string, AbortController>();
   private readonly saveQueues = new Map<string, Promise<void>>();
 
@@ -234,7 +235,8 @@ export class AiSessionManager {
   async dispose(): Promise<void> {
     for (const controller of this.testControllers.values()) controller.abort();
     this.testControllers.clear();
-    for (const [id, child] of this.workers) {
+    const activeWorkers = [...this.workers];
+    for (const [id, child] of activeWorkers) {
       const session = await this.load(id).catch(() => undefined);
       if (session) {
         session.status = 'paused';
@@ -248,6 +250,11 @@ export class AiSessionManager {
       }
       if (!child.killed) child.kill();
     }
+    // The child `close` handler owns line processing and final session state.
+    // Wait for it before returning so a restarted manager (or a recovery
+    // harness) can safely touch the same durable session without racing a
+    // callback from the disposed instance.
+    await Promise.allSettled([...this.workerLifecycles.values()]);
     this.workers.clear();
     await Promise.allSettled(this.saveQueues.values());
   }
@@ -786,8 +793,14 @@ export class AiSessionManager {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.workers.set(session.id, child);
+    let settleLifecycle = (): void => undefined;
+    const lifecycle = new Promise<void>((resolveLifecycle) => {
+      settleLifecycle = resolveLifecycle;
+    });
+    this.workerLifecycles.set(session.id, lifecycle);
     let workerReportedSuccess = false;
     let stderr = '';
+    let spawnFailure = '';
     let lineProcessing = Promise.resolve();
     child.stderr.on('data', (chunk: Buffer) => {
       stderr = boundText(stderr + chunk.toString('utf8'), MAX_TEST_OUTPUT);
@@ -803,18 +816,28 @@ export class AiSessionManager {
         });
     });
     child.once('error', (err) => {
-      void this.failWorker(session.id, err.message);
+      spawnFailure = err.message;
     });
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       reader.close();
       this.workers.delete(session.id);
-      void lineProcessing.then(() =>
-        this.finishWorker(
-          session.id,
-          code === 0 && workerReportedSuccess,
-          stderr || `Hawk worker exited with code ${code ?? 'unknown'}.`,
-        ),
-      );
+      void lineProcessing
+        .then(() =>
+          this.finishWorker(
+            session.id,
+            !spawnFailure && code === 0 && workerReportedSuccess,
+            spawnFailure || stderr || `Hawk worker exited with code ${code ?? 'unknown'}.`,
+          ),
+        )
+        .catch(async (error: unknown) => {
+          await this.failWorker(session.id, errorMessage(error)).catch(() => undefined);
+        })
+        .finally(() => {
+          if (this.workerLifecycles.get(session.id) === lifecycle) {
+            this.workerLifecycles.delete(session.id);
+          }
+          settleLifecycle();
+        });
     });
     child.stdin.end(
       `${JSON.stringify({
@@ -1622,11 +1645,16 @@ async function atomicWrite(path: string, body: Buffer): Promise<void> {
         if (
           process.platform !== 'win32' ||
           !['EACCES', 'EBUSY', 'EPERM'].includes(code ?? '') ||
-          attempt >= 4
+          attempt >= 9
         ) {
           throw err;
         }
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 20 * 2 ** attempt));
+        // Windows scanners and very short-lived readers can temporarily hold
+        // the destination. Preserve atomic replacement and retry for a bounded
+        // ~1.5 seconds instead of deleting the durable state first.
+        await new Promise((resolveDelay) =>
+          setTimeout(resolveDelay, Math.min(250, 20 * 2 ** attempt)),
+        );
       }
     }
     await chmod(path, 0o600).catch(() => undefined);

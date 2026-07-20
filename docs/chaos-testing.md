@@ -10,6 +10,7 @@ handoffs that make that safe:
 | Docker/network adapter throws `ECONNRESET` | The task is recorded as a failed attempt, retries only within its explicit budget, and never leaves the run stuck in `running`. |
 | Recovery itself loses the Docker/network socket | The reattach failure is persisted, the task is reassigned only within its retry budget, and the next worker attempt can complete normally. |
 | Hawk agent process disappears while a background task is editing an isolated worktree | The saved session/worktree is reopened, the task auto-resumes once, and the resulting diff is still reviewable. |
+| Hawk shuts down while worker stdout/finalization is still draining | Shutdown pauses the task, terminates the child, and awaits its owned finalizer before a restarted manager can mutate the durable session. |
 | 100 snapshots or 120 event appends arrive concurrently | Writes are serialized, snapshots remain complete JSON, and every JSONL event is stored exactly once in submission order. |
 | MCP completion, failure, and cancellation race for one task | Exactly one terminal transition wins; later terminal writes are rejected instead of overwriting the result. |
 | A crash leaves a truncated JSONL record | Valid durable records remain recoverable and the malformed partial record is not interpreted as an event. |
