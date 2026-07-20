@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -48,6 +48,31 @@ describe('SemanticWorkspaceIndex', () => {
     expect(stats.files).toBe(1);
     expect(index.search('HawkRuntime')).toHaveLength(1);
     expect(index.search('poisoned')).toHaveLength(0);
+  });
+
+  it('keeps canonical workspace files relative when the selected root is a junction', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'hawk-semantic-linked-root-'));
+    roots.push(parent);
+    const realRoot = join(parent, 'real-workspace');
+    const linkedRoot = join(parent, 'selected-workspace');
+    await mkdir(join(realRoot, 'src'), { recursive: true });
+    await writeFile(
+      join(realRoot, 'src', 'linked.ts'),
+      'export function linkedWorkspaceSignal(): boolean { return true; }\n',
+    );
+    try {
+      await symlink(realRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return;
+      throw error;
+    }
+
+    const index = new SemanticWorkspaceIndex(linkedRoot, {
+      storageRoot: join(parent, '.cache'),
+    });
+    await index.build();
+
+    expect(index.search('linkedWorkspaceSignal')[0]?.file).toBe('src/linked.ts');
   });
 
   it('persists AST/type facts and updates only a changed file', async () => {

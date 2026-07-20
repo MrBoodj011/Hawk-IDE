@@ -424,7 +424,7 @@ The latest local validation snapshot for the current source tree:
 | Check | Result |
 | --- | --- |
 | Test files | 99 |
-| Tests passed | 775 |
+| Tests passed | 776 |
 | Tests skipped | 16 |
 | Chaos scenarios | 4/4 |
 | TypeScript / Biome / tsup build | PASS |

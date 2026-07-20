@@ -368,7 +368,11 @@ export class SemanticWorkspaceIndex {
         truncated = true;
         break;
       }
-      const file = relative(this.root, absolutePath).replaceAll('\\', '/');
+      // Windows temp/workspace roots can be junctions whose real path uses a
+      // different lexical prefix (for example a short 8.3 user directory).
+      // Relativize against the same canonical root used during discovery so a
+      // valid workspace file never becomes ../../outside-looking metadata.
+      const file = relative(discovered.root, absolutePath).replaceAll('\\', '/');
       const previous = previousFiles.get(file);
       if (previous && previous.size === info.size && previous.mtimeMs === info.mtimeMs) {
         if (previous.truncated) truncated = true;
@@ -731,7 +735,9 @@ export class SemanticWorkspaceIndex {
   }
 }
 
-async function collectSourceFiles(root: string): Promise<{ paths: string[]; truncated: boolean }> {
+async function collectSourceFiles(
+  root: string,
+): Promise<{ root: string; paths: string[]; truncated: boolean }> {
   const canonicalRoot = await realpath(root).catch(() => root);
   const paths: string[] = [];
   let truncated = false;
@@ -764,7 +770,7 @@ async function collectSourceFiles(root: string): Promise<{ paths: string[]; trun
     }
   };
   await visit(canonicalRoot);
-  return { paths, truncated };
+  return { root: canonicalRoot, paths, truncated };
 }
 
 function chunkFile(file: string, content: string): { chunks: IndexedChunk[]; truncated: boolean } {

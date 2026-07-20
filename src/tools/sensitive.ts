@@ -3,6 +3,7 @@
 // private keys, or other secrets the model should not read without an
 // explicit user prompt.
 
+import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, sep } from 'node:path';
 
@@ -49,19 +50,28 @@ export function isSensitivePath(abs: string): boolean {
   for (const path of SYSTEM_PATHS) {
     if (slashPath === path || slashPath.startsWith(`${path}/`)) return true;
   }
-  const cleaned = resolve(abs);
+  const cleaned = canonicalExistingPath(abs);
 
   for (const p of SYSTEM_PATHS) {
     if (matchesPath(cleaned, p)) return true;
   }
 
-  const home = homedir();
+  const home = canonicalExistingPath(homedir());
   if (!home) return false;
 
   for (const rel of HOME_RELATIVE) {
     if (matchesPath(cleaned, resolve(home, rel))) return true;
   }
   return false;
+}
+
+function canonicalExistingPath(path: string): string {
+  if (!path) return '';
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 // Exact-or-directory-prefix match. Case-insensitive so the gate still fires on

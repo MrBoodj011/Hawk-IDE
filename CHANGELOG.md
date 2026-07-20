@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format is based on
   records no longer make valid durable history unreadable, and the restricted
   egress proxy now enforces method, header, request, keep-alive, and timeout
   bounds.
+- Canonical Windows junction roots now retain workspace-relative semantic-index
+  paths, and sensitive-file matching canonicalizes existing path aliases before
+  evaluating home-directory credential locations.
 - The local IDE API protocol is now version 12.
 
 ## [0.7.0] - 2026-07-20
