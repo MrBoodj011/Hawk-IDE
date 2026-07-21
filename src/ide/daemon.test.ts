@@ -335,6 +335,66 @@ describe('startIdeDaemon', () => {
         scope: 'passive-workspace',
         reportPath: expect.stringMatching(/^\.hawk\/reports\//),
       });
+      const securityTemplates = await fetch(`${daemon.url}/v1/security-tests/templates`, {
+        headers,
+      });
+      expect(securityTemplates.status).toBe(200);
+      await expect(securityTemplates.json()).resolves.toMatchObject({
+        templates: expect.arrayContaining([
+          expect.objectContaining({ id: 'static-code', requiresApproval: true }),
+          expect.objectContaining({ id: 'sandbox-signal', execution: 'sandbox-plan' }),
+        ]),
+      });
+      const securityPlanResponse = await fetch(
+        `${daemon.url}/v1/security-tests/plan?templateId=static-code`,
+        { headers },
+      );
+      expect(securityPlanResponse.status).toBe(200);
+      const securityPlan = (await securityPlanResponse.json()) as {
+        templateId: string;
+        approvalHash: string;
+        policyHash: string;
+      };
+      expect(securityPlan).toMatchObject({
+        templateId: 'static-code',
+        approvalHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        policyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const securityRun = await fetch(`${daemon.url}/v1/security-tests/run`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approved: true,
+          templateId: securityPlan.templateId,
+          approvalHash: securityPlan.approvalHash,
+        }),
+      });
+      expect(securityRun.status).toBe(200);
+      await expect(securityRun.json()).resolves.toMatchObject({
+        status: 'completed',
+        templateId: 'static-code',
+        reportPath: expect.stringMatching(/^\.hawk\/security-tests\//),
+      });
+      const governance = await fetch(`${daemon.url}/v1/governance/policy`, { headers });
+      expect(governance.status).toBe(200);
+      await expect(governance.json()).resolves.toMatchObject({
+        policy: { defaultDecision: 'require-approval' },
+        policyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const registry = await fetch(`${daemon.url}/v1/mcp/registry`, { headers });
+      expect(registry.status).toBe(200);
+      await expect(registry.json()).resolves.toMatchObject({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'hawk_security_test_run', requiresApproval: true }),
+        ]),
+      });
+      const profiles = await fetch(`${daemon.url}/v1/docker/agent-profiles`, { headers });
+      expect(profiles.status).toBe(200);
+      await expect(profiles.json()).resolves.toMatchObject({
+        profiles: expect.arrayContaining([
+          expect.objectContaining({ id: 'security-sandbox', networkMode: 'none' }),
+        ]),
+      });
       const evidence = await fetch(`${daemon.url}/v1/reports/evidence`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },

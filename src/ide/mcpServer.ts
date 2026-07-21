@@ -3,13 +3,22 @@ import { join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { listDockerAgentProfiles, profileAgentInstances } from './dockerAgentProfiles.js';
 import { DockerDesktopController } from './dockerDesktop.js';
 import { DurableMcpTaskStore } from './durableMcpTaskStore.js';
+import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
 import { importHawkHealthReport } from './hawkReport.js';
+import { listMcpToolGovernance } from './mcpGovernance.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { SandboxVulnerabilityReproducer } from './sandboxReproduction.js';
+import {
+  type SecurityTestTemplateId,
+  createSecurityTestPlan,
+  listSecurityTestTemplates,
+  runApprovedSecurityTest,
+} from './securityTesting.js';
 import { SmartMcpBrain } from './smartBrain.js';
 import { createCoreCapabilityExecutor } from './smartExecutor.js';
 import { registerSmartMcp } from './smartMcp.js';
@@ -139,6 +148,135 @@ async function main(): Promise<void> {
         : inventory.routes;
       return textResult(JSON.stringify({ sourceFiles: inventory.sourceFiles, routes }, null, 2));
     },
+  );
+  mcp.registerTool(
+    'hawk_security_test_templates',
+    {
+      title: 'List governed security-test templates',
+      description:
+        'List bounded security tests. Every test is approval-bound; offline and captured-only tests never generate target traffic.',
+      inputSchema: {},
+    },
+    async () =>
+      textResult(JSON.stringify({ templates: await listSecurityTestTemplates() }, null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_security_test_plan',
+    {
+      title: 'Plan a governed security test',
+      description:
+        'Create a deterministic SHA-256 plan for a passive, captured-only, dependency, or sandbox hand-off test. Planning never executes project code.',
+      inputSchema: {
+        template_id: z.enum([
+          'static-code',
+          'route-coverage',
+          'dependency-manifest',
+          'sandbox-signal',
+        ]),
+        scope_hosts: z.array(z.string().min(1).max(253)).max(32).optional(),
+        max_requests_per_second: z.number().min(0).max(1_000).optional(),
+      },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          JSON.stringify(
+            await createSecurityTestPlan({
+              workspaceRoot: args.workspaceRoot,
+              templateId: input.template_id as SecurityTestTemplateId,
+              scopeHosts: input.scope_hosts,
+              maxRequestsPerSecond: input.max_requests_per_second,
+            }),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_security_test_run',
+    {
+      title: 'Run an approved security test',
+      description:
+        'Run the exact approved passive/captured-only security-test plan. No target request is replayed or generated; sandbox-signal remains a hand-off plan.',
+      inputSchema: {
+        template_id: z.enum([
+          'static-code',
+          'route-coverage',
+          'dependency-manifest',
+          'sandbox-signal',
+        ]),
+        scope_hosts: z.array(z.string().min(1).max(253)).max(32).optional(),
+        max_requests_per_second: z.number().min(0).max(1_000).optional(),
+        approval_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        approved: z.literal(true),
+      },
+    },
+    async (input) => {
+      try {
+        const plan = await createSecurityTestPlan({
+          workspaceRoot: args.workspaceRoot,
+          templateId: input.template_id as SecurityTestTemplateId,
+          scopeHosts: input.scope_hosts,
+          maxRequestsPerSecond: input.max_requests_per_second,
+        });
+        return textResult(
+          JSON.stringify(
+            await runApprovedSecurityTest({
+              workspaceRoot: args.workspaceRoot,
+              plan,
+              approvalHash: input.approval_hash,
+              approved: input.approved,
+            }),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_governance_policy',
+    {
+      title: 'Inspect Hawk governance policy',
+      description:
+        'Read .hawk/governance.json or the safe default policy and return its content hash. This never changes policy.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const policy = await loadGovernancePolicy(args.workspaceRoot);
+        return textResult(
+          JSON.stringify({ policy, policyHash: governancePolicyHash(policy) }, null, 2),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_mcp_registry',
+    {
+      title: 'Inspect Hawk MCP governance registry',
+      description: 'List Hawk tools with risk, approval, mutation, and network metadata.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify({ tools: listMcpToolGovernance() }, null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_docker_agent_profiles',
+    {
+      title: 'List bounded Docker agent profiles',
+      description:
+        'List safe local Docker worker pool presets with capability, resource, and network boundaries.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify({ profiles: listDockerAgentProfiles() }, null, 2)),
   );
   mcp.registerTool(
     'hawk_supply_chain_health',
@@ -507,6 +645,12 @@ async function main(): Promise<void> {
           ),
         schedule_strategy: z.enum(['balanced', 'latency', 'throughput']).optional(),
         lease_seconds: z.number().int().min(15).max(600).optional(),
+        agent_profile: z
+          .enum(['balanced', 'security-sandbox', 'throughput'])
+          .optional()
+          .describe(
+            'Optional bounded worker-pool preset. Explicit agent_instances take precedence.',
+          ),
         agent_instances: z
           .array(
             z.object({
@@ -529,6 +673,17 @@ async function main(): Promise<void> {
     },
     async (input) => {
       try {
+        const profileInstances = input.agent_instances
+          ? input.agent_instances.map((instance) => ({
+              id: instance.id,
+              capabilities: instance.capabilities,
+              maxConcurrent: instance.max_concurrent,
+              cpuCapacity: instance.cpu_capacity,
+              memoryMbCapacity: instance.memory_mb_capacity,
+            }))
+          : input.agent_profile
+            ? profileAgentInstances(input.agent_profile)
+            : undefined;
         const run = await orchestrator.start({
           image: input.image,
           tasks: input.tasks.map((task) => ({
@@ -559,13 +714,7 @@ async function main(): Promise<void> {
           approvedExternalAccess: input.approved_external_access,
           scheduleStrategy: input.schedule_strategy,
           leaseSeconds: input.lease_seconds,
-          agentInstances: input.agent_instances?.map((instance) => ({
-            id: instance.id,
-            capabilities: instance.capabilities,
-            maxConcurrent: instance.max_concurrent,
-            cpuCapacity: instance.cpu_capacity,
-            memoryMbCapacity: instance.memory_mb_capacity,
-          })),
+          agentInstances: profileInstances,
         });
         return textResult(JSON.stringify(run, null, 2));
       } catch (err) {

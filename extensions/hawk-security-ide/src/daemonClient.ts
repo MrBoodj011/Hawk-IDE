@@ -21,15 +21,19 @@ import type {
   GovernedMissionPlan,
   GovernedMissionProfile,
   HawkHealthReport,
-  InlineCompletionResponse,
   IdentityReplayPlan,
   IdentityReplayResult,
+  InlineCompletionResponse,
   ObservabilitySnapshot,
   RetestResult,
   SandboxReproductionPlan,
   SandboxReproductionResult,
   SandboxReproductionsResponse,
   SecurityGraphResponse,
+  SecurityTestPlan,
+  SecurityTestResult,
+  SecurityTestTemplateId,
+  SecurityTestTemplatesResponse,
   SemanticIndexStats,
   SemanticSearchResponse,
   StaticAuditReport,
@@ -401,6 +405,46 @@ export class DaemonClient implements vscode.Disposable {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approved: true }),
+    });
+  }
+
+  async securityTestTemplates(workspace: vscode.Uri): Promise<SecurityTestTemplatesResponse> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityTestTemplatesResponse>(
+      daemon,
+      '/v1/security-tests/templates',
+    );
+  }
+
+  async securityTestPlan(
+    workspace: vscode.Uri,
+    templateId: SecurityTestTemplateId,
+    scopeHosts: string[] = [],
+  ): Promise<SecurityTestPlan> {
+    const daemon = await this.start(workspace);
+    const query = new URLSearchParams({ templateId });
+    for (const host of scopeHosts) query.append('host', host);
+    return await this.request<SecurityTestPlan>(
+      daemon,
+      `/v1/security-tests/plan?${query.toString()}`,
+    );
+  }
+
+  async runApprovedSecurityTest(
+    workspace: vscode.Uri,
+    plan: SecurityTestPlan,
+  ): Promise<SecurityTestResult> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityTestResult>(daemon, '/v1/security-tests/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        approved: true,
+        templateId: plan.templateId,
+        scopeHosts: plan.scopeHosts,
+        maxRequestsPerSecond: plan.rateLimit.maxRequestsPerSecond,
+        approvalHash: plan.approvalHash,
+      }),
     });
   }
 

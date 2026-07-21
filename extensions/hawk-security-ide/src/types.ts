@@ -433,11 +433,83 @@ export interface WorkspaceScanReport {
   statement: string;
 }
 
+export type SecurityTestTemplateId =
+  | 'static-code'
+  | 'route-coverage'
+  | 'dependency-manifest'
+  | 'sandbox-signal';
+
+export interface SecurityTestTemplate {
+  id: SecurityTestTemplateId;
+  title: string;
+  description: string;
+  execution: 'offline' | 'captured-only' | 'sandbox-plan';
+  networkPolicy: 'offline' | 'captured-only';
+  requiresApproval: true;
+  rateLimit: { maxRequestsPerSecond: number; maxRequests: number };
+  checks: string[];
+  safety: string;
+}
+
+export interface SecurityTestTemplatesResponse {
+  protocolVersion: number;
+  templates: SecurityTestTemplate[];
+}
+
+export interface SecurityTestPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  templateId: SecurityTestTemplateId;
+  title: string;
+  workspaceRoot: string;
+  scopeHosts: string[];
+  execution: SecurityTestTemplate['execution'];
+  networkPolicy: SecurityTestTemplate['networkPolicy'];
+  rateLimit: { maxRequestsPerSecond: number; maxRequests: number };
+  checks: string[];
+  approvalHash: string;
+  policyHash: string;
+  governance: {
+    decision: 'allow' | 'require-approval' | 'deny';
+    reasons: string[];
+    policyHash: string;
+  };
+  statement: string;
+}
+
+export interface SecurityTestResult {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  templateId: SecurityTestTemplateId;
+  status: 'completed';
+  approvalHash: string;
+  policyHash: string;
+  startedAt: string;
+  completedAt: string;
+  sourceFiles: number;
+  routes: number;
+  findings: SecurityFinding[];
+  trafficRequests: number;
+  observedRoutes: number;
+  dependency?: {
+    manifests: string[];
+    lockfiles: string[];
+    installScripts: string[];
+    packageManagers: string[];
+  };
+  reportPath: string;
+  statement: string;
+}
+
 export interface EvidencePackArtifact {
   format: 'markdown' | 'html' | 'json' | 'sarif';
   path: string;
   bytes: number;
   sha256: string;
+  previousSha256?: string;
+  entrySha256?: string;
 }
 
 export interface EvidencePackReport {
@@ -454,6 +526,8 @@ export interface EvidencePackReport {
   trafficRequests: number;
   findings: number;
   artifacts: EvidencePackArtifact[];
+  chainVersion?: 1;
+  chainRootSha256?: string;
 }
 
 export type SecurityGraphNodeKind =

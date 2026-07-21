@@ -451,6 +451,48 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  async runGovernedSecurityTest(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    try {
+      const templates = await this.client.securityTestTemplates(workspace);
+      const choice = await vscode.window.showQuickPick(
+        templates.templates.map((template) => ({
+          label: template.title,
+          description: `${template.execution} Â· ${template.networkPolicy}`,
+          detail: template.description,
+          template,
+        })),
+        {
+          title: 'Choose a governed Hawk security test',
+          placeHolder: 'Every test is approval-bound and never generates target traffic.',
+          matchOnDescription: true,
+          matchOnDetail: true,
+        },
+      );
+      if (!choice) return;
+      const plan = await this.client.securityTestPlan(workspace, choice.template.id);
+      const approval = await vscode.window.showWarningMessage(
+        `${plan.statement}\n\nChecks: ${plan.checks.join(' Â· ')}`,
+        {
+          modal: true,
+          detail: `Governance: ${plan.governance.decision}. Approval is bound to ${plan.approvalHash.slice(0, 12)}â€¦`,
+        },
+        'Approve exact security test',
+      );
+      if (approval !== 'Approve exact security test') return;
+      const result = await this.client.runApprovedSecurityTest(workspace, plan);
+      vscode.window.showInformationMessage(
+        `Hawk completed ${plan.title}: ${result.findings.length} signal${result.findings.length === 1 ? '' : 's'} recorded.`,
+      );
+      await this.openScanReport(workspace, result.reportPath);
+      await this.refresh();
+    } catch (err) {
+      vscode.window.showErrorMessage(`Hawk could not run the security test: ${errorMessage(err)}`);
+      await this.refresh();
+    }
+  }
+
   async buildEvidencePack(): Promise<void> {
     const workspace = requireWorkspace();
     if (!workspace) return;
@@ -651,6 +693,10 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     }
     if (action === 'workspace-scan') {
       await this.runApprovedWorkspaceScan();
+      return;
+    }
+    if (action === 'security-test') {
+      await this.runGovernedSecurityTest();
       return;
     }
     if (action === 'evidence-pack') {
@@ -895,6 +941,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     <button id="index">Index security surface</button>
     <button id="audit">Run local code audit</button>
     <button id="workspace-scan">Run approved workspace scan</button>
+    <button id="security-test">Run governed security test</button>
     <button id="open-agent">Open Hawk agent</button>
     <button id="import-har" class="secondary">Import HAR</button>
     <button id="import-hawk" class="secondary">Import Hawk health</button>
@@ -923,6 +970,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     document.getElementById('index').addEventListener('click', () => vscode.postMessage({ action: 'index' }));
     document.getElementById('audit').addEventListener('click', () => vscode.postMessage({ action: 'audit' }));
     document.getElementById('workspace-scan').addEventListener('click', () => vscode.postMessage({ action: 'workspace-scan' }));
+    document.getElementById('security-test').addEventListener('click', () => vscode.postMessage({ action: 'security-test' }));
     document.getElementById('open-agent').addEventListener('click', () => vscode.postMessage({ action: 'open-agent' }));
     document.getElementById('import-har').addEventListener('click', () => vscode.postMessage({ action: 'import-har' }));
     document.getElementById('import-hawk').addEventListener('click', () => vscode.postMessage({ action: 'import-hawk' }));

@@ -93,6 +93,8 @@ An in-editor engineering room with streaming responses, plans, tool events, task
 - Findings triage with source navigation, reproduction, retest, evidence packs, and proof history.
 - Security Graph linking repositories, files, symbols, routes, requests, identities, findings, patches, tests, runs, and artifacts.
 
+Hawk also exposes a governed security-test catalog (`static-code`, `route-coverage`, `dependency-manifest`, and `sandbox-signal`) through the daemon and MCP. Every plan is bound to an approval hash and workspace governance hash. Docker worker presets (`balanced`, `security-sandbox`, and `throughput`), MCP risk metadata, and a tamper-evident evidence artifact chain are documented in [Security testing, agent mesh, and governance](docs/security-testing-governance.md).
+
 ### Browser and Burp companions
 
 Capture is disabled by default and stays bounded by pairing, URL scope, request rate, redaction, and queue limits.

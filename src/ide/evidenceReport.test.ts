@@ -50,6 +50,8 @@ describe('evidence report builder', () => {
       observedRoutes: 1,
       trafficRequests: 1,
       findings: 1,
+      chainVersion: 1,
+      chainRootSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       artifacts: expect.arrayContaining([
         expect.objectContaining({
           format: 'markdown',
@@ -59,6 +61,10 @@ describe('evidence report builder', () => {
         expect.objectContaining({ format: 'sarif' }),
       ]),
     });
+    const chained = report.artifacts.filter((artifact) => artifact.entrySha256);
+    expect(chained.length).toBeGreaterThanOrEqual(4);
+    expect(chained[0]).toMatchObject({ previousSha256: '0'.repeat(64) });
+    expect(chained.every((artifact) => artifact.entrySha256?.match(/^[a-f0-9]{64}$/))).toBe(true);
     const markdown = await readFile(join(root, ...report.primaryReportPath.split('/')), 'utf8');
     expect(markdown).toContain('GET /users/:id');
     expect(markdown).toContain('%5BREDACTED%5D');

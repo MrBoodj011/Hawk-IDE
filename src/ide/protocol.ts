@@ -251,6 +251,8 @@ export interface EvidencePackArtifact {
   path: string;
   bytes: number;
   sha256: string;
+  previousSha256?: string;
+  entrySha256?: string;
 }
 
 /** Sanitized, portable evidence bundle generated only after explicit operator approval. */
@@ -268,6 +270,8 @@ export interface EvidencePackReport {
   trafficRequests: number;
   findings: number;
   artifacts: EvidencePackArtifact[];
+  chainVersion?: 1;
+  chainRootSha256?: string;
 }
 
 export type SandboxReproductionGateId = 'baseline' | 'control' | 'reproduction';

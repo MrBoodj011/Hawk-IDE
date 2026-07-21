@@ -106,20 +106,46 @@ export async function buildEvidencePack(
     outputs.map((output) => writeFile(join(directory, output.name), output.content)),
   );
   const artifacts = outputs.map((output) => artifact(directoryPath, output));
+  let previousSha256 = '0'.repeat(64);
+  const chainedArtifacts = artifacts.map((entry) => {
+    const entrySha256 = sha256(
+      JSON.stringify({
+        path: entry.path,
+        bytes: entry.bytes,
+        sha256: entry.sha256,
+        previousSha256,
+      }),
+    );
+    const chained = { ...entry, previousSha256, entrySha256 };
+    previousSha256 = entrySha256;
+    return chained;
+  });
+  const chainRootSha256 = previousSha256;
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id,
     generatedAt: evidence.generatedAt,
     statement: STATEMENT,
-    artifacts,
+    chainVersion: 1,
+    chainRootSha256,
+    artifacts: chainedArtifacts,
   };
   const manifestContent = `${JSON.stringify(manifest, null, 2)}\n`;
   await writeFile(join(directory, 'manifest.json'), manifestContent, 'utf8');
-  artifacts.push({
+  chainedArtifacts.push({
     format: 'json',
     path: `${directoryPath}/manifest.json`,
     bytes: Buffer.byteLength(manifestContent),
     sha256: sha256(manifestContent),
+    previousSha256: chainRootSha256,
+    entrySha256: sha256(
+      JSON.stringify({
+        path: `${directoryPath}/manifest.json`,
+        bytes: Buffer.byteLength(manifestContent),
+        sha256: sha256(manifestContent),
+        previousSha256: chainRootSha256,
+      }),
+    ),
   });
 
   return {
@@ -131,7 +157,9 @@ export async function buildEvidencePack(
     primaryReportPath: `${directoryPath}/report.md`,
     statement: STATEMENT,
     ...evidence.summary,
-    artifacts,
+    artifacts: chainedArtifacts,
+    chainVersion: 1,
+    chainRootSha256,
   };
 }
 

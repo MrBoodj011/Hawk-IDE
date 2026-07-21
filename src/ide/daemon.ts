@@ -15,9 +15,11 @@ import type {
 } from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
 import { runCodingCoreBenchmark } from './codingBenchmark.js';
+import { listDockerAgentProfiles } from './dockerAgentProfiles.js';
 import { DurableStore } from './durableStore.js';
 import { EditPredictionEngine, type EditPredictionFeedback } from './editPredictionEngine.js';
 import { buildEvidencePack } from './evidenceReport.js';
+import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import {
@@ -30,6 +32,7 @@ import {
   type InlineCompletionRequest,
   createInlineCompletion,
 } from './inlineCompletion.js';
+import { listMcpToolGovernance } from './mcpGovernance.js';
 import { HawkObservability } from './observability.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import { ProofGraph } from './proofGraph.js';
@@ -57,6 +60,12 @@ import {
   SandboxVulnerabilityReproducer,
 } from './sandboxReproduction.js';
 import { buildUnifiedSecurityGraph, securityGraphResponse } from './securityGraph.js';
+import {
+  type SecurityTestTemplateId,
+  createSecurityTestPlan,
+  listSecurityTestTemplates,
+  runApprovedSecurityTest,
+} from './securityTesting.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import {
@@ -850,6 +859,82 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/security-tests/templates') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      templates: await listSecurityTestTemplates(),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/security-tests/plan') {
+    try {
+      const templateId = parseSecurityTestTemplateId(
+        requestURL.searchParams.get('templateId') ?? 'static-code',
+      );
+      const hosts = requestURL.searchParams.getAll('host');
+      const plan = await createSecurityTestPlan({
+        workspaceRoot: context.workspaceRoot,
+        templateId,
+        scopeHosts: hosts,
+        maxRequestsPerSecond: parseOptionalRate(requestURL.searchParams.get('rate')),
+        now: context.now(),
+      });
+      sendJSON(res, 200, plan);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security-tests/run') {
+    try {
+      const input = parseSecurityTestRunRequest(await readBody(req));
+      const plan = await createSecurityTestPlan({
+        workspaceRoot: context.workspaceRoot,
+        templateId: input.templateId,
+        scopeHosts: input.scopeHosts,
+        maxRequestsPerSecond: input.maxRequestsPerSecond,
+      });
+      const result = await runApprovedSecurityTest({
+        workspaceRoot: context.workspaceRoot,
+        plan,
+        approvalHash: input.approvalHash,
+        approved: input.approved,
+        traffic: context.traffic(),
+        now: context.now(),
+      });
+      context.setFindings(result.findings);
+      sendJSON(res, 200, result);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/governance/policy') {
+    try {
+      const policy = await loadGovernancePolicy(context.workspaceRoot);
+      sendJSON(res, 200, { policy, policyHash: governancePolicyHash(policy) });
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/mcp/registry') {
+    sendJSON(res, 200, { protocolVersion: IDE_PROTOCOL_VERSION, tools: listMcpToolGovernance() });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/docker/agent-profiles') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      profiles: listDockerAgentProfiles(),
+    });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/scans/plan') {
     try {
       const templateId = parseTemplateId(
@@ -1191,6 +1276,62 @@ function parseTemplateId(value: string): WorkspaceScanTemplateId {
     throw new Error('unsupported scan template');
   }
   return value;
+}
+
+function parseSecurityTestTemplateId(value: string): SecurityTestTemplateId {
+  if (
+    value !== 'static-code' &&
+    value !== 'route-coverage' &&
+    value !== 'dependency-manifest' &&
+    value !== 'sandbox-signal'
+  ) {
+    throw new Error('unsupported security test template');
+  }
+  return value;
+}
+
+function parseOptionalRate(value: string | null): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1_000) {
+    throw new Error('rate must be a number between 0 and 1000');
+  }
+  return rate;
+}
+
+function parseSecurityTestRunRequest(body: Buffer): {
+  approved: true;
+  templateId: SecurityTestTemplateId;
+  approvalHash: string;
+  scopeHosts: string[];
+  maxRequestsPerSecond?: number;
+} {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (request.approved !== true)
+    throw new Error('operator approval is required for a security test');
+  if (typeof request.templateId !== 'string')
+    throw new Error('security test template id is required');
+  if (typeof request.approvalHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.approvalHash)) {
+    throw new Error('a valid security test approval hash is required');
+  }
+  const hosts = request.scopeHosts ?? [];
+  if (
+    !Array.isArray(hosts) ||
+    hosts.length > 32 ||
+    !hosts.every((host) => typeof host === 'string')
+  ) {
+    throw new Error('security test scopeHosts must be a bounded string list');
+  }
+  return {
+    approved: true,
+    templateId: parseSecurityTestTemplateId(request.templateId),
+    approvalHash: request.approvalHash,
+    scopeHosts: hosts as string[],
+    maxRequestsPerSecond:
+      request.maxRequestsPerSecond === undefined
+        ? undefined
+        : parseOptionalRate(String(request.maxRequestsPerSecond)),
+  };
 }
 
 function parseJSONBody<T>(body: Buffer): T {
