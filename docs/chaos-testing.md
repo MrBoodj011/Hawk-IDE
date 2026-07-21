@@ -26,12 +26,14 @@ The tests use in-process fault-injecting runtimes and a tiny worker fixture; no
 Docker daemon, network target, model key, or external service is required. This
 makes them suitable for every pull request and for reproducing recovery bugs.
 
-For release hardening, run the same scenarios against a disposable Docker
-daemon as a scheduled job: stop/restart the daemon during a labelled worker,
-drop the daemon socket/network route, and restart the Hawk control process.
-Compare the resulting `run.json`, task attempt count, lease state, and agent
-session events with the invariants above. Never run that destructive variant
-against an operator's active workspace.
+For release hardening, the scheduled `Hawk Docker Soak` workflow pulls a
+known worker image, runs eight bounded real Docker workers concurrently, and
+verifies that each worker's artifact survives container shutdown and passes
+the safe-tree audit. It also runs the deterministic crash/restart/recovery
+suite above. The soak command is available locally as
+`npm run test:docker-soak -- --strict`; it requires an explicitly pre-pulled
+image and never pulls implicitly. Keep any future daemon-stop variant on a
+disposable runner and never against an operator's active workspace.
 
 The normal CI gate also runs `npm run test:e2e-runtime:built`. That test starts
 the extension-packaged daemon and MCP server as separate child processes,

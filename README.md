@@ -433,7 +433,7 @@ The latest local validation snapshot for the current source tree:
 | TypeScript / Biome / tsup build | PASS |
 | Packaged daemon + MCP runtime E2E | PASS |
 | Index benchmark | PASS, 1.55 s cold build and peak RSS under the 500 MiB limit |
-| Coverage gate | PASS, 66.67% statements / 58.51% branches / 66.86% functions / 69.39% lines |
+| Coverage gate | PASS, 66.71% statements / 58.57% branches / 66.90% functions / 69.44% lines |
 | Desktop extension-host E2E | PASS locally on VS Code 1.129.1 |
 | Production dependency audit | 0 vulnerabilities |
 | Branding guard | PASS across the working tree |

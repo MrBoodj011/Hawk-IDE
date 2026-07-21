@@ -50,6 +50,9 @@ All notable changes to this project are documented here. The format is based on
 - Semantic-index cold builds now stat files and parse changed files through
   bounded worker pools; the local benchmark is below the five-second target
   while preserving the resident-memory budget.
+- Docker worker artifacts now use a scoped host bind mount with a post-run
+  safe-tree audit, so output survives container shutdown without relying on a
+  released tmpfs mount.
 - Release readiness selects the newest completed run per required Hawk workflow,
   so historical failed Actions runs cannot mask a current green build.
 - The local IDE API protocol is now version 12.

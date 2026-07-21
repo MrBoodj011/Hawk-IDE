@@ -888,10 +888,14 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       'nofile=1024:1024',
       '--tmpfs',
       '/tmp:rw,noexec,nosuid,size=128m,uid=65532,gid=65532,mode=0700',
-      '--tmpfs',
-      `/output:rw,noexec,nosuid,size=${context.artifactMb}m,uid=65532,gid=65532,mode=0700`,
       '--mount',
       `type=bind,source=${context.workspaceRoot},target=/workspace,readonly`,
+      // A stopped container releases tmpfs mounts before `docker cp` can read
+      // them. Bind each task's already-created, mode-0700 artifact directory
+      // instead; it stays bounded and lets the post-run safety audit inspect
+      // the exact files the worker produced without trusting container paths.
+      '--mount',
+      `type=bind,source=${context.outputDirectory},target=/output`,
       '--workdir',
       '/workspace',
       '--env',
@@ -964,9 +968,10 @@ export class DockerWorkerRuntime implements WorkerRuntime {
         });
       });
       child.once('close', (code) => {
-        void this.copyArtifacts(containerName, context.outputDirectory, context.workspaceRoot)
+        void assertNoSymlinkPath(context.outputDirectory, context.workspaceRoot)
+          .then(() => assertSafeArtifactTree(context.outputDirectory))
           .then(() => undefined)
-          .catch((error) => `Hawk could not collect worker artifacts: ${errorMessage(error)}`)
+          .catch((error) => `Hawk rejected worker artifacts: ${errorMessage(error)}`)
           .then(async (artifactError) => {
             await this.removeContainer(containerName);
             finish({
@@ -1027,10 +1032,11 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       outputTruncated = true;
     }
     try {
-      await this.copyArtifacts(containerName, context.outputDirectory, context.workspaceRoot);
+      await assertNoSymlinkPath(context.outputDirectory, context.workspaceRoot);
+      await assertSafeArtifactTree(context.outputDirectory);
     } catch (error) {
       exitCode = -1;
-      output = `${output}\nHawk could not collect worker artifacts: ${errorMessage(error)}`.trim();
+      output = `${output}\nHawk rejected worker artifacts: ${errorMessage(error)}`.trim();
     }
     await this.removeContainer(containerName);
     return {
@@ -1129,24 +1135,6 @@ export class DockerWorkerRuntime implements WorkerRuntime {
     } catch {
       // Docker may be offline during startup. A later initialization reconciles retained workers.
     }
-  }
-
-  private async copyArtifacts(
-    containerName: string,
-    outputDirectory: string,
-    workspaceRoot: string,
-  ): Promise<void> {
-    await assertNoSymlinkPath(outputDirectory, workspaceRoot);
-    await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
-    await assertNoSymlinkPath(outputDirectory, workspaceRoot);
-    await execFileAsync('docker', ['cp', `${containerName}:/output/.`, outputDirectory], {
-      encoding: 'utf8',
-      timeout: 60_000,
-      windowsHide: true,
-    });
-    // Docker copies untrusted worker output. Refuse symlinks and special files
-    // before any later report/evidence reader can accidentally follow them.
-    await assertSafeArtifactTree(outputDirectory);
   }
 
   private async ensureRestrictedEgress(context: WorkerTaskContext): Promise<void> {
