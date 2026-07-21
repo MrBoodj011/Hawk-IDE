@@ -126,7 +126,7 @@ async function githubActionsCheck() {
         'run',
         'list',
         '--limit',
-        '4',
+        '20',
         '--json',
         'workflowName,status,conclusion,createdAt,url',
       ],
@@ -136,14 +136,26 @@ async function githubActionsCheck() {
     const relevant = runs.filter((run) =>
       ['Hawk CI', 'Hawk Security Assurance'].includes(run.workflowName),
     );
+    // `gh run list` is global and can return an older failed run before the
+    // latest green run when the two workflows overlap. Select the newest
+    // completed run per required workflow; a queued/in-progress latest run is
+    // reported as pending instead of poisoning the gate with historical data.
+    const latestByWorkflow = new Map();
+    for (const run of relevant) {
+      const current = latestByWorkflow.get(run.workflowName);
+      if (!current || String(run.createdAt).localeCompare(String(current.createdAt)) > 0) {
+        latestByWorkflow.set(run.workflowName, run);
+      }
+    }
+    const latest = [...latestByWorkflow.values()];
     const ok =
-      relevant.length >= 2 &&
-      relevant.every((run) => run.status === 'completed' && run.conclusion === 'success');
+      latest.length === 2 &&
+      latest.every((run) => run.status === 'completed' && run.conclusion === 'success');
     return check(
       'github-actions',
       ok,
-      relevant.length
-        ? relevant.map((run) => `${run.workflowName}: ${run.conclusion}`).join(', ')
+      latest.length
+        ? latest.map((run) => `${run.workflowName}: ${run.status}/${run.conclusion}`).join(', ')
         : 'no recent Hawk CI/security runs found',
     );
   } catch (error) {

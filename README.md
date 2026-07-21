@@ -264,11 +264,14 @@ The root package is the `@hawk/ide` workspace. NPM 10.8.2 is pinned as the repro
 | `npm run test:watch` | Runs Vitest in interactive watch mode. |
 | `npm run test:e2e-runtime` | Builds the extension and exercises its embedded daemon and MCP server as real child processes. |
 | `npm run test:e2e-runtime:built` | Runs the same runtime E2E contract against already-built extension artifacts. |
+| `npm run test:e2e-desktop` | Launches a real VS Code desktop extension host, activates Hawk, checks command registration, and opens Mission Control Webview UI. |
+| `npm run test:coverage` | Runs the complete suite with the enforced V8 statement, branch, function, and line thresholds. |
 | `npm run typecheck` | Runs TypeScript with `--noEmit`. |
 | `npm run lint` | Runs Biome checks over `src/`. |
 | `npm run lint:fix` | Applies safe Biome formatting fixes. |
 | `npm run ci` | Runs branding, typecheck, lint, tests, build, extension, and integration gates. |
 | `npm run test:chaos` | Exercises worker crash, restart, network failure, and agent recovery. |
+| `npm run test:docker-soak` | Runs eight bounded real Docker workers and verifies artifact collection; pair with `npm run test:chaos` for crash/restart/recovery coverage. It skips with an explicit message when the configured local image is unavailable; use `--strict` in CI. |
 | `npm run benchmark:index-memory` | Enforces the semantic-index RSS and search-latency budget. |
 | `npm run benchmark:beta-index` | Runs the larger cloned-repository index benchmark with memory enforcement. |
 | `npm run docker:build-egress-proxy` | Builds the authenticated restricted-egress worker proxy image. |
@@ -429,7 +432,9 @@ The latest local validation snapshot for the current source tree:
 | Chaos scenarios | 4/4 |
 | TypeScript / Biome / tsup build | PASS |
 | Packaged daemon + MCP runtime E2E | PASS |
-| Index benchmark | PASS, 391.7 MiB peak RSS under the 500 MiB limit |
+| Index benchmark | PASS, 1.55 s cold build and peak RSS under the 500 MiB limit |
+| Coverage gate | PASS, 66.67% statements / 58.51% branches / 66.86% functions / 69.39% lines |
+| Desktop extension-host E2E | PASS locally on VS Code 1.129.1 |
 | Production dependency audit | 0 vulnerabilities |
 | Branding guard | PASS across the working tree |
 
@@ -447,7 +452,6 @@ npm audit --omit=dev
 The code and local release workflow are present. These owner-controlled production gates remain external:
 
 - Windows code-signing certificate and publisher pin.
-- GitHub Actions billing/spending-limit repair.
 - Official signed v0.7.0 GitHub Release.
 - Real beta sessions on larger projects.
 - Independent external security assessment.

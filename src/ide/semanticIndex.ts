@@ -28,6 +28,8 @@ const MAX_CHUNKS_PER_FILE = 24;
 // the daemon still has room for the TypeScript parser, HTTP server, and LLM
 // request buffers while a rebuild is in progress.
 const MAX_RESIDENT_INDEX_BYTES = 320 * 1024 * 1024;
+const INDEX_METADATA_CONCURRENCY = 16;
+const INDEX_BUILD_CONCURRENCY = 4;
 const MAX_INDEX_CONTENT_BYTES = 64 * 1024 * 1024;
 const MAX_TERMS_PER_CHUNK = 128;
 const MAX_FACTS_PER_FILE = 4_000;
@@ -357,24 +359,62 @@ export class SemanticWorkspaceIndex {
     let residentBytes = 0;
     let truncated = discovered.truncated;
 
-    for (const absolutePath of discovered.paths) {
-      const info = await stat(absolutePath).catch(() => undefined);
-      if (!info?.isFile() || info.size > MAX_FILE_BYTES) continue;
-      if (bytes + info.size > MAX_TOTAL_BYTES) {
+    // Stat files in parallel, then parse changed content with a small bounded
+    // worker pool. A cold build used to await every read and AST parse in
+    // discovery order, which made larger workspaces unnecessarily serial.
+    const metadata = await mapWithConcurrency(
+      discovered.paths,
+      INDEX_METADATA_CONCURRENCY,
+      async (absolutePath) => {
+        const info = await stat(absolutePath).catch(() => undefined);
+        if (!info?.isFile() || info.size > MAX_FILE_BYTES) return undefined;
+        // Windows temp/workspace roots can be junctions whose real path uses a
+        // different lexical prefix. Relativize against the canonical root used
+        // during discovery so valid files never become outside-looking metadata.
+        const file = relative(discovered.root, absolutePath).replaceAll('\\', '/');
+        return { absolutePath, file, info, previous: previousFiles.get(file) };
+      },
+    );
+    const accepted: Array<NonNullable<(typeof metadata)[number]>> = [];
+    let plannedBytes = bytes;
+    let plannedChunks = chunkCount;
+    for (const item of metadata) {
+      if (!item) continue;
+      const unchanged =
+        item.previous &&
+        item.previous.size === item.info.size &&
+        item.previous.mtimeMs === item.info.mtimeMs;
+      const plannedSize = unchanged && item.previous ? item.previous.bytes : item.info.size;
+      if (plannedBytes + plannedSize > MAX_TOTAL_BYTES || accepted.length >= MAX_FILES) {
         truncated = true;
         break;
       }
-      if (chunkCount >= MAX_CHUNKS) {
+      if (plannedChunks >= MAX_CHUNKS) {
         truncated = true;
         break;
       }
-      // Windows temp/workspace roots can be junctions whose real path uses a
-      // different lexical prefix (for example a short 8.3 user directory).
-      // Relativize against the same canonical root used during discovery so a
-      // valid workspace file never becomes ../../outside-looking metadata.
-      const file = relative(discovered.root, absolutePath).replaceAll('\\', '/');
-      const previous = previousFiles.get(file);
-      if (previous && previous.size === info.size && previous.mtimeMs === info.mtimeMs) {
+      accepted.push(item);
+      plannedBytes += plannedSize;
+      if (unchanged && item.previous) plannedChunks += item.previous.chunks.length;
+    }
+    const changed = accepted.filter(
+      (item) =>
+        !(
+          item.previous &&
+          item.previous.size === item.info.size &&
+          item.previous.mtimeMs === item.info.mtimeMs
+        ),
+    );
+    const indexedChanged = await mapWithConcurrency(changed, INDEX_BUILD_CONCURRENCY, (item) =>
+      this.indexOneFile(item.absolutePath, item.file, item.info.size, item.info.mtimeMs),
+    );
+    const changedByPath = new Map(changed.map((item, index) => [item.file, indexedChanged[index]]));
+    chunkCount = 0;
+    for (const item of accepted) {
+      const { file, previous } = item;
+      const unchanged =
+        previous && previous.size === item.info.size && previous.mtimeMs === item.info.mtimeMs;
+      if (unchanged && previous) {
         if (previous.truncated) truncated = true;
         const previousResidentBytes = estimateIndexedFileBytes(previous);
         if (residentBytes + previousResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
@@ -389,7 +429,7 @@ export class SemanticWorkspaceIndex {
         reusedFiles += 1;
         continue;
       }
-      const indexed = await this.indexOneFile(absolutePath, file, info.size, info.mtimeMs);
+      const indexed = changedByPath.get(file);
       previousFiles.delete(file);
       if (!indexed) continue;
       if (indexed.truncated) truncated = true;
@@ -733,6 +773,26 @@ export class SemanticWorkspaceIndex {
   private estimateResidentBytes(): number {
     return estimateIndexMemoryBytes([...this.files.values()]);
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const output = new Array<R>(values.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = next++;
+      if (index >= values.length) return;
+      output[index] = await mapper(values[index] as T, index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, concurrency), values.length) }, () => worker()),
+  );
+  return output;
 }
 
 async function collectSourceFiles(

@@ -1,0 +1,22 @@
+name: Hawk Desktop E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  vscode-extension-host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - run: xvfb-run -a npm run test:e2e-desktop

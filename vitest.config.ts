@@ -12,9 +12,16 @@ export default defineConfig({
     reporters: ['default'],
     passWithNoTests: true,
     coverage: {
+      provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/cli/index.ts'],
+      thresholds: {
+        statements: 60,
+        branches: 50,
+        functions: 60,
+        lines: 65,
+      },
     },
   },
 });

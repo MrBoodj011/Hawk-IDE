@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Enforced coverage gate** - V8 coverage is collected in CI with checked-in
+  statement, branch, function, and line thresholds; the HTML report is uploaded
+  as a build artifact for review.
+- **Real desktop extension-host smoke** - a VS Code desktop test boots the
+  packaged Hawk extension, verifies its commands, and opens the Mission Control
+  Webview through the actual extension host. A scheduled workflow runs it under
+  Xvfb.
+- **Bounded Docker soak workflow** - eight isolated workers run concurrently
+  against a pre-pulled local image, verify output artifact collection, and fail
+  on timeout or recovery regressions. The opt-in local command explains when an
+  image or daemon is unavailable instead of hiding the skip.
+
 - **Local observability and sanitized debug bundles** — every daemon request
   now receives a trace ID; bounded route metrics expose status, memory, and
   p50/p95 latency without retaining queries or payloads. An operator-approved
@@ -35,6 +47,11 @@ All notable changes to this project are documented here. The format is based on
 - AI-session shutdown now owns and awaits worker line processing/finalization,
   preventing a disposed manager from racing the restarted recovery process;
   atomic Windows session replacement also tolerates bounded scanner/read locks.
+- Semantic-index cold builds now stat files and parse changed files through
+  bounded worker pools; the local benchmark is below the five-second target
+  while preserving the resident-memory budget.
+- Release readiness selects the newest completed run per required Hawk workflow,
+  so historical failed Actions runs cannot mask a current green build.
 - The local IDE API protocol is now version 12.
 
 ## [0.7.0] - 2026-07-20

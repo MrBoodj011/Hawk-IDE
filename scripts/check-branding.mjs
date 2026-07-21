@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const legalAttributionFiles = new Set(['NOTICE', 'extensions/hawk-security-ide/NOTICE']);
-const generatedRoots = ['.tmp/', 'artifacts/', 'output/', 'tmp/'];
+const generatedRoots = ['.tmp/', '.vscode-test/', 'artifacts/', 'output/', 'tmp/'];
 const forbiddenBrand = new RegExp(['pente', 'sterflow'].join(''), 'i');
 const failures = [];
 

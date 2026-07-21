@@ -18,6 +18,7 @@ dist/
 # Editor / local tooling
 .idea/
 .vscode/
+.vscode-test/
 *.swp
 
 # Local agent/harness config — never commit (may contain target hosts)
