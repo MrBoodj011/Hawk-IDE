@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 const packagePath = resolve(argument('--file') || '');
 const publisherId = process.env.CHROME_WEBSTORE_PUBLISHER_ID || '';
 const extensionId = process.env.CHROME_WEBSTORE_EXTENSION_ID || '';
-const accessToken = process.env.CHROME_WEBSTORE_ACCESS_TOKEN || '';
 const publish = process.argv.includes('--publish');
+const validateOnly = process.argv.includes('--validate-only');
 
 if (!argument('--file')) {
   throw new Error('Pass --file with the packaged Hawk Browser Companion ZIP.');
@@ -14,26 +14,36 @@ const info = await stat(packagePath);
 if (!info.isFile() || info.size <= 0 || info.size > 250_000_000) {
   throw new Error('The browser store package is missing, empty, or unexpectedly large.');
 }
-if (!publisherId || !extensionId || !accessToken) {
+const refreshConfigured = [
+  'CHROME_WEBSTORE_CLIENT_ID',
+  'CHROME_WEBSTORE_CLIENT_SECRET',
+  'CHROME_WEBSTORE_REFRESH_TOKEN',
+].every((name) => Boolean(process.env[name]));
+const credentialConfigured = Boolean(process.env.CHROME_WEBSTORE_ACCESS_TOKEN) || refreshConfigured;
+const missing = [
+  !publisherId && 'CHROME_WEBSTORE_PUBLISHER_ID',
+  !extensionId && 'CHROME_WEBSTORE_EXTENSION_ID',
+  !credentialConfigured &&
+    'CHROME_WEBSTORE_ACCESS_TOKEN or CLIENT_ID + CLIENT_SECRET + REFRESH_TOKEN',
+].filter(Boolean);
+
+if (validateOnly || missing.length) {
   console.log(
     JSON.stringify(
       {
-        ready: false,
+        ready: missing.length === 0,
         package: packagePath,
         bytes: info.size,
-        missing: [
-          !publisherId && 'CHROME_WEBSTORE_PUBLISHER_ID',
-          !extensionId && 'CHROME_WEBSTORE_EXTENSION_ID',
-          !accessToken && 'CHROME_WEBSTORE_ACCESS_TOKEN',
-        ].filter(Boolean),
-        note: 'No upload was attempted. Configure the owner account and its OAuth token first.',
+        missing,
+        note: 'Validation only: no upload or store submission was attempted.',
       },
       null,
       2,
     ),
   );
-  process.exitCode = 2;
+  if (!validateOnly && missing.length) process.exitCode = 2;
 } else {
+  const accessToken = await resolveAccessToken();
   const body = await readFile(packagePath);
   const upload = await fetch(
     `https://chromewebstore.googleapis.com/upload/v2/publishers/${encodeURIComponent(publisherId)}/items/${encodeURIComponent(extensionId)}:upload`,
@@ -64,6 +74,27 @@ if (!publisherId || !extensionId || !accessToken) {
     }
     console.log(submissionBody);
   }
+}
+
+async function resolveAccessToken() {
+  if (process.env.CHROME_WEBSTORE_ACCESS_TOKEN) {
+    return process.env.CHROME_WEBSTORE_ACCESS_TOKEN;
+  }
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.CHROME_WEBSTORE_CLIENT_ID || '',
+      client_secret: process.env.CHROME_WEBSTORE_CLIENT_SECRET || '',
+      refresh_token: process.env.CHROME_WEBSTORE_REFRESH_TOKEN || '',
+      grant_type: 'refresh_token',
+    }),
+  });
+  const payload = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok || typeof payload.access_token !== 'string') {
+    throw new Error(`Chrome OAuth refresh failed (${tokenResponse.status}).`);
+  }
+  return payload.access_token;
 }
 
 function argument(name) {

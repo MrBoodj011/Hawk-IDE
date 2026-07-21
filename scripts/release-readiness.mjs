@@ -16,6 +16,9 @@ const betaEvidence = optionalJson(
 const pentestEvidence = optionalJson(
   process.env.HAWK_EXTERNAL_PENTEST_EVIDENCE || '.hawk/validation/external-pentest.json',
 );
+const storeEvidence = optionalJson(
+  process.env.HAWK_STORE_PUBLICATION_EVIDENCE || '.hawk/validation/store-publication.json',
+);
 
 const checks = [
   check(
@@ -31,11 +34,16 @@ const checks = [
       : 'owner must configure a trusted PFX or Azure Artifact Signing profile',
   ),
   validateBeta(betaEvidence),
-  validatePentest(pentestEvidence),
+  validatePentest(pentestEvidence, packageJson.version),
+  validateStores(storeEvidence),
 ];
 
 if (online) {
-  checks.push(await githubActionsCheck(), await githubReleaseCheck(packageJson.version));
+  checks.push(
+    await githubActionsCheck(),
+    await githubReleaseCheck(packageJson.version),
+    await productionUpdateFeedCheck(packageJson.version),
+  );
 }
 
 const ready = checks.every((item) => item.ok);
@@ -91,7 +99,8 @@ function validateBeta(value) {
       session?.manualRecovery === false &&
       Number(session?.criticalHighFindings) === 0 &&
       Number(session?.searchP95Ms) < 50 &&
-      Number(session?.peakRssMb) < 500,
+      Number(session?.peakRssMb) < 500 &&
+      session?.signedUpdateVerified === true,
   );
   const cohorts = new Set(passing.map((session) => String(session.cohort ?? '')).filter(Boolean));
   return check(
@@ -101,21 +110,79 @@ function validateBeta(value) {
   );
 }
 
-function validatePentest(value) {
+function validatePentest(value, version) {
   const independent =
     typeof value?.assessor === 'string' &&
     value.assessor.trim().length >= 3 &&
     value.assessorIndependent === true;
   const candidate = /^[a-f0-9]{64}$/i.test(String(value?.candidateSha256 ?? ''));
+  const report = /^[a-f0-9]{64}$/i.test(String(value?.reportSha256 ?? ''));
+  const currentCandidate = value?.candidateVersion === version;
+  const completed = Number.isFinite(Date.parse(String(value?.completedAt ?? '')));
   const noBlockingFindings =
     Number(value?.openCriticalFindings) === 0 && Number(value?.openHighFindings) === 0;
+  const valid =
+    independent &&
+    candidate &&
+    report &&
+    currentCandidate &&
+    completed &&
+    noBlockingFindings &&
+    value?.outcome === 'pass';
   return check(
     'independent-pentest',
-    independent && candidate && noBlockingFindings && value?.outcome === 'pass',
-    independent && candidate
+    valid,
+    independent && candidate && report
       ? `assessor evidence loaded; open Critical/High ${Number(value?.openCriticalFindings ?? 0)}/${Number(value?.openHighFindings ?? 0)}`
       : 'independent assessor evidence is missing or invalid',
   );
+}
+
+function validateStores(value) {
+  const definitions = [
+    ['chrome', 'chromewebstore.google.com'],
+    ['vscode', 'marketplace.visualstudio.com'],
+    ['burp', 'portswigger.net'],
+  ];
+  const published = definitions.filter(([id, host]) => {
+    const entry = value?.stores?.[id];
+    if (entry?.status !== 'published') return false;
+    try {
+      const url = new URL(entry.url);
+      return url.protocol === 'https:' && url.hostname === host;
+    } catch {
+      return false;
+    }
+  });
+  return check(
+    'official-stores',
+    published.length === definitions.length,
+    `${published.length}/${definitions.length} owner-verified listings recorded`,
+  );
+}
+
+async function productionUpdateFeedCheck(version) {
+  const url = process.env.HAWK_PRODUCTION_UPDATE_FEED ||
+    'https://mrboodj011.github.io/hawk/updates/feed.json';
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Hawk-Release-Readiness' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) return check('production-update-feed', false, `HTTP ${response.status}`);
+    const feed = await response.json();
+    const stable = Array.isArray(feed?.channels?.stable) ? feed.channels.stable : [];
+    const current = stable.some((release) =>
+      [`v${version}`, version].includes(String(release?.tag_name ?? '')),
+    );
+    return check(
+      'production-update-feed',
+      feed?.schemaVersion === 1 && feed?.repository === 'MrBoodj011/hawk' && current,
+      current ? `stable feed contains v${version}` : `stable feed does not contain v${version}`,
+    );
+  } catch (error) {
+    return check('production-update-feed', false, `could not verify feed: ${message(error)}`);
+  }
 }
 
 async function githubActionsCheck() {

@@ -44,6 +44,9 @@
     "onCommand:hawk.configureReleaseToken",
     "onCommand:hawk.setupLocalAI",
     "onCommand:hawk.showLocalAIStatus",
+    "onCommand:hawk.configureLLMProvider",
+    "onCommand:hawk.clearLLMKey",
+    "onCommand:hawk.showLLMStatus",
     "onCommand:hawk.debug.capture",
     "onCommand:hawk.debug.fixFailure",
     "onCommand:hawk.debug.stopFixLoop"
@@ -157,11 +160,11 @@
       },
       {
         "command": "hawk.checkForUpdates",
-        "title": "Hawk: Check for Private Release Updates"
+        "title": "Hawk: Check for Production Updates"
       },
       {
         "command": "hawk.configureReleaseToken",
-        "title": "Hawk: Configure Private Release Access"
+        "title": "Hawk: Configure Release Access Token"
       },
       {
         "command": "hawk.setupLocalAI",
@@ -170,6 +173,18 @@
       {
         "command": "hawk.showLocalAIStatus",
         "title": "Hawk: Show Local AI Status"
+      },
+      {
+        "command": "hawk.configureLLMProvider",
+        "title": "Hawk: Configure AI Provider and API Key"
+      },
+      {
+        "command": "hawk.clearLLMKey",
+        "title": "Hawk: Remove Current AI Provider Key"
+      },
+      {
+        "command": "hawk.showLLMStatus",
+        "title": "Hawk: Show AI Provider Status"
       },
       {
         "command": "hawk.debug.capture",
@@ -200,7 +215,20 @@
         "hawk.preferredProvider": {
           "type": "string",
           "default": "",
-          "description": "Preferred LLM provider name. API keys stay on this machine."
+          "enum": [
+            "",
+            "ollama",
+            "lmstudio",
+            "openai",
+            "anthropic",
+            "gemini",
+            "openrouter",
+            "groq",
+            "deepseek",
+            "kimi",
+            "openai-compat"
+          ],
+          "description": "Preferred LLM provider. Use Hawk: Configure AI Provider and API Key so credentials stay in OS-backed secret storage."
         },
         "hawk.preferredModel": {
           "type": "string",
@@ -309,7 +337,7 @@
         "hawk.updates.checkOnStartup": {
           "type": "boolean",
           "default": true,
-          "description": "Check the private Hawk GitHub release feed after startup."
+          "description": "Check the official Hawk production update service after startup."
         },
         "hawk.updates.channel": {
           "type": "string",
@@ -319,6 +347,11 @@
           ],
           "default": "stable",
           "description": "Hawk release channel."
+        },
+        "hawk.updates.feedUrl": {
+          "type": "string",
+          "default": "https://mrboodj011.github.io/hawk/updates/feed.json",
+          "description": "HTTPS Hawk update feed. A validated GitHub Releases API fallback remains active if this service is unavailable."
         },
         "hawk.updates.expectedPublisher": {
           "type": "string",

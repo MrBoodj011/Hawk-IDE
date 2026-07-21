@@ -220,6 +220,13 @@ curl -X POST -H "X-Hawk-Token: <token>" http://127.0.0.1:<port>/v1/workspace/ind
 
 Use **Hawk: Set Up Local AI with Ollama** from the command palette. The wizard verifies the official installer digest and Windows signer, recommends a model for available RAM, asks for approval before download, and configures the loopback provider.
 
+For hosted BYOK models, run **Hawk: Configure AI Provider and API Key**. Hawk
+stores the key in the operating system's encrypted extension secret vault,
+injects it only into the local daemon process, and restarts that daemon. The
+key is never written to user/workspace JSON, Git, logs, prompts, diffs, or task
+history. **Hawk: Show AI Provider Status** reports only whether a key exists;
+**Hawk: Remove Current AI Provider Key** deletes it.
+
 ### Build the restricted egress proxy
 
 ```sh
@@ -280,12 +287,17 @@ The root package is the `@hawk/ide` workspace. NPM 10.8.2 is pinned as the repro
 | `npm run preview:ui` | Renders local UI preview screenshots. |
 | `npm run generate:browser-icons` | Rebuilds Browser Companion icons from the Hawk mark. |
 | `npm run beta:record` | Records a real beta session for release evidence. |
+| `npm run pentest:record` | Hash-binds a real independent assessor report to the exact release candidate. |
+| `npm run stores:record` | Records owner-verified official listing URLs for the production gate. |
 | `npm run release:readiness` | Reports online release blockers without failing the shell. |
 | `npm run release:readiness:enforce` | Enforces every production readiness gate. |
-| `npm run test:update-real` | Tests a real private-feed update path. |
+| `npm run test:update-real` | Tests a real GitHub release update path. |
 | `npm run test:update-signed-real` | Tests a real update path with signature verification required. |
+| `npm run release:update-feed` | Generates the Stable/Beta production feed from official GitHub Releases. |
 | `npm run desktop:refresh-portable` | Refreshes the branded portable desktop tree. |
 | `npm run publish:browser-store -- --file <zip>` | Uploads a Browser Companion package when the owner store account is configured. |
+| `npm run publish:vscode-store -- --file <vsix>` | Validates or publishes the VSIX through the configured Marketplace publisher. |
+| `npm run package:bapp-submission -- --file <jar>` | Hashes a Burp JAR and creates the official manual-review submission pack. |
 
 </details>
 
@@ -330,7 +342,10 @@ Hawk supports local and explicit BYOK providers. The router selects a configured
 | DeepSeek | BYOK | Coding-focused hosted inference. |
 | Kimi | BYOK | Kimi model routing. |
 
-Provider keys are read from local environment variables or local settings. Hawk does not synchronize keys, prompts, source code, sessions, or engagement data to a Hawk cloud.
+The CLI can read provider keys from explicit local environment variables. The
+IDE's provider wizard keeps hosted keys in OS-backed SecretStorage and passes
+them only to the local daemon. Hawk does not synchronize keys, prompts, source
+code, sessions, or engagement data to a Hawk cloud.
 
 ## Local data and persistence
 
@@ -457,7 +472,9 @@ The code and local release workflow are present. These owner-controlled producti
 - Official signed v0.7.0 GitHub Release.
 - Real beta sessions on larger projects.
 - Independent external security assessment.
-- Chrome Web Store and PortSwigger BApp Store accounts/review.
+- Chrome Web Store, Visual Studio Marketplace, and PortSwigger BApp Store
+  owner accounts/review.
+- One-time GitHub Pages enablement for the production Stable/Beta update feed.
 
 Hawk is intentionally a personal, local-first product: no Hawk account, team/RBAC system, Stripe billing, cloud synchronization, telemetry collector, Apple build, or hosted Hawk backend is required.
 
@@ -465,6 +482,7 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 
 - [Complete project guide PDF](output/pdf/Hawk_Guide_Complet_Projet.pdf)
 - [Product architecture](docs/architecture.md)
+- [LLM configuration and secret boundary](docs/LLM_CONFIGURATION.md)
 - [Native Hawk AI](docs/native-ai.md)
 - [Smart MCP Brain](docs/smart-mcp.md)
 - [Parallel Docker orchestration](docs/parallel-orchestration.md)
@@ -472,6 +490,8 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 - [Identity replay](docs/traffic-identity-replay.md)
 - [Local observability and debug bundles](docs/observability.md)
 - [Production readiness](docs/release/PRODUCTION_READINESS.md)
+- [Official store publication](docs/release/OFFICIAL_STORE_PUBLICATION.md)
+- [Real-user beta program](docs/audit/BETA_PROGRAM.md)
 - [External pentest runbook](docs/audit/EXTERNAL_PENTEST_RUNBOOK.md)
 - [Threat model](docs/security/THREAT_MODEL.md)
 

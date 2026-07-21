@@ -126,6 +126,10 @@ function applyIdeOverrides(cfg: Config): Config {
     ...(backend ? { backend } : {}),
     ...(process.env.HAWK_IDE_MODEL ? { model: process.env.HAWK_IDE_MODEL } : {}),
     ...(process.env.HAWK_IDE_BASE_URL ? { base_url: process.env.HAWK_IDE_BASE_URL } : {}),
+    // The desktop extension injects this value from VS Code SecretStorage
+    // only into the local daemon process. It is never written to config.json,
+    // workspace settings, logs, prompts, or session state.
+    ...(process.env.HAWK_IDE_API_KEY ? { api_key: process.env.HAWK_IDE_API_KEY } : {}),
   };
 }
 

@@ -11,11 +11,18 @@ import {
   isValidReleaseVersion,
   normalizeReleaseVersion,
 } from './releaseSemver.js';
+import {
+  DEFAULT_HAWK_UPDATE_FEED,
+  HAWK_RELEASE_REPOSITORY,
+  type HawkFeedRelease,
+  parseHawkUpdateFeed,
+  validateUpdateFeedUrl,
+} from './releaseFeed.js';
 import { verifyWindowsAuthenticode } from './windowsAuthenticode.js';
 
-const REPOSITORY = 'MrBoodj011/hawk';
 const RELEASE_TOKEN_KEY = 'hawk.releaseToken';
 const MAX_ASSET_BYTES = 1_500_000_000;
+const MAX_FEED_BYTES = 2_000_000;
 
 interface ReleaseAsset {
   name: string;
@@ -24,16 +31,9 @@ interface ReleaseAsset {
   size: number;
 }
 
-interface GitHubRelease {
-  tag_name: string;
-  html_url: string;
-  name: string;
-  draft: boolean;
-  prerelease: boolean;
-  assets: ReleaseAsset[];
-}
+type GitHubRelease = HawkFeedRelease;
 
-/** Private GitHub Release updater with checksum verification and explicit install approval. */
+/** Production updater with channel feed, GitHub fallback, and explicit install approval. */
 export class HawkReleaseUpdater implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private startupTimer: NodeJS.Timeout | undefined;
@@ -45,9 +45,9 @@ export class HawkReleaseUpdater implements vscode.Disposable {
       }),
       vscode.commands.registerCommand('hawk.configureReleaseToken', async () => {
         const token = await vscode.window.showInputBox({
-          title: 'Hawk Private Release Access',
+          title: 'Hawk Release Access',
           prompt:
-            'Paste a GitHub token with read access to the private Hawk repository. It stays in Hawk encrypted local secret storage.',
+            'Optional: paste a GitHub token for rate limits or private release access. It stays in Hawk encrypted local secret storage.',
           password: true,
           ignoreFocusOut: true,
         });
@@ -84,13 +84,17 @@ export class HawkReleaseUpdater implements vscode.Disposable {
     const expectedPublisher = vscode.workspace
       .getConfiguration('hawk')
       .get<string>('updates.expectedPublisher', '');
+    const configuredFeed = vscode.workspace
+      .getConfiguration('hawk')
+      .get<string>('updates.feedUrl', DEFAULT_HAWK_UPDATE_FEED)
+      .trim();
     let releases: GitHubRelease[];
     try {
-      releases = await fetchReleases(token);
+      releases = await fetchReleases(token, channel, configuredFeed);
     } catch (error) {
       if (interactive) {
         const action = await vscode.window.showWarningMessage(
-          `Hawk could not read the private release feed: ${errorMessage(error)}`,
+          `Hawk could not read its production release service: ${errorMessage(error)}`,
           'Configure access',
         );
         if (action === 'Configure access') {
@@ -190,15 +194,39 @@ export class HawkReleaseUpdater implements vscode.Disposable {
   }
 }
 
-async function fetchReleases(token: string): Promise<GitHubRelease[]> {
-  const response = await fetch(`https://api.github.com/repos/${REPOSITORY}/releases?per_page=20`, {
-    headers: githubHeaders(token),
-  });
+async function fetchReleases(
+  token: string,
+  channel: 'stable' | 'beta',
+  feedUrl: string,
+): Promise<GitHubRelease[]> {
+  let feedFailure = '';
+  if (feedUrl) {
+    try {
+      const trustedFeedUrl = validateUpdateFeedUrl(feedUrl);
+      const response = await fetch(trustedFeedUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'Hawk-Security-IDE' },
+      });
+      const contentLength = Number(response.headers.get('content-length') ?? 0);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (contentLength > MAX_FEED_BYTES) throw new Error('feed exceeds the size limit');
+      const body = await response.text();
+      if (Buffer.byteLength(body, 'utf8') > MAX_FEED_BYTES) {
+        throw new Error('feed exceeds the size limit');
+      }
+      return parseHawkUpdateFeed(JSON.parse(body)).channels[channel];
+    } catch (error) {
+      feedFailure = errorMessage(error);
+    }
+  }
+  const response = await fetch(
+    `https://api.github.com/repos/${HAWK_RELEASE_REPOSITORY}/releases?per_page=20`,
+    { headers: githubHeaders(token) },
+  );
   if (!response.ok) {
     throw new Error(
       response.status === 404
-        ? 'private repository access is not configured'
-        : `GitHub returned HTTP ${response.status}`,
+        ? 'release repository access is not configured'
+        : `update feed failed (${feedFailure || 'not configured'}); GitHub returned HTTP ${response.status}`,
     );
   }
   return (await response.json()) as GitHubRelease[];

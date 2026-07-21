@@ -667,6 +667,10 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
       await vscode.commands.executeCommand('hawk.setupLocalAI');
       return;
     }
+    if (action === 'configure-llm') {
+      await vscode.commands.executeCommand('hawk.configureLLMProvider');
+      return;
+    }
     if (action === 'check-updates') {
       await vscode.commands.executeCommand('hawk.checkForUpdates');
       return;
@@ -943,6 +947,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     <button id="workspace-scan">Run approved workspace scan</button>
     <button id="security-test">Run governed security test</button>
     <button id="open-agent">Open Hawk agent</button>
+    <button id="configure-llm" class="secondary">Configure AI provider</button>
     <button id="import-har" class="secondary">Import HAR</button>
     <button id="import-hawk" class="secondary">Import Hawk health</button>
     <button id="sync-hawk" class="secondary">Sync GitHub health</button>
@@ -972,6 +977,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     document.getElementById('workspace-scan').addEventListener('click', () => vscode.postMessage({ action: 'workspace-scan' }));
     document.getElementById('security-test').addEventListener('click', () => vscode.postMessage({ action: 'security-test' }));
     document.getElementById('open-agent').addEventListener('click', () => vscode.postMessage({ action: 'open-agent' }));
+    document.getElementById('configure-llm').addEventListener('click', () => vscode.postMessage({ action: 'configure-llm' }));
     document.getElementById('import-har').addEventListener('click', () => vscode.postMessage({ action: 'import-har' }));
     document.getElementById('import-hawk').addEventListener('click', () => vscode.postMessage({ action: 'import-hawk' }));
     document.getElementById('sync-hawk').addEventListener('click', () => vscode.postMessage({ action: 'sync-hawk' }));

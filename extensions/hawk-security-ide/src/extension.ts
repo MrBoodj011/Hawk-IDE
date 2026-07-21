@@ -4,16 +4,18 @@ import { DaemonClient } from './daemonClient';
 import { HawkDebugAgent } from './debugAgent';
 import { HawkCodingCore } from './hawkCodingCore';
 import { HawkHealthSync } from './hawkHealthSync';
+import { HawkLlmProviderSetup } from './llmProviderSetup';
 import { HawkLocalAiSetup } from './localAiSetup';
 import { HawkReleaseUpdater } from './releaseUpdater';
 import { SecurityDashboardProvider } from './securityDashboard';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const client = new DaemonClient(context.extensionUri);
+  const client = new DaemonClient(context.extensionUri, context.secrets);
   const agentPanel = new HawkAgentPanel(context.extensionUri, client);
   const debugAgent = new HawkDebugAgent(agentPanel, client);
   const codingCore = new HawkCodingCore(client);
   const localAiSetup = new HawkLocalAiSetup(context, client);
+  const llmProviderSetup = new HawkLlmProviderSetup(context, client);
   const releaseUpdater = new HawkReleaseUpdater(context);
   const healthSync = new HawkHealthSync(context.secrets, client);
   const dashboard = new SecurityDashboardProvider(
@@ -27,6 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(debugAgent);
   context.subscriptions.push(codingCore);
   context.subscriptions.push(localAiSetup);
+  context.subscriptions.push(llmProviderSetup);
   context.subscriptions.push(releaseUpdater);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('hawk.securityDashboard', dashboard, {

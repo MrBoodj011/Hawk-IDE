@@ -1030,6 +1030,7 @@ export function renderMissionControlHtml(
               <div class="card-title">Hawk Coding Core <span>local-first / editor-native</span></div>
               <div class="hero-actions">
                 <button class="button small primary" data-action="setup-local-ai">Set up local AI</button>
+                <button class="button small secondary" data-action="configure-llm">Configure provider</button>
                 <button class="button small secondary" data-action="coding-search">Semantic search</button>
                 <button class="button small secondary" data-action="coding-index">Rebuild index</button>
                 <button class="button small ghost" data-action="coding-benchmark">Run benchmark</button>

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "product": "Hawk Security IDE",
+  "recordedAt": "2026-07-21T00:00:00.000Z",
+  "stores": {
+    "chrome": {
+      "status": "published",
+      "url": "https://chromewebstore.google.com/detail/replace-with-real-listing"
+    },
+    "vscode": {
+      "status": "published",
+      "url": "https://marketplace.visualstudio.com/items?itemName=replace-with-real-listing"
+    },
+    "burp": {
+      "status": "published",
+      "url": "https://portswigger.net/bappstore/replace-with-real-listing"
+    }
+  }
+}

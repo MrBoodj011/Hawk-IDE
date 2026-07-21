@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
 import * as vscode from 'vscode';
+import { hawkLlmProvider, llmSecretStorageKey } from './llmProviderPolicy';
 import type {
   AiDiffResponse,
   AiEventPage,
@@ -62,7 +63,10 @@ export class DaemonClient implements vscode.Disposable {
   private starting: Promise<ActiveDaemon> | undefined;
   private readonly output = vscode.window.createOutputChannel('Hawk Security IDE');
 
-  constructor(private readonly extensionUri?: vscode.Uri) {}
+  constructor(
+    private readonly extensionUri?: vscode.Uri,
+    private readonly secrets?: vscode.SecretStorage,
+  ) {}
 
   async start(workspace: vscode.Uri): Promise<DaemonDescriptor> {
     if (this.active?.workspace.fsPath === workspace.fsPath) return this.active;
@@ -641,6 +645,15 @@ export class DaemonClient implements vscode.Disposable {
     const preferredProvider = hawkConfiguration.get<string>('preferredProvider', '').trim();
     const preferredModel = hawkConfiguration.get<string>('preferredModel', '').trim();
     const preferredBaseUrl = hawkConfiguration.get<string>('preferredBaseUrl', '').trim();
+    let preferredApiKey: string | undefined;
+    if (preferredProvider && hawkLlmProvider(preferredProvider)) {
+      try {
+        preferredApiKey = await this.secrets?.get(llmSecretStorageKey(preferredProvider));
+      } catch {
+        // An unavailable OS keychain must not leak details or prevent the
+        // daemon from starting; the provider will report a missing key.
+      }
+    }
     const editCacheTtlSeconds = clamp(
       hawkConfiguration.get<number>('tab.editPrediction.cacheTtlSeconds', 120),
       5,
@@ -657,6 +670,7 @@ export class DaemonClient implements vscode.Disposable {
       ...(preferredProvider ? { HAWK_IDE_BACKEND: preferredProvider } : {}),
       ...(preferredModel ? { HAWK_IDE_MODEL: preferredModel } : {}),
       ...(preferredBaseUrl ? { HAWK_IDE_BASE_URL: preferredBaseUrl } : {}),
+      ...(preferredApiKey ? { HAWK_IDE_API_KEY: preferredApiKey } : {}),
       HAWK_IDE_EDIT_CACHE_ENABLED: hawkConfiguration.get<boolean>(
         'tab.editPrediction.cacheEnabled',
         true,

@@ -1,6 +1,6 @@
 # Hawk production release readiness
 
-Status updated on 2026-07-20. This separates implemented release controls from
+Status updated on 2026-07-21. This separates implemented release controls from
 owner credentials and third-party approvals that source code cannot create.
 
 ## Implemented
@@ -8,20 +8,26 @@ owner credentials and third-party approvals that source code cannot create.
 - Automatic Windows x64 and Linux x64 Code-OSS builds.
 - EXE, MSI, portable ZIP, AppImage, deb, tarball, VSIX, Browser ZIP, and Burp JAR.
 - SHA-256 manifest for release assets.
-- Stable/beta channel selection in the private updater.
-- Real private-feed updater test (`v0.2.0` to `v0.2.1`) with full installer
+- Stable/beta channel selection in the production updater, a strict feed
+  schema, GitHub Releases fallback, and GitHub Pages deployment workflow.
+- Real release updater test (`v0.2.0` to `v0.2.1`) with full installer
   download, size validation, PE validation, and SHA-256 verification.
 - RSA code-signing validation, RFC 3161 timestamping, and Authenticode trust
   verification for Hawk.exe, the EXE installer, and MSI.
 - A hard publication gate: GitHub cannot publish a desktop release without a
   trusted Windows signing configuration (PFX or Azure Artifact Signing) and
   the expected publisher pin.
-- Chrome Web Store listing/privacy/permission pack and upload/submission script.
-- PortSwigger BApp Store description, setup, security, and submission pack.
+- Chrome Web Store OAuth refresh, upload, and submission tooling.
+- Visual Studio Marketplace identity validation and `vsce` publication tooling.
+- PortSwigger BApp Store description, setup, security, hashed artifact, and
+  reviewer submission pack.
 - External Hawk pentest scope and private beta acceptance plan.
 - A machine-readable production-readiness gate for signing configuration,
   current release assets, GitHub CI, five real beta sessions, and independent
   pentest evidence. The gate validates evidence but never fabricates it.
+- A secure in-product LLM provider wizard. Hosted API keys are held in the
+  OS-backed extension secret vault and injected only into the local daemon;
+  keys never enter workspace settings, Git, logs, prompts, or task history.
 - A Hawk-only branding gate across product paths, packages, commands, docs,
   installers, and release assets. Required Apache attribution is isolated to
   `NOTICE`.
@@ -76,13 +82,20 @@ redirect host, and a `Valid` Authenticode chain without launching it.
 When `HAWK_WINDOWS_PUBLISHER` is configured, the smoke test also checks that
 the final installer signer matches that trusted subject pin.
 
-The updater checks the private feed at startup (and from **Hawk: Check for
-Private Release Updates**), sorts the selected stable/beta channel by semantic
+The updater checks the HTTPS production feed at startup (and from **Hawk:
+Check for Production Updates**), sorts the selected stable/beta channel by semantic
 version, downloads only the matching Windows installer, and asks for explicit
 install approval. On Windows it independently validates the Authenticode chain
 and optional `hawk.updates.expectedPublisher` subject pin before launching the
-installer. This keeps updates real and unattended-download capable without
-silently executing a remote binary.
+installer. A malformed or unavailable production feed falls back to the same
+official GitHub Releases API. This keeps updates real and
+unattended-download capable without silently executing a remote binary.
+
+The `Hawk Production Update Feed` workflow deploys
+`https://mrboodj011.github.io/hawk/updates/feed.json` after a published desktop
+release. The owner must enable GitHub Pages with **GitHub Actions** as its source
+once; `npm run release:readiness:enforce` then checks that the current stable
+version is present in the live feed.
 
 For Azure Artifact Signing, create a verified account/profile with the Code
 Signing profile signer role and add:
@@ -103,20 +116,29 @@ Chrome publication requires an owner-controlled Web Store developer account,
 two-step verification, listing/privacy completion, an extension item ID,
 publisher ID, and OAuth access. Configure these only in the release environment:
 
-- `CHROME_WEBSTORE_PUBLISHER_ID`
-- `CHROME_WEBSTORE_EXTENSION_ID`
-- `CHROME_WEBSTORE_ACCESS_TOKEN`
+- variables `CHROME_WEBSTORE_PUBLISHER_ID`, `CHROME_WEBSTORE_EXTENSION_ID`
+- secrets `CHROME_WEBSTORE_CLIENT_ID`, `CHROME_WEBSTORE_CLIENT_SECRET`,
+  `CHROME_WEBSTORE_REFRESH_TOKEN`
 
 Run `npm run publish:browser-store -- --file <zip>` to upload without
 submission; add `--publish` only after manual listing review.
 
-### 4. PortSwigger review
+### 4. Visual Studio Marketplace owner account
+
+Create the publisher identity and set `HAWK_VSCE_PUBLISHER` to the exact value
+used in `extensions/hawk-security-ide/package.json`. Supply either the
+Marketplace PAT accepted by `vsce` or Microsoft Entra credentials. The
+`Hawk Official Store Publication` workflow packages and validates the VSIX;
+`publish=true` is fail-closed when identity or authentication is missing.
+
+### 5. PortSwigger review
 
 PortSwigger requires a reviewer-accessible GitHub source link and a submission
-through its extension portal. Use `integrations/burp/BAPP_SUBMISSION.md`.
+through its extension portal. Use `integrations/burp/BAPP_SUBMISSION.md` and
+the hashed `bapp-submission.json` generated by the store workflow.
 Store acceptance and timing remain PortSwigger decisions.
 
-### 5. Independent pentest and real users
+### 6. Independent pentest and real users
 
 Provide the signed release candidate and
 `docs/audit/HAWK_EXTERNAL_PENTEST_SCOPE.md` to an independent assessor. A Hawk
@@ -124,7 +146,15 @@ self-test is useful engineering evidence but cannot honestly be called an
 external pentest. Complete the scenarios and exit criteria in
 `docs/audit/BETA_TEST_PLAN.md` with real projects before public launch.
 
-Place assessor evidence using
-`docs/audit/EXTERNAL_PENTEST_EVIDENCE.example.json` as the schema reference,
-then point `HAWK_EXTERNAL_PENTEST_EVIDENCE` at the private evidence file.
+Record the final assessor report and exact candidate with
+`npm run pentest:record`; it writes hashes into the private, gitignored
+evidence file. Record each real session with `npm run beta:record`.
 Run `npm run release:readiness:enforce` for the final owner-controlled gate.
+
+### 7. Store approvals
+
+After each third party has actually published Hawk, record the three listing
+URLs with `npm run stores:record` (the example schema is
+`docs/release/STORE_PUBLICATION_EVIDENCE.example.json`). The release gate
+accepts only HTTPS URLs on the official Chrome, Microsoft Marketplace, and
+PortSwigger hosts.

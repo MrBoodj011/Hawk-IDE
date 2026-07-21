@@ -27,6 +27,18 @@ then offers a RAM-sized coding model with its approximate download size.
 Model installation remains explicitly approved and the selected provider is
 configured on `http://127.0.0.1:11434`.
 
+**Hawk: Configure AI Provider and API Key** supports Ollama, LM Studio,
+OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Kimi, and custom
+OpenAI-compatible endpoints. Hosted keys are stored in OS-backed VS Code
+SecretStorage, injected only into the local daemon, and never written to
+settings or workspace files. Remote custom endpoints require HTTPS; local HTTP
+is restricted to loopback.
+
+The production updater reads the Stable or Beta channel from Hawk's HTTPS
+update service and falls back to the official GitHub Releases API. Installer
+size, SHA-256 manifest, trusted redirect host, Windows Authenticode chain, and
+optional publisher pin are verified before explicit install approval.
+
 The extension bundles its MCP server and copies a self-contained configuration
 that launches it through the Hawk/Code-OSS executable, so no global
 `hawk-ide-mcp` install is required. It exposes bounded Docker worker

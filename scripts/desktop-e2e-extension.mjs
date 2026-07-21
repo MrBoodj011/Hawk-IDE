@@ -12,6 +12,9 @@ export async function run() {
     'hawk.openAgent',
     'hawk.indexWorkspace',
     'hawk.exportDebugBundle',
+    'hawk.configureLLMProvider',
+    'hawk.showLLMStatus',
+    'hawk.checkForUpdates',
   ]) {
     assert.ok(commands.includes(command), `missing registered command: ${command}`);
   }

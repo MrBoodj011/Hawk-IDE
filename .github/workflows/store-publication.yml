@@ -1,0 +1,111 @@
+name: Hawk Official Store Publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Store target'
+        required: true
+        type: choice
+        options: [all, browser, vscode, burp]
+        default: all
+      publish:
+        description: 'Upload and submit to supported stores (false validates packages only)'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hawk-official-stores
+  cancel-in-progress: false
+
+jobs:
+  package-and-publish:
+    runs-on: ubuntu-24.04
+    environment: official-stores
+    env:
+      CHROME_WEBSTORE_PUBLISHER_ID: ${{ vars.CHROME_WEBSTORE_PUBLISHER_ID }}
+      CHROME_WEBSTORE_EXTENSION_ID: ${{ vars.CHROME_WEBSTORE_EXTENSION_ID }}
+      CHROME_WEBSTORE_CLIENT_ID: ${{ secrets.CHROME_WEBSTORE_CLIENT_ID }}
+      CHROME_WEBSTORE_CLIENT_SECRET: ${{ secrets.CHROME_WEBSTORE_CLIENT_SECRET }}
+      CHROME_WEBSTORE_REFRESH_TOKEN: ${{ secrets.CHROME_WEBSTORE_REFRESH_TOKEN }}
+      HAWK_VSCE_PUBLISHER: ${{ vars.HAWK_VSCE_PUBLISHER }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      AZURE_CLIENT_ID: ${{ secrets.VSCE_AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.VSCE_AZURE_TENANT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.VSCE_AZURE_CLIENT_SECRET }}
+      HAWK_VSCE_USE_AZURE_CREDENTIAL: ${{ secrets.VSCE_AZURE_CLIENT_ID != '' && secrets.VSCE_AZURE_TENANT_ID != '' && secrets.VSCE_AZURE_CLIENT_SECRET != '' && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - uses: actions/setup-java@v4
+        if: inputs.target == 'all' || inputs.target == 'burp'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        if: inputs.target == 'all' || inputs.target == 'burp'
+        with:
+          gradle-version: '9.5.0'
+      - run: npm ci
+      - run: npm run check:integrations
+      - run: mkdir -p artifacts
+
+      - name: Package Chrome Web Store ZIP
+        if: inputs.target == 'all' || inputs.target == 'browser'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          (cd integrations/browser && zip -9 -r ../../artifacts/Hawk-Browser-Companion.zip .)
+      - name: Validate Chrome package
+        if: (inputs.target == 'all' || inputs.target == 'browser') && !inputs.publish
+        run: node scripts/publish-browser-store.mjs --file artifacts/Hawk-Browser-Companion.zip --validate-only
+      - name: Upload and submit Chrome package
+        if: (inputs.target == 'all' || inputs.target == 'browser') && inputs.publish
+        run: node scripts/publish-browser-store.mjs --file artifacts/Hawk-Browser-Companion.zip --publish
+
+      - name: Package Visual Studio Marketplace VSIX
+        if: inputs.target == 'all' || inputs.target == 'vscode'
+        run: npm run package:extension
+      - name: Collect VSIX
+        if: inputs.target == 'all' || inputs.target == 'vscode'
+        shell: bash
+        run: cp extensions/hawk-security-ide/*.vsix artifacts/Hawk-Security-IDE.vsix
+      - name: Validate Visual Studio Marketplace package
+        if: (inputs.target == 'all' || inputs.target == 'vscode') && !inputs.publish
+        run: node scripts/publish-vscode-store.mjs --file artifacts/Hawk-Security-IDE.vsix --validate-only
+      - name: Publish Visual Studio Marketplace package
+        if: (inputs.target == 'all' || inputs.target == 'vscode') && inputs.publish
+        run: node scripts/publish-vscode-store.mjs --file artifacts/Hawk-Security-IDE.vsix --publish
+
+      - name: Package Hawk Burp Companion
+        if: inputs.target == 'all' || inputs.target == 'burp'
+        run: gradle --no-daemon -p integrations/burp clean jar
+      - name: Prepare official BApp review submission
+        if: inputs.target == 'all' || inputs.target == 'burp'
+        shell: bash
+        run: |
+          jar="$(find integrations/burp/build/libs -maxdepth 1 -name 'hawk-burp-companion-*.jar' -type f -print -quit)"
+          test -n "$jar"
+          node scripts/prepare-bapp-submission.mjs \
+            --file "$jar" \
+            --output artifacts/bapp-submission.json
+          cp "$jar" artifacts/Hawk-Burp-Companion.jar
+          {
+            echo '### PortSwigger BApp review'
+            echo 'PortSwigger requires an owner-submitted extension-portal issue and human review.'
+            echo 'Use the generated `bapp-submission.json`; this workflow does not claim publication.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hawk-official-store-packages
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
