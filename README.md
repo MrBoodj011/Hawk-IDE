@@ -516,7 +516,7 @@ Hawk is a personal project created, branded, and maintained by **[MrBoodj011](ht
 
 ## Health report liaison
 
-Hawk can import a sanitized `health.json` produced by the separate [Cybrense Hawk](https://github.com/Cybrense-IT-Services/Hawk) project. This is a file-contract integration only. Hawk stores only a sanitized local summary and never accepts an App private key, installation token, raw alert payload, source code, or pull-request body.
+Hawk can import a sanitized `health.json` produced by an external HawkOps-compatible maintenance report. This is a file-contract integration only. Hawk stores only a sanitized local summary and never accepts an App private key, installation token, raw alert payload, source code, or pull-request body.
 
 ## License
 
