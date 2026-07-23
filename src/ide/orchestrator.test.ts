@@ -19,7 +19,7 @@ afterEach(async () => {
 describe('HawkDockerOrchestrator', () => {
   it('runs an isolated dependency graph with bounded parallelism', async () => {
     const root = await temporaryWorkspace();
-    const runtime = new FakeRuntime();
+    const runtime = new FakeRuntime(new Set(), 2);
     const orchestrator = new HawkDockerOrchestrator(root, runtime);
     const started = await orchestrator.start({
       image: 'hawk-worker:test',
@@ -303,8 +303,12 @@ class FakeRuntime implements WorkerRuntime {
   readonly started: string[] = [];
   readonly assignments: Array<[string, string]> = [];
   readonly contexts: WorkerTaskContext[] = [];
+  private readonly firstWaveWaiters: Array<() => void> = [];
 
-  constructor(private readonly failures = new Set<string>()) {}
+  constructor(
+    private readonly failures = new Set<string>(),
+    private readonly synchronizedFirstWave = 0,
+  ) {}
 
   async availability(): Promise<{ available: boolean; version?: string }> {
     return { available: true, version: 'test' };
@@ -316,6 +320,7 @@ class FakeRuntime implements WorkerRuntime {
     this.maxActive = Math.max(this.maxActive, this.active);
     this.started.push(context.task.id);
     this.assignments.push([context.task.id, context.instanceId]);
+    await this.waitForFirstWave();
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
     this.active -= 1;
     const failed = this.failures.has(context.task.id);
@@ -329,6 +334,23 @@ class FakeRuntime implements WorkerRuntime {
   }
 
   async cancel(): Promise<void> {}
+
+  private async waitForFirstWave(): Promise<void> {
+    if (this.synchronizedFirstWave < 2 || this.started.length > this.synchronizedFirstWave) {
+      return;
+    }
+    if (this.started.length === this.synchronizedFirstWave) {
+      for (const release of this.firstWaveWaiters.splice(0)) release();
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 2_000);
+      this.firstWaveWaiters.push(() => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+  }
 }
 
 class HangingRuntime implements WorkerRuntime {
