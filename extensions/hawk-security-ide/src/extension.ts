@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { HawkAgentPanel } from './agentPanel';
 import { DaemonClient } from './daemonClient';
 import { HawkDebugAgent } from './debugAgent';
+import { HawkGitHubAutomation } from './githubAutomation';
 import { HawkCodingCore } from './hawkCodingCore';
 import { HawkHealthSync } from './hawkHealthSync';
 import { HawkLlmProviderSetup } from './llmProviderSetup';
@@ -20,6 +21,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const llmProviderSetup = new HawkLlmProviderSetup(context, client);
   const releaseUpdater = new HawkReleaseUpdater(context);
   const healthSync = new HawkHealthSync(context.secrets, client);
+  const githubAutomation = new HawkGitHubAutomation(context.secrets, client);
   const dashboard = new SecurityDashboardProvider(
     context.extensionUri,
     client,
@@ -34,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(localAiSetup);
   context.subscriptions.push(llmProviderSetup);
   context.subscriptions.push(releaseUpdater);
+  context.subscriptions.push(githubAutomation);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('hawk.securityDashboard', dashboard, {
       webviewOptions: { retainContextWhenHidden: true },
@@ -73,6 +76,53 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('hawk.configureHawkHealthSync', async () => {
       await dashboard.configureHawkHealthSync();
+    }),
+    vscode.commands.registerCommand('hawk.github.configure', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        await githubAutomation.configure(workspace);
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Hawk could not configure GitHub automation: ${errorMessage(err)}`,
+        );
+      }
+    }),
+    vscode.commands.registerCommand('hawk.github.issueToPr', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        const result = await githubAutomation.issueToPr(workspace);
+        if (result?.pullRequest) {
+          vscode.window.showInformationMessage(
+            `Hawk opened PR #${result.pullRequest.number}: ${result.pullRequest.url}`,
+          );
+        }
+      } catch (err) {
+        vscode.window.showErrorMessage(`Hawk GitHub workflow failed: ${errorMessage(err)}`);
+      }
+    }),
+    vscode.commands.registerCommand('hawk.github.openPr', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        await githubAutomation.openPullRequest(workspace);
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Hawk could not open the pull request: ${errorMessage(err)}`,
+        );
+      }
+    }),
+    vscode.commands.registerCommand('hawk.github.reviewPr', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        await githubAutomation.reviewPullRequest(workspace);
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Hawk could not review the pull request: ${errorMessage(err)}`,
+        );
+      }
     }),
     vscode.commands.registerCommand('hawk.openSecurityDashboard', async () => {
       dashboard.openMissionControl();

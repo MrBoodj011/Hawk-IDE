@@ -106,6 +106,16 @@ file.
   observed by Hawk Tab using structured-edit validity, explicit editor
   acceptance/rejection feedback, cache reuse, and p50/p95 generation latency.
   Recommendations are labelled low, medium, or high evidence confidence.
+- **Hawk: Issue → Branch → PR Automation** creates a GitHub issue, derives and
+  creates a local feature branch, commits only after a modal approval, rejects
+  secret-like paths, runs `git diff --check`, pushes the branch, opens a PR
+  with `Closes #…`, and posts a bounded Hawk review. **Hawk: Review GitHub Pull
+  Request** can post the same evidence-bounded review to an existing PR, while
+  **Hawk: Open Pull Request from Current Branch** resumes the PR step after an
+  AI implementation has been applied to the issue branch. GitHub
+  authentication uses the built-in VS Code session when available or an
+  OS-backed SecretStorage token; credentials never enter git arguments or
+  webviews. A human maintainer remains responsible for final merge approval.
 
 ## Next Edit acceleration and evaluation
 

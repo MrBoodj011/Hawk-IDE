@@ -27,6 +27,10 @@
     "onCommand:hawk.runWorkspaceScan",
     "onCommand:hawk.syncHawkHealth",
     "onCommand:hawk.configureHawkHealthSync",
+    "onCommand:hawk.github.configure",
+    "onCommand:hawk.github.issueToPr",
+    "onCommand:hawk.github.openPr",
+    "onCommand:hawk.github.reviewPr",
     "onCommand:hawk.openSecurityDashboard",
     "onCommand:hawk.pairCapture",
     "onCommand:hawk.planIdentityReplay",
@@ -151,6 +155,22 @@
       {
         "command": "hawk.configureHawkHealthSync",
         "title": "Hawk: Configure GitHub Health Sync"
+      },
+      {
+        "command": "hawk.github.configure",
+        "title": "Hawk: Configure GitHub Automation"
+      },
+      {
+        "command": "hawk.github.issueToPr",
+        "title": "Hawk: Issue → Branch → PR Automation"
+      },
+      {
+        "command": "hawk.github.openPr",
+        "title": "Hawk: Open Pull Request from Current Branch"
+      },
+      {
+        "command": "hawk.github.reviewPr",
+        "title": "Hawk: Review GitHub Pull Request"
       },
       {
         "command": "hawk.openSecurityDashboard",

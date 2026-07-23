@@ -29,7 +29,14 @@ Three-lane coding runs keep architecture, implementation, and verification
 candidates separate and independently verified. It imports the
 separate Hawk GitHub App's `health.json` as a sanitized local supply-chain
 summary and can optionally sync a GitHub raw/Contents API URL; an optional
-token stays in Hawk's encrypted local secret storage.
+token stays in Hawk's encrypted local secret storage. **Hawk: Issue → Branch →
+PR Automation** creates a GitHub issue, creates a scoped feature branch,
+commits and pushes only after approval, opens the pull request, and posts a
+bounded static-review comment. Existing PRs can be reviewed with **Hawk:
+Review GitHub Pull Request**; **Hawk: Open Pull Request from Current Branch**
+resumes the PR step after an AI patch is applied. GitHub authentication uses
+VS Code's built-in session or encrypted local SecretStorage, and final merge
+approval remains human-controlled.
 
 **Hawk: Set Up Local AI with Ollama** discovers an existing local runtime or
 downloads the latest official Windows release. Hawk requires the GitHub
