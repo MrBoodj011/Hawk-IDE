@@ -96,9 +96,12 @@ file.
 - **Hawk: Run Automatic Debug / Test / Fix Loop** captures native DAP threads,
   frames, scopes, variables, breakpoints, and diagnostics, redacts secret-like
   values, and starts an isolated fix task. After a separate approval showing
-  the exact gate commands, Hawk repeats edit, approved tests, and evidence-fed
-  repair up to `hawk.debug.autoFix.maxAttempts`. Cancel stops an active gate;
-  successful fixes still require manual diff review and Apply.
+  the exact gate commands, Hawk relaunches the saved debugger configuration
+  against the current isolated worktree, reproduces the original failure,
+  runs approved retest gates, and feeds bounded DAP/test evidence into the next
+  fix attempt up to `hawk.debug.autoFix.maxAttempts`. An inconclusive relaunch
+  never counts as a green reproduction result; successful fixes still require
+  manual diff review and Apply.
 - **Hawk: Show Next Edit Model Evaluation** compares every model configuration
   observed by Hawk Tab using structured-edit validity, explicit editor
   acceptance/rejection feedback, cache reuse, and p50/p95 generation latency.

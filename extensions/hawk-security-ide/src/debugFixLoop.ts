@@ -4,13 +4,30 @@ export interface DebugFixLoopDriver {
   getSession(sessionId: string): Promise<AiSessionSummary>;
   runTests(sessionId: string, gateIds: string[]): Promise<AiSessionSummary>;
   continueSession(sessionId: string, prompt: string, context: string): Promise<AiSessionSummary>;
+  /** Relaunch the debugger using the preserved launch configuration. */
+  relaunchDebugger?(sessionId: string, attempt: number): Promise<void>;
+  /** Re-run the original failure after a relaunch and return bounded evidence. */
+  reproduceFailure?(sessionId: string, attempt: number): Promise<DebugReproductionResult>;
+}
+
+export interface DebugReproductionResult {
+  status: 'reproduced' | 'not-reproduced' | 'failed';
+  output: string;
 }
 
 export interface DebugFixLoopProgress {
   attempt: number;
   maxAttempts: number;
-  phase: 'waiting' | 'testing' | 'retrying' | 'passed' | 'exhausted';
+  phase:
+    | 'waiting'
+    | 'relaunching'
+    | 'reproducing'
+    | 'testing'
+    | 'retrying'
+    | 'passed'
+    | 'exhausted';
   session: AiSessionSummary;
+  reproduction?: DebugReproductionResult;
 }
 
 export interface DebugFixLoopOptions {
@@ -23,6 +40,7 @@ export interface DebugFixLoopOptions {
   buildRetry: (
     session: AiSessionSummary,
     attempt: number,
+    reproduction?: DebugReproductionResult,
   ) => Promise<{ prompt: string; context: string }>;
   onProgress?: (progress: DebugFixLoopProgress) => void | Promise<void>;
 }
@@ -31,6 +49,7 @@ export interface DebugFixLoopResult {
   outcome: 'passed' | 'exhausted' | 'cancelled' | 'no-gates';
   attempts: number;
   session: AiSessionSummary;
+  reproduction?: DebugReproductionResult;
 }
 
 /**
@@ -48,6 +67,7 @@ export async function runAutomaticDebugFixLoop(
     return { outcome: 'no-gates', attempts: 0, session };
   }
 
+  let reproduction: DebugReproductionResult | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     session = await waitUntilReview(
       options.driver,
@@ -66,6 +86,30 @@ export async function runAutomaticDebugFixLoop(
     );
     throwIfAborted(options.signal);
 
+    // A debugger relaunch is deliberately performed before every verification
+    // attempt. This catches fixes that make the static test suite green while
+    // the original runtime failure is still reproducible.
+    if (options.driver.relaunchDebugger) {
+      await options.onProgress?.({
+        attempt,
+        maxAttempts,
+        phase: 'relaunching',
+        session,
+      });
+      await options.driver.relaunchDebugger(session.id, attempt);
+      throwIfAborted(options.signal);
+    }
+    if (options.driver.reproduceFailure) {
+      await options.onProgress?.({
+        attempt,
+        maxAttempts,
+        phase: 'reproducing',
+        session,
+      });
+      reproduction = await options.driver.reproduceFailure(session.id, attempt);
+      throwIfAborted(options.signal);
+    }
+
     if (session.status === 'awaiting-review') {
       await options.onProgress?.({
         attempt,
@@ -78,14 +122,15 @@ export async function runAutomaticDebugFixLoop(
         session.testGates.map((gate) => gate.id),
       );
       throwIfAborted(options.signal);
-      if (allGatesPassed(session)) {
+      if (allGatesPassed(session) && (!reproduction || reproduction.status === 'not-reproduced')) {
         await options.onProgress?.({
           attempt,
           maxAttempts,
           phase: 'passed',
           session,
+          reproduction,
         });
-        return { outcome: 'passed', attempts: attempt, session };
+        return { outcome: 'passed', attempts: attempt, session, reproduction };
       }
     }
 
@@ -95,8 +140,9 @@ export async function runAutomaticDebugFixLoop(
         maxAttempts,
         phase: 'exhausted',
         session,
+        reproduction,
       });
-      return { outcome: 'exhausted', attempts: attempt, session };
+      return { outcome: 'exhausted', attempts: attempt, session, reproduction };
     }
 
     await options.onProgress?.({
@@ -104,13 +150,14 @@ export async function runAutomaticDebugFixLoop(
       maxAttempts,
       phase: 'retrying',
       session,
+      reproduction,
     });
-    const retry = await options.buildRetry(session, attempt);
+    const retry = await options.buildRetry(session, attempt, reproduction);
     throwIfAborted(options.signal);
     session = await options.driver.continueSession(session.id, retry.prompt, retry.context);
   }
 
-  return { outcome: 'exhausted', attempts: maxAttempts, session };
+  return { outcome: 'exhausted', attempts: maxAttempts, session, reproduction };
 }
 
 async function waitUntilReview(

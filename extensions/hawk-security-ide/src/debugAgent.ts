@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
 import type { HawkAgentPanel } from './agentPanel';
 import type { DaemonClient } from './daemonClient';
-import { runAutomaticDebugFixLoop, type DebugFixLoopProgress } from './debugFixLoop';
+import {
+  runAutomaticDebugFixLoop,
+  type DebugFixLoopProgress,
+  type DebugReproductionResult,
+} from './debugFixLoop';
 import type { AiSessionSummary } from './types';
 
 const MAX_STACK_FRAMES = 24;
@@ -9,6 +13,7 @@ const MAX_SCOPES = 10;
 const MAX_VARIABLES = 80;
 const MAX_VALUE_CHARS = 500;
 const MAX_SNAPSHOT_CHARS = 28_000;
+const DEBUG_RELAUNCH_TIMEOUT_MS = 30_000;
 
 interface DapThread {
   id: number;
@@ -156,6 +161,7 @@ export class HawkDebugAgent implements vscode.Disposable {
       throw new Error('Open and trust a workspace before using the Hawk Debug Agent.');
     }
     const snapshot = await this.capture();
+    const launch = this.captureLaunchConfiguration();
     const approval = await vscode.window.showWarningMessage(
       'Start a Hawk agent in an isolated worktree with this debugger snapshot? It can edit and run detected test gates, but Apply remains manual.',
       { modal: true },
@@ -205,6 +211,7 @@ export class HawkDebugAgent implements vscode.Disposable {
     const controller = new AbortController();
     this.activeLoop = controller;
     this.activeLoopSession = { workspace, id: session.id };
+    let latestSession = session;
     try {
       const result = await vscode.window.withProgress(
         {
@@ -222,10 +229,13 @@ export class HawkDebugAgent implements vscode.Disposable {
             maxAttempts,
             signal: controller.signal,
             driver: {
-              getSession: async (sessionId) =>
-                (await this.client.aiEvents(workspace, sessionId, 0)).session,
+              getSession: async (sessionId) => {
+                latestSession = (await this.client.aiEvents(workspace, sessionId, 0)).session;
+                return latestSession;
+              },
               runTests: async (sessionId, gateIds) => {
                 const updated = await this.client.runAiTests(workspace, sessionId, gateIds);
+                latestSession = updated;
                 await this.agentPanel.watchTask(workspace, updated);
                 return updated;
               },
@@ -236,12 +246,19 @@ export class HawkDebugAgent implements vscode.Disposable {
                   prompt,
                   retryContext,
                 );
+                latestSession = updated;
                 await this.agentPanel.watchTask(workspace, updated);
                 return updated;
               },
+              relaunchDebugger: launch
+                ? async () => {
+                    await this.relaunchDebugger(launch, latestSession.sandboxPath);
+                  }
+                : undefined,
+              reproduceFailure: launch ? async () => await this.reproduceFailure() : undefined,
             },
-            buildRetry: async (failed, attempt) =>
-              await this.buildRetry(failed, snapshot, attempt, maxAttempts),
+            buildRetry: async (failed, attempt, reproduction) =>
+              await this.buildRetry(failed, snapshot, attempt, maxAttempts, reproduction),
             onProgress: async (update) => {
               const message = debugProgressMessage(update);
               progress.report({ message });
@@ -279,6 +296,7 @@ export class HawkDebugAgent implements vscode.Disposable {
     originalSnapshot: HawkDebugSnapshot,
     attempt: number,
     maxAttempts: number,
+    reproduction?: DebugReproductionResult,
   ): Promise<{ prompt: string; context: string }> {
     let snapshot = originalSnapshot;
     if (vscode.debug.activeDebugSession) {
@@ -302,11 +320,104 @@ export class HawkDebugAgent implements vscode.Disposable {
         '',
         failures || 'The agent failed before approved gates completed.',
         '',
+        '# Latest debugger reproduction evidence',
+        '',
+        reproduction
+          ? `${reproduction.status}:\n${bound(reproduction.output, 7_000)}`
+          : 'Debugger reproduction was not run.',
+        '',
         renderSnapshot(snapshot),
       ]
         .join('\n')
         .slice(0, MAX_SNAPSHOT_CHARS),
     };
+  }
+
+  private captureLaunchConfiguration():
+    | { folder: vscode.WorkspaceFolder | undefined; configuration: vscode.DebugConfiguration }
+    | undefined {
+    const active = vscode.debug.activeDebugSession;
+    if (!active) return undefined;
+    return {
+      folder: active.workspaceFolder,
+      configuration: { ...active.configuration },
+    };
+  }
+
+  /** Stop and start the exact launch profile that produced the original failure. */
+  private async relaunchDebugger(
+    launch: {
+      folder: vscode.WorkspaceFolder | undefined;
+      configuration: vscode.DebugConfiguration;
+    },
+    isolatedRoot?: string,
+  ): Promise<void> {
+    const current = vscode.debug.activeDebugSession;
+    if (current) await vscode.debug.stopDebugging(current);
+    const configuration = isolatedRoot
+      ? rewriteDebugConfiguration(launch.configuration, isolatedRoot)
+      : launch.configuration;
+    const started = await vscode.debug.startDebugging(launch.folder, configuration);
+    if (!started)
+      throw new Error('Hawk could not relaunch the debugger with the saved launch configuration.');
+
+    const deadline = Date.now() + DEBUG_RELAUNCH_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const active = vscode.debug.activeDebugSession;
+      if (
+        active &&
+        active.type === configuration.type &&
+        (!configuration.name || active.name === configuration.name)
+      ) {
+        // Give the adapter a short window to emit its initial stopped/exception
+        // event before the DAP snapshot is captured.
+        await delay(250);
+        this.output.appendLine(`Relaunched debugger: ${active.name} (${active.type}).`);
+        return;
+      }
+      await delay(100);
+    }
+    throw new Error('The relaunched debugger did not become active before the Hawk timeout.');
+  }
+
+  private async reproduceFailure(): Promise<DebugReproductionResult> {
+    const active = vscode.debug.activeDebugSession;
+    if (!active) return { status: 'failed', output: 'No active debugger session after relaunch.' };
+    try {
+      const outcome = waitForReproductionEvent(active, DEBUG_RELAUNCH_TIMEOUT_MS);
+      await Promise.resolve(active.customRequest('continue')).catch(() => undefined);
+      const event = await outcome;
+      if (event === 'timeout') {
+        return {
+          status: 'failed',
+          output:
+            'No debugger stopped/exception event arrived before the relaunch timeout; reproduction is inconclusive.',
+        };
+      }
+      if (event === 'terminated' || event === 'exited') {
+        return {
+          status: 'not-reproduced',
+          output: `Debugger ${event} without a failure stop event.`,
+        };
+      }
+      const snapshot = await this.capture();
+      const output = renderSnapshot(snapshot);
+      const unavailable = snapshot.warnings.some((warning) =>
+        /threads are unavailable/i.test(warning),
+      );
+      return {
+        // A running session with no stopped threads is the expected signal after
+        // a fix. An adapter that cannot expose threads is an inconclusive run.
+        status: unavailable
+          ? 'failed'
+          : snapshot.threads.some((thread) => thread.frames.length > 0)
+            ? 'reproduced'
+            : 'not-reproduced',
+        output,
+      };
+    } catch (err) {
+      return { status: 'failed', output: errorMessage(err) };
+    }
   }
 
   private async captureFrames(
@@ -502,6 +613,61 @@ function bound(value: string, length: number): string {
   return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, length);
 }
 
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function rewriteDebugConfiguration(
+  configuration: vscode.DebugConfiguration,
+  isolatedRoot: string,
+): vscode.DebugConfiguration {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const rewrite = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      let output = value.replaceAll('${workspaceFolder}', isolatedRoot);
+      if (workspaceRoot) output = output.replaceAll(workspaceRoot, isolatedRoot);
+      return output;
+    }
+    if (Array.isArray(value)) return value.map(rewrite);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, rewrite(entry)]));
+    }
+    return value;
+  };
+  const rewritten = rewrite(configuration) as vscode.DebugConfiguration;
+  rewritten.cwd = isolatedRoot;
+  return rewritten;
+}
+
+type ReproductionEvent = 'stopped' | 'terminated' | 'exited' | 'timeout';
+
+function waitForReproductionEvent(
+  session: vscode.DebugSession,
+  timeoutMs: number,
+): Promise<ReproductionEvent> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (event: ReproductionEvent): void => {
+      if (settled) return;
+      settled = true;
+      disposable.dispose();
+      clearTimeout(timer);
+      resolve(event);
+    };
+    const disposable = vscode.debug.onDidReceiveDebugSessionCustomEvent((event) => {
+      if (event.session.id !== session.id) return;
+      if (
+        event.event === 'stopped' ||
+        event.event === 'terminated' ||
+        event.event === 'exited'
+      ) {
+        finish(event.event);
+      }
+    });
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+  });
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -511,6 +677,10 @@ function debugProgressMessage(update: DebugFixLoopProgress): string {
   switch (update.phase) {
     case 'waiting':
       return `${prefix}: agent is diagnosing and editing the isolated worktree.`;
+    case 'relaunching':
+      return `${prefix}: relaunching the saved debugger configuration.`;
+    case 'reproducing':
+      return `${prefix}: reproducing the original failure and capturing DAP evidence.`;
     case 'testing':
       return `${prefix}: running operator-approved test gates.`;
     case 'retrying':

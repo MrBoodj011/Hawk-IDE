@@ -96,6 +96,76 @@ describe('runAutomaticDebugFixLoop', () => {
     expect(result.session.status).toBe('awaiting-review');
     expect(retries).toBe(1);
   });
+
+  it('relaunches and reproduces before each retest, then only passes when the failure is gone', async () => {
+    let session = makeSession('awaiting-review');
+    let tests = 0;
+    let retries = 0;
+    const events: string[] = [];
+    const driver: DebugFixLoopDriver = {
+      async getSession() {
+        return session;
+      },
+      async relaunchDebugger(_sessionId, attempt) {
+        events.push(`relaunch-${attempt}`);
+      },
+      async reproduceFailure(_sessionId, attempt) {
+        events.push(`reproduce-${attempt}`);
+        return {
+          status: attempt === 1 ? 'reproduced' : 'not-reproduced',
+          output: attempt === 1 ? 'breakpoint hit: null dereference' : 'program exited normally',
+        };
+      },
+      async runTests() {
+        tests += 1;
+        events.push(`retest-${tests}`);
+        session = {
+          ...session,
+          status: 'awaiting-review',
+          testResults: [
+            {
+              gateId: 'npm:test',
+              label: 'Tests',
+              status: tests === 1 ? 'failed' : 'passed',
+              exitCode: tests === 1 ? 1 : 0,
+              durationMs: 10,
+              output: tests === 1 ? 'regression still present' : 'ok',
+            },
+          ],
+        };
+        return session;
+      },
+      async continueSession() {
+        retries += 1;
+        events.push('fix');
+        session = { ...session, status: 'awaiting-review', testResults: [] };
+        return session;
+      },
+    };
+
+    const result = await runAutomaticDebugFixLoop({
+      session,
+      maxAttempts: 3,
+      driver,
+      async buildRetry(_failed, _attempt, reproduction) {
+        expect(reproduction?.status).toBe('reproduced');
+        return { prompt: 'repair the reproduced failure', context: reproduction?.output ?? '' };
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: 'passed', attempts: 2 });
+    expect(result.reproduction?.status).toBe('not-reproduced');
+    expect(events).toEqual([
+      'relaunch-1',
+      'reproduce-1',
+      'retest-1',
+      'fix',
+      'relaunch-2',
+      'reproduce-2',
+      'retest-2',
+    ]);
+    expect(retries).toBe(1);
+  });
 });
 
 function makeSession(status: AiSessionSummary['status']): AiSessionSummary {
