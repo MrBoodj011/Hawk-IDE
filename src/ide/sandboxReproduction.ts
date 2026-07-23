@@ -198,6 +198,7 @@ interface DeterministicRecipe {
 
 interface GenericCommandRecipe {
   kind: 'generic-command';
+  mode: NonNullable<GenericReproductionInput['mode']>;
   control: string[];
   reproduction: string[];
   controlExpectedExitCode: number;
@@ -374,7 +375,7 @@ function genericOrchestrationSpec(
       },
       {
         id: 'control',
-        title: 'Run generic negative control',
+        title: `Run ${recipe.mode === 'command' ? 'generic' : recipe.mode} negative control`,
         command: genericCommand('control', recipe.control, recipe.controlExpectedExitCode),
         dependsOn: ['baseline'],
         timeoutSeconds: STAGE_TIMEOUT_SECONDS,
@@ -384,7 +385,9 @@ function genericOrchestrationSpec(
       },
       {
         id: 'reproduction',
-        title: recipe.label ? `Reproduce ${recipe.label}` : 'Run generic security reproduction',
+        title: recipe.label
+          ? `Reproduce ${recipe.mode === 'command' ? 'generic' : recipe.mode}: ${recipe.label}`
+          : `Run ${recipe.mode === 'command' ? 'generic' : recipe.mode} security reproduction`,
         command: genericCommand(
           'reproduction',
           recipe.reproduction,
@@ -568,6 +571,7 @@ function normalizeGenericRecipe(input: GenericReproductionInput): GenericCommand
   const reproduction = validateGenericCommand(input.reproduction, 'reproduction');
   return {
     kind: 'generic-command',
+    mode: input.mode ?? 'command',
     control,
     reproduction,
     controlExpectedExitCode: validExitCode(input.controlExpectedExitCode ?? 0),

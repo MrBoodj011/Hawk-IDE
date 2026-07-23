@@ -1,0 +1,11 @@
+{
+  "dataset": "hawk-public-benchmark-v1",
+  "licenseNote": "Each repository keeps its own license; use only public commits and follow project rules.",
+  "repositories": [
+    { "name": "juice-shop", "url": "https://github.com/juice-shop/juice-shop.git", "ref": "master", "modes": ["http", "dependency", "fuzz"] },
+    { "name": "WebGoat", "url": "https://github.com/WebGoat/WebGoat.git", "ref": "main", "modes": ["http", "unit-test", "dependency"] },
+    { "name": "NodeGoat", "url": "https://github.com/OWASP/NodeGoat.git", "ref": "master", "modes": ["http", "dependency"] },
+    { "name": "DVWA", "url": "https://github.com/digininja/DVWA.git", "ref": "master", "modes": ["http", "dependency"] },
+    { "name": "google-fuzzing", "url": "https://github.com/google/oss-fuzz.git", "ref": "master", "modes": ["fuzz", "protocol"] }
+  ]
+}

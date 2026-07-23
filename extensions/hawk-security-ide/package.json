@@ -26,6 +26,7 @@
     "onCommand:hawk.openAgent",
     "onCommand:hawk.runWorkspaceScan",
     "onCommand:hawk.importSecuritySarif",
+    "onCommand:hawk.runSecurityAdapter",
     "onCommand:hawk.syncHawkHealth",
     "onCommand:hawk.configureHawkHealthSync",
     "onCommand:hawk.github.configure",
@@ -152,6 +153,10 @@
       {
         "command": "hawk.importSecuritySarif",
         "title": "Hawk: Import External Security SARIF"
+      },
+      {
+        "command": "hawk.runSecurityAdapter",
+        "title": "Hawk: Run Governed Security Adapter"
       },
       {
         "command": "hawk.syncHawkHealth",

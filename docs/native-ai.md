@@ -123,7 +123,20 @@ file.
   CodeQL, Semgrep, OWASP ZAP, Nuclei, Trivy, and OSS-Fuzz SARIF. **Hawk: Import
   External Security SARIF** preserves producer identity, redacts messages,
   bounds imports to 500 findings/5 MB, and sends imported signals through the
-  same governed reproduction, evidence, AI-fix, and GitHub workflow.
+  same governed reproduction, evidence, AI-fix, and GitHub workflow. **Hawk:
+  Run Governed Security Adapter** executes the official CLI inside a bounded
+  Docker lane, requires a hash-bound approval, supports no-network or explicit
+  host allowlists, and imports SARIF from stdout or `/output/results.sarif`.
+- **Security benchmark** accepts a public manifest of real repositories and
+  reports reproduction rate, labeled false-positive rate, fix/test success,
+  p50/p95 time, peak/average memory, and total/average cost. The report keeps
+  per-sample provenance so teams can publish repeatable comparisons.
+- **Security graph chain** links source file and route to HTTP request, finding,
+  reproduction, evidence pack, agent patch, tests, and recorded GitHub PR.
+  Delivery metadata is added only through the authenticated local daemon.
+- **Multi-mode reproduction** labels the governed command pair as `command`,
+  `http`, `unit-test`, `fuzz`, `protocol`, or `dependency`; the operator supplies
+  the exact direct-argv control and reproduction commands for that mode.
 - **Hawk: Issue → Branch → PR Automation** creates a GitHub issue, derives and
   creates a local feature branch, commits only after a modal approval, rejects
   secret-like paths, runs `git diff --check`, pushes the branch, opens a PR

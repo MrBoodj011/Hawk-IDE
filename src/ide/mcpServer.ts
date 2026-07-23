@@ -26,6 +26,7 @@ import {
   listSecurityTestTemplates,
   runApprovedSecurityTest,
 } from './securityTesting.js';
+import { GovernedSecurityToolRunner, type SecurityToolRunPlan } from './securityToolRunner.js';
 import { SmartMcpBrain } from './smartBrain.js';
 import { createCoreCapabilityExecutor } from './smartExecutor.js';
 import { registerSmartMcp } from './smartMcp.js';
@@ -99,6 +100,11 @@ async function main(): Promise<void> {
     brain.store,
     orchestrator,
   );
+  const securityToolRunner = new GovernedSecurityToolRunner({
+    workspaceRoot: args.workspaceRoot,
+    store: brain.store,
+    orchestrator,
+  });
   const durableTaskStore = new DurableMcpTaskStore(
     brain.store,
     () => new Date(),
@@ -581,6 +587,9 @@ async function main(): Promise<void> {
         image: z.string().min(1).max(256).optional().default('hawk-worker:local'),
         generic: z
           .object({
+            mode: z
+              .enum(['command', 'http', 'unit-test', 'fuzz', 'protocol', 'dependency'])
+              .optional(),
             control: z.array(z.string().min(1).max(1_000)).min(1).max(32),
             reproduction: z.array(z.string().min(1).max(1_000)).min(1).max(32),
             controlExpectedExitCode: z.number().int().min(0).max(255).optional(),
@@ -597,6 +606,72 @@ async function main(): Promise<void> {
         if (!finding) throw new Error(`Current static finding not found: ${input.finding_id}`);
         return textResult(
           JSON.stringify(await reproducer.createPlan(finding, input.image, input.generic), null, 2),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_security_adapter_plan',
+    {
+      title: 'Plan an official security adapter run',
+      description:
+        'Create a hash-bound, expiring Docker plan for CodeQL, Semgrep, ZAP, Nuclei, Trivy, or OSS-Fuzz. Planning never executes the adapter.',
+      inputSchema: {
+        adapter: z.enum(['codeql', 'semgrep', 'zap', 'nuclei', 'trivy', 'oss-fuzz']),
+        image: z.string().min(1).max(255),
+        target: z.string().min(1).max(500),
+        args: z.array(z.string().min(1).max(2_000)).max(64),
+        network_mode: z.enum(['none', 'restricted']).optional(),
+        allowed_hosts: z.array(z.string().min(1).max(253)).max(64).optional(),
+        approved_external_access: z.literal(true).optional(),
+      },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          JSON.stringify(
+            await securityToolRunner.createPlan({
+              adapter: input.adapter,
+              image: input.image,
+              target: input.target,
+              args: input.args,
+              networkMode: input.network_mode,
+              allowedHosts: input.allowed_hosts,
+              ...(input.approved_external_access ? { approvedExternalAccess: true } : {}),
+            }),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_security_adapter_run',
+    {
+      title: 'Run an approved official security adapter',
+      description:
+        'Execute the exact stored adapter plan after explicit operator approval and import bounded SARIF findings.',
+      inputSchema: {
+        approved: z.literal(true),
+        plan: z.record(z.unknown()),
+      },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          JSON.stringify(
+            await securityToolRunner.execute(
+              input.plan as unknown as SecurityToolRunPlan,
+              input.approved,
+            ),
+            null,
+            2,
+          ),
         );
       } catch (err) {
         return toolError(err);

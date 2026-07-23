@@ -276,9 +276,17 @@ export interface EvidencePackReport {
 
 export type SandboxReproductionGateId = 'baseline' | 'control' | 'reproduction';
 export type SandboxReproductionMode = 'offline-signal' | 'generic-sandbox';
+export type GenericReproductionMode =
+  | 'command'
+  | 'http'
+  | 'unit-test'
+  | 'fuzz'
+  | 'protocol'
+  | 'dependency';
 
 /** A user-supplied, offline command scenario for findings without a Hawk rule adapter. */
 export interface GenericReproductionScenario {
+  mode?: GenericReproductionMode;
   control: string[];
   reproduction: string[];
   controlExpectedExitCode?: number;
@@ -358,6 +366,7 @@ export interface SecurityGraphNode {
     | 'patch'
     | 'test'
     | 'agent'
+    | 'pull-request'
     | 'protocol'
     | 'infrastructure'
     | 'trust-boundary';
@@ -387,6 +396,7 @@ export interface SecurityGraphResponse {
     findings: number;
     evidence: number;
     patches: number;
+    pullRequests: number;
     tests: number;
     protocols: number;
     infrastructure: number;

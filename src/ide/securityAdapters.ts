@@ -17,6 +17,11 @@ export interface SecurityAdapterDescriptor {
   acceptedFormats: Array<'sarif'>;
   capabilities: string[];
   provenance: 'external-tool';
+  execution: {
+    executable: string;
+    outputFormat: 'sarif';
+    commandHint: string;
+  };
 }
 
 export interface ImportedSecurityFindings {
@@ -35,6 +40,11 @@ const ADAPTERS: SecurityAdapterDescriptor[] = [
     acceptedFormats: ['sarif'],
     capabilities: ['data-flow', 'taint-analysis', 'multi-language'],
     provenance: 'external-tool',
+    execution: {
+      executable: 'codeql',
+      outputFormat: 'sarif',
+      commandHint: 'codeql database analyze ... --format=sarif-latest',
+    },
   },
   {
     id: 'semgrep',
@@ -43,6 +53,11 @@ const ADAPTERS: SecurityAdapterDescriptor[] = [
     acceptedFormats: ['sarif'],
     capabilities: ['pattern-analysis', 'autofix-metadata', 'secrets'],
     provenance: 'external-tool',
+    execution: {
+      executable: 'semgrep',
+      outputFormat: 'sarif',
+      commandHint: 'semgrep scan --sarif --config=auto ...',
+    },
   },
   {
     id: 'zap',
@@ -51,6 +66,11 @@ const ADAPTERS: SecurityAdapterDescriptor[] = [
     acceptedFormats: ['sarif'],
     capabilities: ['passive-scan', 'active-scan-evidence', 'web-runtime'],
     provenance: 'external-tool',
+    execution: {
+      executable: 'zap-baseline.py',
+      outputFormat: 'sarif',
+      commandHint: 'zap-baseline.py -t ... --sarif',
+    },
   },
   {
     id: 'nuclei',
@@ -59,6 +79,11 @@ const ADAPTERS: SecurityAdapterDescriptor[] = [
     acceptedFormats: ['sarif'],
     capabilities: ['template-scan', 'http-evidence'],
     provenance: 'external-tool',
+    execution: {
+      executable: 'nuclei',
+      outputFormat: 'sarif',
+      commandHint: 'nuclei -target ... -sarif-export /output/results.sarif',
+    },
   },
   {
     id: 'trivy',
@@ -67,6 +92,11 @@ const ADAPTERS: SecurityAdapterDescriptor[] = [
     acceptedFormats: ['sarif'],
     capabilities: ['dependency', 'container', 'misconfiguration'],
     provenance: 'external-tool',
+    execution: {
+      executable: 'trivy',
+      outputFormat: 'sarif',
+      commandHint: 'trivy fs --format sarif ...',
+    },
   },
   {
     id: 'oss-fuzz',
@@ -75,11 +105,30 @@ const ADAPTERS: SecurityAdapterDescriptor[] = [
     acceptedFormats: ['sarif'],
     capabilities: ['coverage-guided-fuzzing', 'crash-reproduction'],
     provenance: 'external-tool',
+    execution: {
+      executable: 'python3',
+      outputFormat: 'sarif',
+      commandHint: 'python3 ... --sarif /output/results.sarif',
+    },
   },
 ];
 
 export function listSecurityAdapters(): SecurityAdapterDescriptor[] {
-  return ADAPTERS.map((adapter) => ({ ...adapter, capabilities: [...adapter.capabilities] }));
+  return ADAPTERS.map((adapter) => ({
+    ...adapter,
+    capabilities: [...adapter.capabilities],
+    execution: { ...adapter.execution },
+  }));
+}
+
+export function securityAdapterDescriptor(adapter: SecurityAdapterId): SecurityAdapterDescriptor {
+  const descriptor = ADAPTERS.find((candidate) => candidate.id === adapter);
+  if (!descriptor) throw new Error(`Unsupported security adapter: ${adapter}`);
+  return {
+    ...descriptor,
+    capabilities: [...descriptor.capabilities],
+    execution: { ...descriptor.execution },
+  };
 }
 
 export function importSarifFindings(

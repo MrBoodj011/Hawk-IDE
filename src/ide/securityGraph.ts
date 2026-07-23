@@ -29,6 +29,7 @@ const VISIBLE_NODE_KINDS = new Set<ProofNodeKind>([
   'patch',
   'test',
   'agent',
+  'pull-request',
   'protocol',
   'infrastructure',
   'trust-boundary',
@@ -42,6 +43,19 @@ export interface SecurityGraphBuildInput {
   sessions?: AiSessionSummary[];
   reproductions?: SandboxReproductionResult[];
   protocols?: ProtocolSurfaceInventory;
+  deliveries?: SecurityGraphDelivery[];
+}
+
+export interface SecurityGraphDelivery {
+  id: string;
+  number?: number;
+  url?: string;
+  branch: string;
+  base: string;
+  status: 'open' | 'merged' | 'closed' | 'draft';
+  reviewStatus?: 'passed' | 'changes-requested' | 'pending' | 'skipped';
+  findingIds?: string[];
+  patchHash?: string;
 }
 
 export interface SecurityTrafficCorrelation {
@@ -405,6 +419,20 @@ export async function buildUnifiedSecurityGraph(
         relation: 'produced-by',
         attributes: { confidence: 1, provenance: 'hawk-agent-session' },
       });
+      for (const finding of findings) {
+        const mentions = `${session.title} ${session.prompt ?? ''}`.toLowerCase();
+        if (
+          mentions.includes(finding.id.toLowerCase()) ||
+          mentions.includes(finding.ruleId.toLowerCase())
+        ) {
+          addEdge({
+            from: findingNodeId(finding),
+            to: patchId,
+            relation: 'fix-candidate',
+            attributes: { confidence: 0.75, provenance: 'hawk-agent-session' },
+          });
+        }
+      }
     }
     for (const result of session.testResults.slice(-30)) {
       const testId = `test-${stableHash(`${session.id}\u0000${result.gateId}`)}`;
@@ -429,6 +457,45 @@ export async function buildUnifiedSecurityGraph(
           passed: result.status === 'passed',
         },
       });
+    }
+  }
+
+  for (const delivery of input.deliveries?.slice(-100) ?? []) {
+    const pullRequestId = `pull-request-${stableHash(delivery.id)}`;
+    addNode({
+      id: pullRequestId,
+      kind: 'pull-request',
+      label: delivery.number ? `PR #${delivery.number}` : `PR ${delivery.id}`,
+      attributes: {
+        deliveryId: delivery.id,
+        branch: delivery.branch,
+        base: delivery.base,
+        status: delivery.status,
+        ...(delivery.url ? { url: delivery.url } : {}),
+        ...(delivery.reviewStatus ? { reviewStatus: delivery.reviewStatus } : {}),
+        provenance: 'hawk-github-automation',
+      },
+    });
+    if (delivery.patchHash) {
+      const patchId = `patch-${stableHash(delivery.patchHash)}`;
+      if (nodes.has(patchId)) {
+        addEdge({
+          from: patchId,
+          to: pullRequestId,
+          relation: 'delivered-in',
+          attributes: { confidence: 1, provenance: 'hawk-github-automation' },
+        });
+      }
+    }
+    for (const findingId of delivery.findingIds?.slice(0, 500) ?? []) {
+      const finding = findings.find((candidate) => candidate.id === findingId);
+      if (finding)
+        addEdge({
+          from: findingNodeId(finding),
+          to: pullRequestId,
+          relation: 'tracked-by',
+          attributes: { confidence: 1, provenance: 'hawk-github-automation' },
+        });
     }
   }
 
@@ -482,6 +549,7 @@ export function securityGraphResponse(
       findings: count('finding'),
       evidence: count('evidence'),
       patches: count('patch'),
+      pullRequests: count('pull-request'),
       tests: count('test'),
       protocols: count('protocol'),
       infrastructure: count('infrastructure'),
@@ -593,6 +661,7 @@ function nodePriority(kind: ProofNodeKind): number {
     symbol: 80,
     file: 75,
     patch: 70,
+    'pull-request': 68,
     test: 65,
     agent: 60,
     repository: 50,

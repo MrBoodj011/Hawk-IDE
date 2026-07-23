@@ -43,12 +43,17 @@ import type {
   SandboxReproductionResult,
   SandboxReproductionsResponse,
   SecurityGraphResponse,
+  SecurityGraphDelivery,
+  SecurityBenchmarkReport,
+  SecurityBenchmarkSample,
   SecurityAdaptersResponse,
   SecurityAdapterId,
   SecurityTestPlan,
   SecurityTestResult,
   SecurityTestTemplateId,
   SecurityTestTemplatesResponse,
+  SecurityToolRunPlan,
+  SecurityToolRunResult,
   SemanticIndexStats,
   SemanticSearchResponse,
   StaticAuditReport,
@@ -290,6 +295,38 @@ export class DaemonClient implements vscode.Disposable {
     });
   }
 
+  async planSecurityTool(
+    workspace: vscode.Uri,
+    input: {
+      adapter: SecurityAdapterId;
+      image: string;
+      target: string;
+      args: string[];
+      networkMode?: 'none' | 'restricted';
+      allowedHosts?: string[];
+      approvedExternalAccess?: true;
+    },
+  ): Promise<SecurityToolRunPlan> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityToolRunPlan>(daemon, '/v1/security/adapter/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async runSecurityTool(
+    workspace: vscode.Uri,
+    plan: SecurityToolRunPlan,
+  ): Promise<SecurityToolRunResult> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityToolRunResult>(daemon, '/v1/security/adapter/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan, approved: true }),
+    });
+  }
+
   async staticAudit(workspace: vscode.Uri): Promise<StaticAuditReport> {
     const daemon = await this.start(workspace);
     return await this.request<StaticAuditReport>(daemon, '/v1/audit/static', { method: 'POST' });
@@ -309,6 +346,7 @@ export class DaemonClient implements vscode.Disposable {
     findingId: string,
     image: string,
     generic?: {
+      mode?: 'command' | 'http' | 'unit-test' | 'fuzz' | 'protocol' | 'dependency';
       control: string[];
       reproduction: string[];
       controlExpectedExitCode?: number;
@@ -374,6 +412,31 @@ export class DaemonClient implements vscode.Disposable {
       ? `?nodeId=${encodeURIComponent(nodeId)}&depth=${Math.max(0, Math.min(depth, 5))}`
       : '';
     return await this.request<SecurityGraphResponse>(daemon, `/v1/security/graph${query}`);
+  }
+
+  async recordSecurityDelivery(
+    workspace: vscode.Uri,
+    delivery: SecurityGraphDelivery,
+  ): Promise<SecurityGraphDelivery> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityGraphDelivery>(daemon, '/v1/security/graph/delivery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(delivery),
+    });
+  }
+
+  async securityBenchmark(
+    workspace: vscode.Uri,
+    samples: SecurityBenchmarkSample[],
+    dataset = 'hawk-public-benchmark',
+  ): Promise<SecurityBenchmarkReport> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityBenchmarkReport>(daemon, '/v1/benchmarks/security', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataset, samples }),
+    });
   }
 
   async protocolSurfaces(workspace: vscode.Uri): Promise<ProtocolSurfaceInventory> {

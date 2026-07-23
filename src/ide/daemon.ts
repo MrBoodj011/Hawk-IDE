@@ -75,13 +75,23 @@ import {
   importSarifFindings,
   listSecurityAdapters,
 } from './securityAdapters.js';
-import { buildUnifiedSecurityGraph, securityGraphResponse } from './securityGraph.js';
+import { type SecurityBenchmarkSample, summarizeSecurityBenchmark } from './securityBenchmark.js';
+import {
+  type SecurityGraphDelivery,
+  buildUnifiedSecurityGraph,
+  securityGraphResponse,
+} from './securityGraph.js';
 import {
   type SecurityTestTemplateId,
   createSecurityTestPlan,
   listSecurityTestTemplates,
   runApprovedSecurityTest,
 } from './securityTesting.js';
+import {
+  type CreateSecurityToolPlanInput,
+  GovernedSecurityToolRunner,
+  type SecurityToolRunPlan,
+} from './securityToolRunner.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import {
@@ -140,18 +150,29 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   const evidencePacks: EvidencePackReport[] = [];
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const durableStore = new DurableStore(workspaceRoot);
+  const deliveries: SecurityGraphDelivery[] = await durableStore.listJson<SecurityGraphDelivery>(
+    'security-graph-deliveries',
+  );
   const autonomousSecurity = new AutonomousSecurityService(workspaceRoot, durableStore, now);
   const agentFleet = new AgentFleetRegistry(durableStore, now);
   const governedMemory = new GovernedMemory(durableStore, now);
   const mcpTrust = new McpTrustPlatform(durableStore, now);
   const observability = new HawkObservability(now);
   const proofGraph = new ProofGraph(durableStore, now);
+  const reproductionOrchestrator =
+    opts.reproductionOrchestrator ?? new HawkDockerOrchestrator(workspaceRoot);
   const reproducer = new SandboxVulnerabilityReproducer(
     workspaceRoot,
     durableStore,
-    opts.reproductionOrchestrator ?? new HawkDockerOrchestrator(workspaceRoot),
+    reproductionOrchestrator,
     now,
   );
+  const securityToolRunner = new GovernedSecurityToolRunner({
+    workspaceRoot,
+    store: durableStore,
+    orchestrator: reproductionOrchestrator,
+    now,
+  });
   const aiSessions = new AiSessionManager({ workspaceRoot, now, governedMemory });
   await aiSessions.initialize();
   const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot, {
@@ -219,6 +240,12 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
         evidencePacks.push(value);
         if (evidencePacks.length > 20) evidencePacks.shift();
       },
+      deliveries: () => [...deliveries],
+      addDelivery: (value) => {
+        deliveries.push(value);
+        if (deliveries.length > 100) deliveries.shift();
+        void durableStore.writeJson('security-graph-deliveries', value.id, value);
+      },
       hawkHealth: () => hawkHealth,
       setHawkHealth: async (value) => {
         await persistHawkHealthReport(workspaceRoot, value);
@@ -235,6 +262,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       autonomousSecurity,
       agentFleet,
       governedMemory,
+      securityToolRunner,
       mcpTrust,
       recordCompletionLatency: (latencyMs) => {
         completionLatencies.push(latencyMs);
@@ -296,11 +324,14 @@ interface RequestContext {
   setTraffic(value: TrafficInventory): void;
   evidencePacks(): EvidencePackReport[];
   addEvidencePack(value: EvidencePackReport): void;
+  deliveries(): SecurityGraphDelivery[];
+  addDelivery(value: SecurityGraphDelivery): void;
   hawkHealth(): HawkHealthReport | null;
   setHawkHealth(value: HawkHealthReport): Promise<void>;
   aiSessions: AiSessionManager;
   proofGraph: ProofGraph;
   reproducer: SandboxVulnerabilityReproducer;
+  securityToolRunner: GovernedSecurityToolRunner;
   semanticIndex: SemanticWorkspaceIndex;
   editPredictions: EditPredictionEngine;
   identityReplay: IdentityReplayService;
@@ -572,6 +603,58 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/v1/security/adapter/plan') {
+    try {
+      const input = parseSecurityToolPlanRequest(await readBody(req));
+      sendJSON(res, 201, await context.securityToolRunner.createPlan(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/adapter/run') {
+    try {
+      const input = parseSecurityToolRunRequest(await readBody(req));
+      const result = await context.securityToolRunner.execute(input.plan, true);
+      if (result.findings.length) {
+        const existing = context
+          .findings()
+          .filter((finding) => !finding.id.startsWith(`external-${result.adapter}-`));
+        context.setFindings([...existing, ...result.findings]);
+      }
+      sendJSON(res, 200, result);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/benchmarks/security') {
+    try {
+      const request = parseJSONBody<Record<string, unknown>>(await readBody(req));
+      if (!Array.isArray(request.samples)) throw new Error('Benchmark samples are required');
+      const samples = request.samples as SecurityBenchmarkSample[];
+      const dataset =
+        typeof request.dataset === 'string' ? request.dataset : 'hawk-public-benchmark';
+      sendJSON(res, 201, summarizeSecurityBenchmark(samples, dataset, context.now()));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/graph/delivery') {
+    try {
+      const delivery = parseSecurityGraphDelivery(await readBody(req));
+      context.addDelivery(delivery);
+      sendJSON(res, 201, delivery);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/traffic') {
     const traffic = context.traffic();
     if (!traffic) {
@@ -604,6 +687,7 @@ async function handleRequest(
         sessions: await context.aiSessions.list(50),
         reproductions: await context.reproducer.list(100),
         protocols: context.protocols() ?? undefined,
+        deliveries: context.deliveries(),
       });
       const nodeId = requestURL.searchParams.get('nodeId')?.trim();
       if (!nodeId) {
@@ -660,6 +744,7 @@ async function handleRequest(
         sessions: await context.aiSessions.list(50),
         reproductions: await context.reproducer.list(100),
         protocols,
+        deliveries: context.deliveries(),
       });
       sendJSON(
         res,
@@ -736,6 +821,7 @@ async function handleRequest(
             sessions: await context.aiSessions.list(50),
             reproductions: await context.reproducer.list(100),
             protocols,
+            deliveries: context.deliveries(),
           });
           return buildAttackTwin({
             inventory,
@@ -1642,6 +1728,90 @@ function parseSecurityImportRequest(body: Buffer): {
   };
 }
 
+function parseSecurityToolPlanRequest(body: Buffer): CreateSecurityToolPlanInput {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  const adapters: SecurityAdapterId[] = ['codeql', 'semgrep', 'zap', 'nuclei', 'trivy', 'oss-fuzz'];
+  if (
+    typeof request.adapter !== 'string' ||
+    !adapters.includes(request.adapter as SecurityAdapterId)
+  ) {
+    throw new Error('A supported security adapter is required');
+  }
+  if (typeof request.image !== 'string' || typeof request.target !== 'string') {
+    throw new Error('Security adapter image and target are required');
+  }
+  if (!Array.isArray(request.args) || !request.args.every((arg) => typeof arg === 'string')) {
+    throw new Error('Security adapter args must be an array of strings');
+  }
+  const networkMode = request.networkMode === 'restricted' ? 'restricted' : 'none';
+  const allowedHosts = Array.isArray(request.allowedHosts)
+    ? request.allowedHosts.filter((host): host is string => typeof host === 'string')
+    : [];
+  return {
+    adapter: request.adapter as SecurityAdapterId,
+    image: request.image,
+    target: request.target,
+    args: request.args,
+    networkMode,
+    allowedHosts,
+    ...(request.approvedExternalAccess === true ? { approvedExternalAccess: true } : {}),
+  };
+}
+
+function parseSecurityToolRunRequest(body: Buffer): { plan: SecurityToolRunPlan } {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (request.approved !== true)
+    throw new Error('Operator approval is required for adapter execution');
+  if (!request.plan || typeof request.plan !== 'object')
+    throw new Error('Security adapter plan is required');
+  return { plan: request.plan as SecurityToolRunPlan };
+}
+
+function parseSecurityGraphDelivery(body: Buffer): SecurityGraphDelivery {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  if (
+    typeof request.id !== 'string' ||
+    !request.id.trim() ||
+    typeof request.branch !== 'string' ||
+    typeof request.base !== 'string'
+  ) {
+    throw new Error('Graph delivery id, branch and base are required');
+  }
+  const statuses = ['open', 'merged', 'closed', 'draft'] as const;
+  const reviewStatuses = ['passed', 'changes-requested', 'pending', 'skipped'] as const;
+  if (
+    typeof request.status !== 'string' ||
+    !statuses.includes(request.status as (typeof statuses)[number])
+  )
+    throw new Error('Graph delivery status is invalid');
+  if (
+    request.reviewStatus !== undefined &&
+    (typeof request.reviewStatus !== 'string' ||
+      !reviewStatuses.includes(request.reviewStatus as (typeof reviewStatuses)[number]))
+  )
+    throw new Error('Graph delivery reviewStatus is invalid');
+  const findingIds = Array.isArray(request.findingIds)
+    ? request.findingIds.filter((value): value is string => typeof value === 'string').slice(0, 500)
+    : [];
+  return {
+    id: request.id.trim().slice(0, 300),
+    ...(Number.isInteger(request.number) && Number(request.number) > 0
+      ? { number: Number(request.number) }
+      : {}),
+    ...(typeof request.url === 'string' && request.url.length <= 1_000 ? { url: request.url } : {}),
+    branch: request.branch.trim().slice(0, 300),
+    base: request.base.trim().slice(0, 300),
+    status: request.status as SecurityGraphDelivery['status'],
+    ...(typeof request.reviewStatus === 'string'
+      ? { reviewStatus: request.reviewStatus as SecurityGraphDelivery['reviewStatus'] }
+      : {}),
+    ...(findingIds.length ? { findingIds } : {}),
+    ...(typeof request.patchHash === 'string' && /^[a-f0-9]{32,128}$/.test(request.patchHash)
+      ? { patchHash: request.patchHash }
+      : {}),
+  };
+}
+
 function parseReproductionPlanRequest(body: Buffer): {
   image?: string;
   generic?: GenericReproductionInput;
@@ -1668,10 +1838,20 @@ function parseGenericReproductionScenario(value: unknown): GenericReproductionSc
   const reproduction = parseGenericCommand(input.reproduction, 'reproduction');
   const controlExpectedExitCode = parseGenericExitCode(input.controlExpectedExitCode, 0);
   const reproductionExpectedExitCode = parseGenericExitCode(input.reproductionExpectedExitCode, 0);
+  const modes = ['command', 'http', 'unit-test', 'fuzz', 'protocol', 'dependency'] as const;
+  if (
+    input.mode !== undefined &&
+    (typeof input.mode !== 'string' || !modes.includes(input.mode as (typeof modes)[number]))
+  ) {
+    throw new Error('generic reproduction mode is unsupported');
+  }
   if (input.label !== undefined && (typeof input.label !== 'string' || input.label.length > 160)) {
     throw new Error('generic reproduction label must be a bounded string');
   }
   return {
+    ...(typeof input.mode === 'string'
+      ? { mode: input.mode as GenericReproductionScenario['mode'] }
+      : {}),
     control,
     reproduction,
     controlExpectedExitCode,

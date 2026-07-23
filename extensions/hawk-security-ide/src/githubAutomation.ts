@@ -161,6 +161,7 @@ export class HawkGitHubAutomation implements vscode.Disposable {
       `Hawk opened PR #${pullRequest.number}: ${pullRequest.url}`,
     );
     const review = await this.postReview(workspace, api, pullRequest.number, branch, base);
+    await this.recordDelivery(workspace, repository, pullRequest, branch, base, review);
     return {
       repository,
       issue,
@@ -255,6 +256,7 @@ export class HawkGitHubAutomation implements vscode.Disposable {
       branch,
       base,
     );
+    await this.recordDelivery(workspace, repository, pullRequest, branch, base, review);
     vscode.window.showInformationMessage(
       `Hawk opened PR #${pullRequest.number}: ${pullRequest.url} (${review.findings} review signal(s)).`,
     );
@@ -341,6 +343,43 @@ export class HawkGitHubAutomation implements vscode.Disposable {
     const stored = await this.secrets.get(GITHUB_TOKEN_SECRET);
     return stored?.trim() || undefined;
   }
+
+  private async recordDelivery(
+    workspace: vscode.Uri,
+    repository: GitHubRepository,
+    pullRequest: GitHubPullRequest,
+    branch: string,
+    base: string,
+    review: {
+      status: 'posted' | 'skipped';
+      findings: number;
+      tests: 'passed' | 'failed' | 'not-run';
+    },
+  ): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.recordSecurityDelivery(workspace, {
+        id: `${repository.owner}/${repository.name}#${pullRequest.number}`,
+        number: pullRequest.number,
+        url: pullRequest.url,
+        branch,
+        base,
+        status: 'open',
+        reviewStatus:
+          review.status === 'skipped'
+            ? 'skipped'
+            : review.tests === 'failed'
+              ? 'changes-requested'
+              : 'passed',
+      });
+    } catch (error) {
+      this.output.appendLine(`Security graph delivery sync skipped: ${errorMessage(error)}`);
+    }
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 class GitHubApi {

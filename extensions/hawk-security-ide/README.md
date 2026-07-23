@@ -21,8 +21,13 @@ Generic security reproduction is also available for findings without a static
 rule adapter: provide direct-argv control and reproduction commands, and Hawk
 executes them in the same read-only, dropped-capability, zero-network sandbox
 with hash-bound expected exit codes and no-shell validation.
-Hawk also normalizes SARIF from CodeQL, Semgrep, OWASP ZAP, Nuclei, Trivy, and
-OSS-Fuzz so external signals enter the same reproduction and evidence graph.
+Hawk also runs official CodeQL, Semgrep, OWASP ZAP, Nuclei, Trivy, and OSS-Fuzz
+CLI adapters in a hash-approved Docker lane, then imports bounded SARIF from
+stdout or `/output/results.sarif`. The public security benchmark records real
+repository samples, reproduction/false-positive/fix rates, tests, time, memory,
+and cost. Its graph links source, HTTP traffic, finding, multi-mode reproduction
+(`command`, `http`, `unit-test`, `fuzz`, `protocol`, `dependency`), evidence,
+patch, tests, and GitHub PR delivery.
 Hawk Tab adds inline completion, cached confidence-filtered multiline Next
 Edit, and an approval-gated coordinated Multi-File Next Edit. The multi-file
 flow selects related bounded documents, requires unique exact replacements,

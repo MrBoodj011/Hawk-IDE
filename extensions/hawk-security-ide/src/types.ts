@@ -227,6 +227,11 @@ export interface SecurityAdapterDescriptor {
   acceptedFormats: Array<'sarif'>;
   capabilities: string[];
   provenance: 'external-tool';
+  execution: {
+    executable: string;
+    outputFormat: 'sarif';
+    commandHint: string;
+  };
 }
 
 export interface SecurityAdaptersResponse {
@@ -242,6 +247,89 @@ export interface ImportedSecurityFindings {
   findings: SecurityFinding[];
   truncated: boolean;
 }
+
+export interface SecurityToolRunPlan {
+  id: string;
+  adapter: SecurityAdapterId;
+  image: string;
+  target: string;
+  args: string[];
+  executable: string;
+  networkMode: 'none' | 'restricted';
+  allowedHosts: string[];
+  planHash: string;
+  createdAt: string;
+  expiresAt: string;
+  statement: string;
+}
+
+export interface SecurityToolRunResult {
+  id: string;
+  planId: string;
+  planHash: string;
+  adapter: SecurityAdapterId;
+  orchestrationRunId: string;
+  status: 'completed' | 'failed';
+  imported?: ImportedSecurityFindings;
+  findings: SecurityFinding[];
+  output: string;
+  completedAt: string;
+}
+
+export interface SecurityBenchmarkSample {
+  repo: string;
+  findingId: string;
+  detected: boolean;
+  reproduced: boolean;
+  truth?: 'true-positive' | 'false-positive' | 'unknown';
+  fixed?: boolean;
+  testsPassed?: boolean;
+  durationMs: number;
+  memoryBytes?: number;
+  costUsd?: number;
+}
+
+export interface SecurityBenchmarkReport {
+  dataset: string;
+  generatedAt: string;
+  repos: number;
+  samples: number;
+  findings: number;
+  reproductionRate: number;
+  falsePositiveRate?: number;
+  fixSuccessRate?: number;
+  testsPassRate?: number;
+  timing: { p50Ms: number; p95Ms: number; maxMs: number };
+  memory: { averageBytes?: number; peakBytes?: number };
+  cost: { totalUsd: number; averageUsd: number };
+  gates: {
+    reproductionMeasured: boolean;
+    falsePositivesMeasured: boolean;
+    fixesMeasured: boolean;
+    resourceMeasured: boolean;
+  };
+  samplesDetail: SecurityBenchmarkSample[];
+}
+
+export interface SecurityGraphDelivery {
+  id: string;
+  number?: number;
+  url?: string;
+  branch: string;
+  base: string;
+  status: 'open' | 'merged' | 'closed' | 'draft';
+  reviewStatus?: 'passed' | 'changes-requested' | 'pending' | 'skipped';
+  findingIds?: string[];
+  patchHash?: string;
+}
+
+export type GenericReproductionMode =
+  | 'command'
+  | 'http'
+  | 'unit-test'
+  | 'fuzz'
+  | 'protocol'
+  | 'dependency';
 
 export interface StaticAuditReport {
   protocolVersion: number;
@@ -593,6 +681,7 @@ export type SecurityGraphNodeKind =
   | 'patch'
   | 'test'
   | 'agent'
+  | 'pull-request'
   | 'protocol'
   | 'infrastructure'
   | 'trust-boundary';
@@ -625,6 +714,7 @@ export interface SecurityGraphResponse {
     findings: number;
     evidence: number;
     patches: number;
+    pullRequests: number;
     tests: number;
     protocols: number;
     infrastructure: number;

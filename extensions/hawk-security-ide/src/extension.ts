@@ -110,6 +110,65 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`Hawk could not import SARIF: ${errorMessage(err)}`);
       }
     }),
+    vscode.commands.registerCommand('hawk.runSecurityAdapter', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        const adapters = await client.securityAdapters(workspace);
+        const adapter = await vscode.window.showQuickPick(
+          adapters.adapters.map((candidate) => ({
+            label: candidate.title,
+            description: candidate.id,
+            detail: `${candidate.execution.executable}: ${candidate.execution.commandHint}`,
+            id: candidate.id,
+          })),
+          { title: 'Run governed security adapter', placeHolder: 'Choose the tool' },
+        );
+        if (!adapter) return;
+        const target = await vscode.window.showInputBox({
+          title: `${adapter.label} target`,
+          prompt: 'Workspace-relative target (database, directory, URL fixture, or fuzz harness).',
+          value: '.',
+          validateInput: (value) => (value.trim() ? undefined : 'A target is required.'),
+        });
+        if (target === undefined) return;
+        const argsText = await vscode.window.showInputBox({
+          title: `${adapter.label} arguments`,
+          prompt: 'Enter direct arguments separated by spaces. Use ${target} for the mounted target path.',
+          value: '${target}',
+          ignoreFocusOut: true,
+        });
+        if (argsText === undefined) return;
+        const args = argsText.trim() ? argsText.trim().split(/\s+/) : [];
+        const image = vscode.workspace
+          .getConfiguration('hawk', workspace)
+          .get<string>('reproduction.image', 'hawk-worker:local');
+        const plan = await client.planSecurityTool(workspace, {
+          adapter: adapter.id,
+          image,
+          target: target.trim(),
+          args,
+          networkMode: 'none',
+        });
+        const approval = await vscode.window.showWarningMessage(
+          `Run ${adapter.label} in a governed Docker sandbox?`,
+          {
+            modal: true,
+            detail: `${plan.executable} ${plan.args.join(' ')}\nTarget: ${plan.target}\nNetwork: ${plan.networkMode}\nPlan hash: ${plan.planHash.slice(0, 16)}...`,
+          },
+          'Run adapter',
+        );
+        if (approval !== 'Run adapter') return;
+        const result = await client.runSecurityTool(workspace, plan);
+        if (result.status !== 'completed') throw new Error('Adapter did not produce a completed SARIF run.');
+        vscode.window.showInformationMessage(
+          `Hawk ${adapter.label} completed: ${result.findings.length} finding(s) imported.`,
+        );
+        await dashboard.refresh();
+      } catch (err) {
+        vscode.window.showErrorMessage(`Hawk security adapter failed: ${errorMessage(err)}`);
+      }
+    }),
     vscode.commands.registerCommand('hawk.syncHawkHealth', async () => {
       await dashboard.syncHawkHealth();
     }),

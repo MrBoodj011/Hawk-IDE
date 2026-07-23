@@ -221,6 +221,7 @@ export type ProofNodeKind =
   | 'test'
   | 'run'
   | 'agent'
+  | 'pull-request'
   | 'tool'
   | 'model'
   | 'protocol'
