@@ -242,7 +242,7 @@ export interface SandboxReproductionPlan {
   expiresAt: string;
   planHash: string;
   image: string;
-  mode: 'offline-signal';
+  mode: 'offline-signal' | 'generic-sandbox';
   source: { file: string; line: number; sha256: string };
   isolation: {
     workspace: 'read-only';

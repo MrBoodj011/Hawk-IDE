@@ -46,6 +46,7 @@ import { ProofGraph } from './proofGraph.js';
 import {
   type DaemonHealth,
   type EvidencePackReport,
+  type GenericReproductionScenario,
   type GovernedMissionPlan,
   type GovernedMissionProfile,
   type HawkHealthReport,
@@ -64,6 +65,7 @@ import {
 import { scanProtocolSurfaces } from './protocolIntelligence.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import {
+  type GenericReproductionInput,
   type ReproductionOrchestrator,
   SandboxVulnerabilityReproducer,
 } from './sandboxReproduction.js';
@@ -1386,6 +1388,7 @@ async function handleRequest(
       const plan: SandboxReproductionPlan = await context.reproducer.createPlan(
         finding,
         input.image,
+        input.generic,
       );
       sendJSON(res, 201, plan);
     } catch (err) {
@@ -1575,12 +1578,60 @@ function parseEvidencePackRequest(body: Buffer): { approved: true } {
   return { approved: true };
 }
 
-function parseReproductionPlanRequest(body: Buffer): { image?: string } {
+function parseReproductionPlanRequest(body: Buffer): {
+  image?: string;
+  generic?: GenericReproductionInput;
+} {
   const request = parseJSONBody<Record<string, unknown>>(body);
-  if (request.image === undefined) return {};
-  if (typeof request.image !== 'string' || request.image.length > 255)
+  if (
+    request.image !== undefined &&
+    (typeof request.image !== 'string' || request.image.length > 255)
+  )
     throw new Error('reproduction image must be a bounded string');
-  return { image: request.image };
+  return {
+    ...(typeof request.image === 'string' ? { image: request.image } : {}),
+    generic: parseGenericReproductionScenario(request.generic),
+  };
+}
+
+function parseGenericReproductionScenario(value: unknown): GenericReproductionScenario | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object') {
+    throw new Error('generic reproduction scenario must be an object');
+  }
+  const input = value as Record<string, unknown>;
+  const control = parseGenericCommand(input.control, 'control');
+  const reproduction = parseGenericCommand(input.reproduction, 'reproduction');
+  const controlExpectedExitCode = parseGenericExitCode(input.controlExpectedExitCode, 0);
+  const reproductionExpectedExitCode = parseGenericExitCode(input.reproductionExpectedExitCode, 0);
+  if (input.label !== undefined && (typeof input.label !== 'string' || input.label.length > 160)) {
+    throw new Error('generic reproduction label must be a bounded string');
+  }
+  return {
+    control,
+    reproduction,
+    controlExpectedExitCode,
+    reproductionExpectedExitCode,
+    ...(typeof input.label === 'string' && input.label.trim() ? { label: input.label.trim() } : {}),
+  };
+}
+
+function parseGenericCommand(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`generic ${label} command is required`);
+  return value.map((part) => {
+    if (typeof part !== 'string' || part.length === 0 || part.length > 1_000) {
+      throw new Error(`generic ${label} command contains an invalid argument`);
+    }
+    return part;
+  });
+}
+
+function parseGenericExitCode(value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 255) {
+    throw new Error('generic reproduction exit codes must be integers from 0 to 255');
+  }
+  return Number(value);
 }
 
 function parseReproductionExecuteRequest(body: Buffer): {

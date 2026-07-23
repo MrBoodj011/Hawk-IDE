@@ -575,10 +575,19 @@ async function main(): Promise<void> {
     {
       title: 'Plan an offline sandbox reproduction',
       description:
-        'Create an expiring, hash-bound plan for a supported static finding. The plan uses an existing local Docker image, a read-only workspace, no network, dropped capabilities, and bounded resources. Planning does not execute code.',
+        'Create an expiring, hash-bound plan for a static finding or a generic operator-supplied control/reproduction command pair. Generic commands are direct argv from an allow-list and run in an existing local Docker image with a read-only workspace, no network, dropped capabilities, and bounded resources. Planning does not execute code.',
       inputSchema: {
         finding_id: z.string().min(1).max(256),
         image: z.string().min(1).max(256).optional().default('hawk-worker:local'),
+        generic: z
+          .object({
+            control: z.array(z.string().min(1).max(1_000)).min(1).max(32),
+            reproduction: z.array(z.string().min(1).max(1_000)).min(1).max(32),
+            controlExpectedExitCode: z.number().int().min(0).max(255).optional(),
+            reproductionExpectedExitCode: z.number().int().min(0).max(255).optional(),
+            label: z.string().min(1).max(160).optional(),
+          })
+          .optional(),
       },
     },
     async (input) => {
@@ -587,7 +596,7 @@ async function main(): Promise<void> {
         const finding = report.findings.find((candidate) => candidate.id === input.finding_id);
         if (!finding) throw new Error(`Current static finding not found: ${input.finding_id}`);
         return textResult(
-          JSON.stringify(await reproducer.createPlan(finding, input.image), null, 2),
+          JSON.stringify(await reproducer.createPlan(finding, input.image, input.generic), null, 2),
         );
       } catch (err) {
         return toolError(err);

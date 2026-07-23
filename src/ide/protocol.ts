@@ -275,6 +275,16 @@ export interface EvidencePackReport {
 }
 
 export type SandboxReproductionGateId = 'baseline' | 'control' | 'reproduction';
+export type SandboxReproductionMode = 'offline-signal' | 'generic-sandbox';
+
+/** A user-supplied, offline command scenario for findings without a Hawk rule adapter. */
+export interface GenericReproductionScenario {
+  control: string[];
+  reproduction: string[];
+  controlExpectedExitCode?: number;
+  reproductionExpectedExitCode?: number;
+  label?: string;
+}
 
 export interface SandboxReproductionPlan {
   protocolVersion: number;
@@ -286,7 +296,7 @@ export interface SandboxReproductionPlan {
   expiresAt: string;
   planHash: string;
   image: string;
-  mode: 'offline-signal';
+  mode: SandboxReproductionMode;
   source: { file: string; line: number; sha256: string };
   isolation: {
     workspace: 'read-only';

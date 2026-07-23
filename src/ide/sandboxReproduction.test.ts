@@ -78,6 +78,37 @@ describe('SandboxVulnerabilityReproducer', () => {
     ]);
   });
 
+  it('runs a generic command scenario for a finding without a deterministic rule adapter', async () => {
+    const root = await temporaryRoot();
+    const orchestrator = new SuccessfulReproductionOrchestrator(root);
+    const reproducer = new SandboxVulnerabilityReproducer(
+      root,
+      new DurableStore(root),
+      orchestrator,
+      () => new Date('2026-07-20T15:00:00.000Z'),
+    );
+    const finding = { ...fixtureFinding(), id: 'generic-signal', ruleId: 'third-party-signal' };
+    const plan = await reproducer.createPlan(finding, 'hawk-worker:test', {
+      control: ['node', '-e', 'process.exit(1)'],
+      reproduction: ['node', '-e', 'process.exit(0)'],
+      controlExpectedExitCode: 0,
+      reproductionExpectedExitCode: 0,
+      label: 'generic behavioral probe',
+    });
+
+    expect(plan.mode).toBe('generic-sandbox');
+    expect(plan.statement).toContain('approved offline scenario');
+    const result = await reproducer.execute(finding, {
+      planId: plan.id,
+      planHash: plan.planHash,
+      approved: true,
+    });
+
+    expect(result.status).toBe('reproduced');
+    expect(orchestrator.spec?.tasks[1]?.title).toBe('Run generic negative control');
+    expect(orchestrator.spec?.tasks[2]?.title).toContain('generic behavioral probe');
+  });
+
   it('rejects a changed approval hash before starting Docker', async () => {
     const root = await temporaryRoot();
     const orchestrator = new SuccessfulReproductionOrchestrator(root);
@@ -109,6 +140,16 @@ describe('SandboxVulnerabilityReproducer', () => {
     await expect(
       reproducer.createPlan({ ...fixtureFinding(), ruleId: 'external-active-probe' }),
     ).rejects.toThrow('not available');
+    await expect(
+      reproducer.createPlan(
+        { ...fixtureFinding(), ruleId: 'external-active-probe' },
+        'hawk-worker:test',
+        {
+          control: ['bash', '-c', 'exit 1'],
+          reproduction: ['node', '-e', 'process.exit(0)'],
+        },
+      ),
+    ).rejects.toThrow('executable is not allowed');
     await expect(
       reproducer.createPlan({
         ...fixtureFinding(),

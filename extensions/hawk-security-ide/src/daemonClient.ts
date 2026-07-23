@@ -286,6 +286,13 @@ export class DaemonClient implements vscode.Disposable {
     workspace: vscode.Uri,
     findingId: string,
     image: string,
+    generic?: {
+      control: string[];
+      reproduction: string[];
+      controlExpectedExitCode?: number;
+      reproductionExpectedExitCode?: number;
+      label?: string;
+    },
   ): Promise<SandboxReproductionPlan> {
     const daemon = await this.start(workspace);
     return await this.request<SandboxReproductionPlan>(
@@ -294,7 +301,7 @@ export class DaemonClient implements vscode.Disposable {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image }),
+        body: JSON.stringify({ image, ...(generic ? { generic } : {}) }),
       },
     );
   }

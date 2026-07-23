@@ -8,6 +8,7 @@ import type {
   OrchestrationSpec,
 } from './orchestrator.js';
 import {
+  type GenericReproductionScenario,
   IDE_PROTOCOL_VERSION,
   type SandboxReproductionGateId,
   type SandboxReproductionGateResult,
@@ -30,6 +31,8 @@ export interface ExecuteSandboxReproductionInput {
   approved: true;
 }
 
+export type GenericReproductionInput = GenericReproductionScenario;
+
 export class SandboxVulnerabilityReproducer {
   constructor(
     private readonly workspaceRoot: string,
@@ -41,8 +44,9 @@ export class SandboxVulnerabilityReproducer {
   async createPlan(
     finding: SecurityFinding,
     image = DEFAULT_IMAGE,
+    generic?: GenericReproductionInput,
   ): Promise<SandboxReproductionPlan> {
-    const recipe = supportedRecipe(finding);
+    const recipe = selectRecipe(finding, generic);
     const sourceLocation = requiredSource(finding);
     const source = {
       ...sourceLocation,
@@ -58,7 +62,10 @@ export class SandboxVulnerabilityReproducer {
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + PLAN_TTL_MS).toISOString(),
       image: validImage(image),
-      mode: 'offline-signal' as const,
+      mode:
+        recipe.kind === 'generic-command'
+          ? ('generic-sandbox' as const)
+          : ('offline-signal' as const),
       source,
       isolation: {
         workspace: 'read-only' as const,
@@ -88,12 +95,10 @@ export class SandboxVulnerabilityReproducer {
         },
       ],
       statement:
-        'This offline run can reproduce a deterministic code signal. It cannot prove exploitability, identity impact, or a verified vulnerability.',
-      recipe: {
-        patternSource: recipe.patternSource,
-        patternFlags: recipe.patternFlags,
-        safeControl: recipe.safeControl,
-      },
+        recipe.kind === 'generic-command'
+          ? 'This approved offline scenario can reproduce a bounded security observation. It cannot prove exploitability, identity impact, or a verified vulnerability.'
+          : 'This offline run can reproduce a deterministic code signal. It cannot prove exploitability, identity impact, or a verified vulnerability.',
+      recipe,
     };
     const plan: SandboxReproductionPlan = {
       ...withoutRecipe(unsigned),
@@ -181,18 +186,50 @@ export class SandboxVulnerabilityReproducer {
 }
 
 interface StoredReproductionPlan extends Omit<SandboxReproductionPlan, 'planHash'> {
-  recipe: {
-    patternSource: string;
-    patternFlags: string;
-    safeControl: string;
-  };
+  recipe: DeterministicRecipe | GenericCommandRecipe | LegacyDeterministicRecipe;
 }
 
-function supportedRecipe(finding: SecurityFinding) {
+interface DeterministicRecipe {
+  kind: 'deterministic';
+  patternSource: string;
+  patternFlags: string;
+  safeControl: string;
+}
+
+interface GenericCommandRecipe {
+  kind: 'generic-command';
+  control: string[];
+  reproduction: string[];
+  controlExpectedExitCode: number;
+  reproductionExpectedExitCode: number;
+  label?: string;
+}
+
+interface LegacyDeterministicRecipe {
+  patternSource: string;
+  patternFlags: string;
+  safeControl: string;
+}
+
+function selectRecipe(
+  finding: SecurityFinding,
+  generic?: GenericReproductionInput,
+): DeterministicRecipe | GenericCommandRecipe {
   const recipe = getStaticAuditReproductionRecipe(finding.ruleId);
-  if (!recipe)
-    throw new Error(`Automatic offline reproduction is not available for rule ${finding.ruleId}`);
-  return recipe;
+  if (recipe) {
+    return {
+      kind: 'deterministic',
+      patternSource: recipe.patternSource,
+      patternFlags: recipe.patternFlags,
+      safeControl: recipe.safeControl,
+    };
+  }
+  if (!generic) {
+    throw new Error(
+      `Automatic offline reproduction is not available for rule ${finding.ruleId}; provide a generic command scenario`,
+    );
+  }
+  return normalizeGenericRecipe(generic);
 }
 
 function requiredSource(finding: SecurityFinding): { file: string; line: number } {
@@ -245,9 +282,11 @@ function hashPlan(plan: StoredReproductionPlan): string {
 }
 
 function orchestrationSpec(plan: StoredReproductionPlan): OrchestrationSpec {
+  const recipe = normalizeStoredRecipe(plan.recipe);
+  if (recipe.kind === 'generic-command') return genericOrchestrationSpec(plan, recipe);
   const common = {
-    patternSource: plan.recipe.patternSource,
-    patternFlags: plan.recipe.patternFlags,
+    patternSource: recipe.patternSource,
+    patternFlags: recipe.patternFlags,
   };
   return {
     image: plan.image,
@@ -280,7 +319,7 @@ function orchestrationSpec(plan: StoredReproductionPlan): OrchestrationSpec {
       {
         id: 'control',
         title: 'Run negative control',
-        command: controlCommand(common, plan.recipe.safeControl),
+        command: controlCommand(common, recipe.safeControl),
         dependsOn: ['baseline'],
         timeoutSeconds: STAGE_TIMEOUT_SECONDS,
         requiredCapabilities: ['reproduction'],
@@ -296,6 +335,66 @@ function orchestrationSpec(plan: StoredReproductionPlan): OrchestrationSpec {
         requiredCapabilities: ['reproduction'],
         priority: 100,
         estimatedSeconds: 5,
+      },
+    ],
+  };
+}
+
+function genericOrchestrationSpec(
+  plan: StoredReproductionPlan,
+  recipe: GenericCommandRecipe,
+): OrchestrationSpec {
+  return {
+    image: plan.image,
+    maxParallel: 1,
+    cpuPerWorker: plan.isolation.maxCpu,
+    memoryMbPerWorker: plan.isolation.maxMemoryMb,
+    artifactMbPerWorker: plan.isolation.maxArtifactMb,
+    networkMode: 'none',
+    scheduleStrategy: 'latency',
+    leaseSeconds: 30,
+    agentInstances: [
+      {
+        id: 'reproduction-sandbox',
+        capabilities: ['security', 'reproduction'],
+        maxConcurrent: 1,
+        cpuCapacity: plan.isolation.maxCpu,
+        memoryMbCapacity: plan.isolation.maxMemoryMb,
+      },
+    ],
+    tasks: [
+      {
+        id: 'baseline',
+        title: 'Verify source baseline',
+        command: baselineCommand(plan.source.file, plan.source.line),
+        timeoutSeconds: STAGE_TIMEOUT_SECONDS,
+        requiredCapabilities: ['reproduction'],
+        priority: 100,
+        estimatedSeconds: 3,
+      },
+      {
+        id: 'control',
+        title: 'Run generic negative control',
+        command: genericCommand('control', recipe.control, recipe.controlExpectedExitCode),
+        dependsOn: ['baseline'],
+        timeoutSeconds: STAGE_TIMEOUT_SECONDS,
+        requiredCapabilities: ['reproduction'],
+        priority: 100,
+        estimatedSeconds: 5,
+      },
+      {
+        id: 'reproduction',
+        title: recipe.label ? `Reproduce ${recipe.label}` : 'Run generic security reproduction',
+        command: genericCommand(
+          'reproduction',
+          recipe.reproduction,
+          recipe.reproductionExpectedExitCode,
+        ),
+        dependsOn: ['control'],
+        timeoutSeconds: STAGE_TIMEOUT_SECONDS,
+        requiredCapabilities: ['reproduction'],
+        priority: 100,
+        estimatedSeconds: 10,
       },
     ],
   };
@@ -366,6 +465,33 @@ function reproductionCommand(
   ];
 }
 
+function genericCommand(
+  gate: 'control' | 'reproduction',
+  command: string[],
+  expectedExitCode: number,
+): string[] {
+  return [
+    'node',
+    '-e',
+    [
+      "const {spawnSync}=require('child_process');",
+      'const gate=process.argv[1], command=process.argv[2], args=JSON.parse(process.argv[3]), expected=Number(process.argv[4]);',
+      "const result=spawnSync(command,args,{cwd:'/workspace',stdio:['ignore','pipe','pipe'],timeout:25000,env:{PATH:process.env.PATH,HOME:'/tmp'}});",
+      "const exitCode=typeof result.status==='number'?result.status:-1;",
+      "const runnable=!result.error&&typeof result.status==='number';",
+      'const matched=runnable&&exitCode===expected;',
+      "const observed=runnable&&(gate==='control'?!matched:matched);",
+      "const output=Buffer.concat([result.stdout||Buffer.alloc(0),result.stderr||Buffer.alloc(0)]).toString('utf8').slice(0,12000);",
+      'process.stdout.write(JSON.stringify({gate,observed,exitCode,output,error:result.error?.message}));',
+      'process.exit(observed?0:1);',
+    ].join(''),
+    gate,
+    command[0] ?? '',
+    JSON.stringify(command.slice(1)),
+    String(expectedExitCode),
+  ];
+}
+
 async function waitForTerminal(
   orchestrator: Pick<ReproductionOrchestrator, 'get'>,
   runId: string,
@@ -421,6 +547,79 @@ function parseGateEvidence(output: string | undefined): Record<string, unknown> 
   } catch {
     return undefined;
   }
+}
+
+function normalizeStoredRecipe(
+  recipe: StoredReproductionPlan['recipe'],
+): DeterministicRecipe | GenericCommandRecipe {
+  if ('kind' in recipe && recipe.kind === 'generic-command') return recipe;
+  if ('kind' in recipe && recipe.kind === 'deterministic') return recipe;
+  const legacy = recipe as LegacyDeterministicRecipe;
+  return {
+    kind: 'deterministic',
+    patternSource: legacy.patternSource,
+    patternFlags: legacy.patternFlags,
+    safeControl: legacy.safeControl,
+  };
+}
+
+function normalizeGenericRecipe(input: GenericReproductionInput): GenericCommandRecipe {
+  const control = validateGenericCommand(input.control, 'control');
+  const reproduction = validateGenericCommand(input.reproduction, 'reproduction');
+  return {
+    kind: 'generic-command',
+    control,
+    reproduction,
+    controlExpectedExitCode: validExitCode(input.controlExpectedExitCode ?? 0),
+    reproductionExpectedExitCode: validExitCode(input.reproductionExpectedExitCode ?? 0),
+    ...(input.label?.trim() ? { label: input.label.trim().slice(0, 160) } : {}),
+  };
+}
+
+function validateGenericCommand(command: string[], label: string): string[] {
+  if (!Array.isArray(command) || command.length < 1 || command.length > 32) {
+    throw new Error(`Generic ${label} command must contain 1-32 arguments`);
+  }
+  const normalized = command.map((part) => {
+    if (
+      typeof part !== 'string' ||
+      !part ||
+      part.length > 1_000 ||
+      [...part].some((character) => character.charCodeAt(0) < 32)
+    ) {
+      throw new Error(`Generic ${label} command contains an invalid argument`);
+    }
+    if (part.includes('..') || (part.startsWith('/') && !part.startsWith('/workspace/'))) {
+      throw new Error(`Generic ${label} command may only access the mounted /workspace`);
+    }
+    return part;
+  });
+  const executable = normalized[0]?.toLowerCase().replace(/\.cmd$/, '');
+  const allowed = new Set([
+    'node',
+    'nodejs',
+    'python',
+    'python3',
+    'pytest',
+    'ruby',
+    'go',
+    'cargo',
+    'dotnet',
+    'java',
+    'npm',
+    'npx',
+  ]);
+  if (!executable || !allowed.has(executable)) {
+    throw new Error(`Generic ${label} command executable is not allowed in the offline sandbox`);
+  }
+  return normalized;
+}
+
+function validExitCode(value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 255) {
+    throw new Error('Generic reproduction exit codes must be integers from 0 to 255');
+  }
+  return value;
 }
 
 function gateTitle(id: SandboxReproductionGateId): string {

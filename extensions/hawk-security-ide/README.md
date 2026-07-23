@@ -17,6 +17,10 @@ captured context from the Command Palette.
 Active governed project, organization, and run memory is automatically queried
 per agent turn, filtered for the current branch, redacted, bounded, and injected
 as read-only evidence into native, resumed, and Docker sessions.
+Generic security reproduction is also available for findings without a static
+rule adapter: provide direct-argv control and reproduction commands, and Hawk
+executes them in the same read-only, dropped-capability, zero-network sandbox
+with hash-bound expected exit codes and no-shell validation.
 Hawk Tab adds inline completion, cached confidence-filtered multiline Next
 Edit, and an approval-gated coordinated Multi-File Next Edit. The multi-file
 flow selects related bounded documents, requires unique exact replacements,

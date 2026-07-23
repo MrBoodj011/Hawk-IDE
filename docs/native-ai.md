@@ -112,6 +112,13 @@ file.
   credential-shaped values, bounds the injected context to 12,000 characters,
   and wraps it as read-only evidence with prompt-injection guidance. Revoked,
   stale, expired, or unrelated memory is not injected.
+- **Generic security reproduction** accepts a bounded operator-provided
+  control/reproduction command pair for findings that have no deterministic
+  Hawk rule adapter. Commands run as direct argv (no shell), only approved
+  runtimes are accepted, the container stays read-only with dropped
+  capabilities and no network, and expected exit codes are bound into the
+  approval hash. The negative control must not match while the reproduction
+  command must match; both remain observations, never an automatic verdict.
 - **Hawk: Issue → Branch → PR Automation** creates a GitHub issue, derives and
   creates a local feature branch, commits only after a modal approval, rejects
   secret-like paths, runs `git diff --check`, pushes the branch, opens a PR
