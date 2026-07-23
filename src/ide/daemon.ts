@@ -11,6 +11,7 @@ import type {
   AiCreateSessionRequest,
   AiMergeBatchRequest,
   AiParallelBatchRequest,
+  AiReproduceRequest,
   AiRestoreCheckpointRequest,
   AiRunTestsRequest,
 } from './aiProtocol.js';
@@ -37,6 +38,7 @@ import {
   type MultiFileEditPredictionRequest,
   createInlineCompletion,
 } from './inlineCompletion.js';
+import { listHawkIntegrations } from './integrationHub.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { HawkObservability } from './observability.js';
@@ -579,6 +581,14 @@ async function handleRequest(
       protocolVersion: IDE_PROTOCOL_VERSION,
       fingerprint: adapterFingerprint(),
       adapters: listSecurityAdapters(),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/integrations') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      integrations: listHawkIntegrations(),
     });
     return;
   }
@@ -1156,6 +1166,35 @@ async function handleRequest(
         res,
         200,
         await context.aiSessions.cancelTests(decodeURIComponent(aiCancelTestsMatch[1])),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiReproduceMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/reproduce$/);
+  if (req.method === 'POST' && aiReproduceMatch?.[1]) {
+    try {
+      const input = parseJSONBody<AiReproduceRequest>(await readBody(req));
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.reproduce(decodeURIComponent(aiReproduceMatch[1]), input),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiSemanticReviewMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/semantic-review$/);
+  if (req.method === 'POST' && aiSemanticReviewMatch?.[1]) {
+    try {
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.semanticReview(decodeURIComponent(aiSemanticReviewMatch[1])),
       );
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });

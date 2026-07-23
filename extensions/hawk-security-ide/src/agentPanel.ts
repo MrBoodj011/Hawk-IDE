@@ -122,6 +122,12 @@ export class HawkAgentPanel implements vscode.Disposable {
         case 'run-tests':
           await this.runTests();
           return;
+        case 'run-reproduction':
+          await this.runReproduction();
+          return;
+        case 'semantic-review':
+          await this.runSemanticReview();
+          return;
         case 'apply':
           await this.applyChanges();
           return;
@@ -441,38 +447,69 @@ export class HawkAgentPanel implements vscode.Disposable {
     const workspace = this.requireWorkspace();
     const session = await this.currentSession();
     if (!session.diff) throw new Error('There is no Hawk diff to apply.');
-    const allPassed =
-      session.testGates.length === 0 ||
-      session.testGates.every((gate) =>
-        session.testResults.some(
-          (result) => result.gateId === gate.id && result.status === 'passed',
-        ),
+    if (!session.canApply) {
+      const quality = session.quality;
+      throw new Error(
+        `Apply blocked. Required gates: reproduction=${quality?.reproduction ?? 'pending'}, tests=${quality?.tests ?? 'pending'}, semantic review=${quality?.semanticReview ?? 'pending'}.`,
       );
+    }
     const approval = await vscode.window.showWarningMessage(
       `Apply the reviewed Hawk patch to ${session.diff.files} file(s)?`,
       { modal: true },
       'Apply reviewed patch',
     );
     if (approval !== 'Apply reviewed patch') return;
-    let allowFailingTests = false;
-    if (!allPassed) {
-      const override = await vscode.window.showWarningMessage(
-        'The detected test gates have not all passed. Apply anyway?',
-        { modal: true },
-        'Apply without passing gates',
-      );
-      if (override !== 'Apply without passing gates') return;
-      allowFailingTests = true;
-    }
     const updated = await this.client.applyAiSession(
       workspace,
       session.id,
       session.diff.patchHash,
-      allowFailingTests,
+      false,
     );
     this.post({ type: 'session', session: updated });
     await vscode.commands.executeCommand('git.refresh');
     await this.syncHistory();
+  }
+
+  private async runReproduction(): Promise<void> {
+    const workspace = this.requireWorkspace();
+    const session = await this.currentSession();
+    if (!session.diff) throw new Error('A review-ready diff is required before reproduction.');
+    const defaultCommand = session.testGates[0]
+      ? `${session.testGates[0].command} ${session.testGates[0].args.join(' ')}`.trim()
+      : 'node -e process.exit(0)';
+    const text = await vscode.window.showInputBox({
+      title: 'Hawk reproduction command',
+      prompt: 'Direct argv command executed in the isolated worktree (no shell).',
+      value: defaultCommand,
+      ignoreFocusOut: true,
+    });
+    if (text === undefined) return;
+    const command = text.trim().split(/\s+/).filter(Boolean);
+    if (command.length === 0) return;
+    const approval = await vscode.window.showWarningMessage(
+      `Run approved reproduction in the isolated worktree?\n\n${command.join(' ')}`,
+      { modal: true },
+      'Run reproduction',
+    );
+    if (approval !== 'Run reproduction') return;
+    this.post({ type: 'busy', text: 'Running governed reproduction...' });
+    const updated = await this.client.reproduceAiSession(workspace, session.id, command);
+    this.post({ type: 'session', session: updated });
+  }
+
+  private async runSemanticReview(): Promise<void> {
+    const workspace = this.requireWorkspace();
+    const session = await this.currentSession();
+    if (!session.diff) throw new Error('A review-ready diff is required before semantic review.');
+    const approval = await vscode.window.showWarningMessage(
+      'Run Hawk AST/semantic review on the exact isolated diff?',
+      { modal: true },
+      'Run semantic review',
+    );
+    if (approval !== 'Run semantic review') return;
+    this.post({ type: 'busy', text: 'Checking AST structure and semantic conflicts...' });
+    const updated = await this.client.semanticReviewAiSession(workspace, session.id);
+    this.post({ type: 'session', session: updated });
   }
 
   private async rejectChanges(): Promise<void> {

@@ -145,7 +145,12 @@ describe('AiSessionManager', () => {
     await git(root, ['config', 'user.name', 'Hawk Test']);
     await git(root, ['config', 'user.email', 'hawk-test@localhost']);
     await writeFile(join(root, 'app.txt'), 'base\n', 'utf8');
-    await git(root, ['add', 'app.txt']);
+    await writeFile(
+      join(root, 'package.json'),
+      JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }),
+      'utf8',
+    );
+    await git(root, ['add', 'app.txt', 'package.json']);
     await git(root, ['commit', '-m', 'base']);
 
     const worker = join(root, 'fake-worker.cjs');
@@ -198,6 +203,12 @@ describe('AiSessionManager', () => {
           expect.objectContaining({ type: 'diff-ready' }),
         ]),
       );
+      await manager.runTests(created.id, { approved: true, gateIds: ['npm:test'] });
+      await manager.reproduce(created.id, {
+        approved: true,
+        command: ['node', '-e', 'process.exit(0)'],
+      });
+      await manager.semanticReview(created.id);
 
       const applied = await manager.apply(created.id, {
         approved: true,
@@ -221,7 +232,12 @@ describe('AiSessionManager', () => {
     await git(root, ['config', 'user.name', 'Hawk Test']);
     await git(root, ['config', 'user.email', 'hawk-test@localhost']);
     await writeFile(join(root, 'app.txt'), 'base\n', 'utf8');
-    await git(root, ['add', 'app.txt']);
+    await writeFile(
+      join(root, 'package.json'),
+      JSON.stringify({ scripts: { test: 'node -e "process.exit(0)"' } }),
+      'utf8',
+    );
+    await git(root, ['add', 'app.txt', 'package.json']);
     await git(root, ['commit', '-m', 'base']);
     const worker = join(root, 'fake-worker.cjs');
     await writeFile(
@@ -245,6 +261,12 @@ describe('AiSessionManager', () => {
     try {
       const created = await manager.create({ prompt: 'Patch app.txt' });
       const review = await waitForStatus(manager, created.id, 'awaiting-review');
+      await manager.runTests(created.id, { approved: true, gateIds: ['npm:test'] });
+      await manager.reproduce(created.id, {
+        approved: true,
+        command: ['node', '-e', 'process.exit(0)'],
+      });
+      await manager.semanticReview(created.id);
       await expect(
         manager.apply(created.id, {
           approved: true,
@@ -318,6 +340,11 @@ describe('AiSessionManager', () => {
       expect(tested.testResults).toEqual([
         expect.objectContaining({ gateId: 'npm:typecheck', status: 'passed' }),
       ]);
+      await manager.reproduce(created.id, {
+        approved: true,
+        command: ['node', '-e', 'process.exit(0)'],
+      });
+      await manager.semanticReview(created.id);
 
       await expect(
         manager.apply(created.id, {
@@ -326,10 +353,19 @@ describe('AiSessionManager', () => {
         }),
       ).rejects.toThrow('test gates have not passed');
 
+      await manager.runTests(created.id, {
+        approved: true,
+        gateIds: ['npm:typecheck', 'npm:lint'],
+      });
+      await manager.reproduce(created.id, {
+        approved: true,
+        command: ['node', '-e', 'process.exit(0)'],
+      });
+      await manager.semanticReview(created.id);
+
       const applied = await manager.apply(created.id, {
         approved: true,
         patchHash: review.diff?.patchHash ?? '',
-        allowFailingTests: true,
       });
       expect(applied.status).toBe('applied');
     } finally {
@@ -425,6 +461,11 @@ describe('AiSessionManager', () => {
           }),
         ]),
       );
+      await manager.reproduce(created.id, {
+        approved: true,
+        command: ['node', '-e', 'process.exit(0)'],
+      });
+      await manager.semanticReview(created.id);
       const applied = await manager.apply(created.id, {
         approved: true,
         patchHash: review.diff?.patchHash ?? '',
@@ -495,7 +536,7 @@ describe('AiSessionManager', () => {
       expect(resumed.resumeCount).toBe(1);
       const review = await waitForStatus(manager, created.id, 'awaiting-review');
       expect(review.diff).toBeDefined();
-      expect(review.canApply).toBe(true);
+      expect(review.canApply).toBe(false);
       await manager.reject(created.id);
     } finally {
       await manager.dispose();

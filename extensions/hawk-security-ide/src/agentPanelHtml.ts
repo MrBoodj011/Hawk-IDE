@@ -491,6 +491,8 @@ export function renderAgentPanelHtml(
         <div class="actions">
           <button id="show-diff" class="action full" hidden>Preview exact diff</button>
           <button id="run-tests" class="action" hidden>Run gates</button>
+          <button id="run-reproduction" class="action" hidden>Run reproduction</button>
+          <button id="semantic-review" class="action" hidden>Semantic review</button>
           <button id="apply" class="action primary" hidden>Apply</button>
           <button id="reject" class="action danger" hidden>Reject</button>
           <button id="revert" class="action danger full" hidden>Revert applied patch</button>
@@ -564,6 +566,8 @@ export function renderAgentPanelHtml(
     bindAction('new-session', 'new-session');
     bindAction('show-diff', 'show-diff');
     bindAction('run-tests', 'run-tests');
+    bindAction('run-reproduction', 'run-reproduction');
+    bindAction('semantic-review', 'semantic-review');
     bindAction('apply', 'apply');
     bindAction('reject', 'reject');
     bindAction('revert', 'revert');
@@ -662,7 +666,7 @@ export function renderAgentPanelHtml(
         send.disabled = false;
         autonomousSend.disabled = false;
         parallelSend.disabled = false;
-        ['show-diff', 'run-tests', 'apply', 'reject', 'revert', 'checkpoint', 'restore-checkpoint', 'open-terminal', 'smart-merge', 'pause', 'resume', 'cancel']
+        ['show-diff', 'run-tests', 'run-reproduction', 'semantic-review', 'apply', 'reject', 'revert', 'checkpoint', 'restore-checkpoint', 'open-terminal', 'smart-merge', 'pause', 'resume', 'cancel']
           .forEach((id) => { document.getElementById(id).hidden = true; });
         renderHistory([]);
         prompt.focus();
@@ -808,7 +812,9 @@ export function renderAgentPanelHtml(
         ? 'Ask Hawk to refine this patch, explain a change, or add a focused fix...'
         : 'Ask Hawk to investigate, explain, implement, test, or secure...';
       document.getElementById('show-diff').hidden = !session.diff;
-      document.getElementById('run-tests').hidden = !(session.canApply && session.testGates && session.testGates.length);
+      document.getElementById('run-tests').hidden = !(session.diff && session.testGates && session.testGates.length);
+      document.getElementById('run-reproduction').hidden = !session.diff;
+      document.getElementById('semantic-review').hidden = !session.diff;
       document.getElementById('apply').hidden = !session.canApply;
       document.getElementById('reject').hidden = !session.canReject;
       document.getElementById('revert').hidden = !session.canRevert;
@@ -850,6 +856,18 @@ export function renderAgentPanelHtml(
     function renderGateResults(session) {
       const root = document.getElementById('gate-results');
       root.replaceChildren();
+      const quality = session.quality || { reproduction: 'pending', tests: 'pending', semanticReview: 'pending' };
+      [['Reproduction', quality.reproduction], ['Tests', quality.tests], ['Semantic review', quality.semanticReview]].forEach(([label, status]) => {
+        const row = document.createElement('div');
+        row.className = 'gate-result';
+        const name = document.createElement('span');
+        name.textContent = label;
+        const value = document.createElement('span');
+        value.className = String(status);
+        value.textContent = String(status);
+        row.append(name, value);
+        root.append(row);
+      });
       (session.verificationHistory || []).slice(-4).forEach((attempt) => {
         const summary = document.createElement('div');
         summary.className = 'verification-summary';

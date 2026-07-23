@@ -148,6 +148,16 @@ file.
   OS-backed SecretStorage token; credentials never enter git arguments or
   webviews. A human maintainer remains responsible for final merge approval.
 
+## AI fix quality and integrations
+
+Apply is blocked until three independent gates are green: an approved direct-argv
+reproduction, every detected project test gate, and Hawk Semantic v2 review with
+zero AST/semantic conflicts. The durable session keeps the exact patch hash,
+redacted reproduction/test output, semantic review hash, branch scope, and audit
+events. Hawk also exposes governed integration contracts for GitHub, GitLab,
+Jira, Slack, Burp, Browser, CI/CD, Docker, and Kubernetes; external actions use
+expiring approval plans and credentials never enter plan payloads.
+
 ## Next Edit acceleration and evaluation
 
 Hawk keeps a bounded, TTL-controlled prediction cache in daemon memory. An

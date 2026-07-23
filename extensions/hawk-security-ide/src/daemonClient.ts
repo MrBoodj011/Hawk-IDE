@@ -29,6 +29,7 @@ import type {
   GovernedMissionPlan,
   GovernedMissionProfile,
   HawkHealthReport,
+  HawkIntegrationsResponse,
   IdentityReplayPlan,
   IdentityReplayResult,
   InlineCompletionResponse,
@@ -279,6 +280,11 @@ export class DaemonClient implements vscode.Disposable {
   async securityAdapters(workspace: vscode.Uri): Promise<SecurityAdaptersResponse> {
     const daemon = await this.start(workspace);
     return await this.request<SecurityAdaptersResponse>(daemon, '/v1/security/adapters');
+  }
+
+  async integrations(workspace: vscode.Uri): Promise<HawkIntegrationsResponse> {
+    const daemon = await this.start(workspace);
+    return await this.request<HawkIntegrationsResponse>(daemon, '/v1/integrations');
   }
 
   async importSecuritySarif(
@@ -789,6 +795,26 @@ export class DaemonClient implements vscode.Disposable {
     return await this.aiAction(workspace, sessionId, 'tests/cancel', {
       approved: true,
     });
+  }
+
+  async reproduceAiSession(
+    workspace: vscode.Uri,
+    sessionId: string,
+    command: string[],
+    expectedExitCode = 0,
+  ): Promise<AiSessionSummary> {
+    return await this.aiAction(workspace, sessionId, 'reproduce', {
+      approved: true,
+      command,
+      expectedExitCode,
+    });
+  }
+
+  async semanticReviewAiSession(
+    workspace: vscode.Uri,
+    sessionId: string,
+  ): Promise<AiSessionSummary> {
+    return await this.aiAction(workspace, sessionId, 'semantic-review', {});
   }
 
   async applyAiSession(

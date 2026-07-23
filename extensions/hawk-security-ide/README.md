@@ -21,6 +21,11 @@ Generic security reproduction is also available for findings without a static
 rule adapter: provide direct-argv control and reproduction commands, and Hawk
 executes them in the same read-only, dropped-capability, zero-network sandbox
 with hash-bound expected exit codes and no-shell validation.
+Apply is quality-gated: Hawk requires a successful approved reproduction, all
+detected tests, and a zero-conflict AST semantic review before the patch button
+is enabled. Branch scope, patch hashes, redacted output, and audit events are
+durable. The integration hub advertises governed contracts for GitHub, GitLab,
+Jira, Slack, Burp, Browser, CI/CD, Docker, and Kubernetes.
 Hawk also runs official CodeQL, Semgrep, OWASP ZAP, Nuclei, Trivy, and OSS-Fuzz
 CLI adapters in a hash-approved Docker lane, then imports bounded SARIF from
 stdout or `/output/results.sarif`. The public security benchmark records real

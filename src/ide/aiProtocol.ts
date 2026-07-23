@@ -60,6 +60,36 @@ export interface AiTestResult {
   output: string;
 }
 
+export type AiQualityGateStatus = 'pending' | 'passed' | 'failed' | 'not-run';
+
+export interface AiSemanticReviewSummary {
+  status: 'passed' | 'failed';
+  engine: 'hawk-semantic-v2';
+  filesChecked: number;
+  astFilesChecked: number;
+  conflicts: number;
+  reviewHash: string;
+  reviewedAt: string;
+}
+
+export interface AiReproductionSummary {
+  status: 'passed' | 'failed';
+  command: string[];
+  exitCode: number | null;
+  expectedExitCode: number;
+  durationMs: number;
+  output: string;
+  reproducedAt: string;
+}
+
+export interface AiQualityGateSummary {
+  reproduction: AiQualityGateStatus;
+  tests: AiQualityGateStatus;
+  semanticReview: AiQualityGateStatus;
+  reproductionResult?: AiReproductionSummary;
+  semanticReviewResult?: AiSemanticReviewSummary;
+}
+
 export interface AiVerificationAttempt {
   attempt: number;
   startedAt: string;
@@ -118,8 +148,10 @@ export interface AiSessionSummary {
   diff?: AiDiffSummary;
   checkpoints: AiCheckpointSummary[];
   sandboxPath?: string;
+  branchScope?: string;
   testGates: AiTestGate[];
   testResults: AiTestResult[];
+  quality: AiQualityGateSummary;
   canApply: boolean;
   canReject: boolean;
   canRevert: boolean;
@@ -163,6 +195,12 @@ export interface AiContinueSessionRequest {
 export interface AiRunTestsRequest {
   approved: true;
   gateIds: string[];
+}
+
+export interface AiReproduceRequest {
+  approved: true;
+  command: string[];
+  expectedExitCode?: number;
 }
 
 export interface AiApplyRequest {

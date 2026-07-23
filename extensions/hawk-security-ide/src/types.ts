@@ -240,6 +240,28 @@ export interface SecurityAdaptersResponse {
   adapters: SecurityAdapterDescriptor[];
 }
 
+export type HawkIntegrationId =
+  | 'github'
+  | 'gitlab'
+  | 'jira'
+  | 'slack'
+  | 'burp'
+  | 'browser'
+  | 'ci-cd'
+  | 'docker'
+  | 'kubernetes';
+export interface HawkIntegrationDescriptor {
+  id: HawkIntegrationId;
+  title: string;
+  capabilities: string[];
+  auth: 'local-token' | 'loopback-pairing' | 'docker-socket' | 'kubeconfig' | 'oidc';
+  execution: 'plan-and-approval' | 'capture-only' | 'read-only';
+}
+export interface HawkIntegrationsResponse {
+  protocolVersion: number;
+  integrations: HawkIntegrationDescriptor[];
+}
+
 export interface ImportedSecurityFindings {
   adapter: SecurityAdapterId;
   source: string;
@@ -985,6 +1007,33 @@ export interface AiTestResult {
   output: string;
 }
 
+export type AiQualityGateStatus = 'pending' | 'passed' | 'failed' | 'not-run';
+export interface AiSemanticReviewSummary {
+  status: 'passed' | 'failed';
+  engine: 'hawk-semantic-v2';
+  filesChecked: number;
+  astFilesChecked: number;
+  conflicts: number;
+  reviewHash: string;
+  reviewedAt: string;
+}
+export interface AiReproductionSummary {
+  status: 'passed' | 'failed';
+  command: string[];
+  exitCode: number | null;
+  expectedExitCode: number;
+  durationMs: number;
+  output: string;
+  reproducedAt: string;
+}
+export interface AiQualityGateSummary {
+  reproduction: AiQualityGateStatus;
+  tests: AiQualityGateStatus;
+  semanticReview: AiQualityGateStatus;
+  reproductionResult?: AiReproductionSummary;
+  semanticReviewResult?: AiSemanticReviewSummary;
+}
+
 export interface AiVerificationAttempt {
   attempt: number;
   startedAt: string;
@@ -1043,6 +1092,7 @@ export interface AiSessionSummary {
   sandboxPath?: string;
   testGates: AiTestGate[];
   testResults: AiTestResult[];
+  quality?: AiQualityGateSummary;
   canApply: boolean;
   canReject: boolean;
   canRevert: boolean;

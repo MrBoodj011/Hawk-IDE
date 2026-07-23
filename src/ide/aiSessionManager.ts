@@ -42,10 +42,14 @@ import type {
   AiMergeCandidateScore,
   AiParallelBatchRequest,
   AiParallelBatchResponse,
+  AiQualityGateSummary,
+  AiReproduceRequest,
+  AiReproductionSummary,
   AiRestoreCheckpointRequest,
   AiRunTestsRequest,
   AiSemanticMergeConflict,
   AiSemanticMergePlan,
+  AiSemanticReviewSummary,
   AiSessionEvent,
   AiSessionStatus,
   AiSessionSummary,
@@ -103,6 +107,7 @@ interface StoredAiSession {
   workspaceRoot: string;
   repoRoot: string;
   workspaceRelative: string;
+  branchScope?: string;
   worktreeRoot: string;
   workerRoot: string;
   snapshotCommit: string;
@@ -125,6 +130,7 @@ interface StoredAiSession {
   touchedFiles: TouchedFile[];
   testGates: AiTestGate[];
   testResults: AiTestResult[];
+  quality?: AiQualityGateSummary;
 }
 
 interface WorkerEvent {
@@ -308,6 +314,7 @@ export class AiSessionManager {
     validateSessionId(id);
     const createdAt = this.timestamp();
     const prepared = await this.prepareWorktree(id);
+    const branchScope = (await git(prepared.repoRoot, ['branch', '--show-current'])).trim();
     await seedPreparedWorktree(prepared.worktreeRoot, internal.seedFiles ?? []);
     const session: StoredAiSession = {
       version: SESSION_FILE_VERSION,
@@ -320,6 +327,7 @@ export class AiSessionManager {
       workspaceRoot: this.workspaceRoot,
       repoRoot: prepared.repoRoot,
       workspaceRelative: prepared.workspaceRelative,
+      ...(branchScope ? { branchScope } : {}),
       worktreeRoot: prepared.worktreeRoot,
       workerRoot: prepared.workerRoot,
       snapshotCommit: prepared.snapshotCommit,
@@ -338,6 +346,7 @@ export class AiSessionManager {
       maxAutoFixAttempts: boundedAutoFixAttempts(input.maxAutoFixAttempts),
       autoFixAttempt: 0,
       verificationHistory: [],
+      quality: defaultQuality(),
     };
     await this.save(session);
     await this.addEvent(session, 'status', 'Isolated worktree ready. Starting Hawk AI.');
@@ -687,6 +696,111 @@ export class AiSessionManager {
     return publicSession(session);
   }
 
+  async reproduce(id: string, request: AiReproduceRequest): Promise<AiSessionSummary> {
+    if (request.approved !== true)
+      throw new Error('Operator approval is required to run reproduction.');
+    const session = await this.load(id);
+    if (session.status !== 'awaiting-review' || !session.diff) {
+      throw new Error('Reproduction requires a review-ready isolated diff.');
+    }
+    await ensureWorktree(session);
+    const command = validateReproductionCommand(request.command);
+    const expectedExitCode = validExitCode(request.expectedExitCode ?? 0);
+    await this.addEvent(
+      session,
+      'status',
+      `Running approved reproduction: ${redact(command.join(' '))}`,
+    );
+    const executable = command[0];
+    if (!executable) throw new Error('Reproduction executable is required.');
+    const result = await runCommand(executable, command.slice(1), {
+      cwd: session.workerRoot,
+      timeoutMs: TEST_TIMEOUT_MS,
+      env: process.env,
+    });
+    const reproduction: AiReproductionSummary = {
+      status: result.exitCode === expectedExitCode ? 'passed' : 'failed',
+      command: command.map((part) => redact(part)),
+      exitCode: result.exitCode,
+      expectedExitCode,
+      durationMs: result.durationMs,
+      output: boundText(
+        redact([result.stdout, result.stderr].filter(Boolean).join('\n')),
+        MAX_TEST_OUTPUT,
+      ),
+      reproducedAt: this.timestamp(),
+    };
+    session.quality = {
+      ...qualityFor(session),
+      reproduction: reproduction.status,
+      reproductionResult: reproduction,
+    };
+    session.updatedAt = this.timestamp();
+    await this.save(session);
+    await this.addEvent(
+      session,
+      reproduction.status === 'passed' ? 'done' : 'error',
+      `Reproduction ${reproduction.status}.`,
+    );
+    return publicSession(session);
+  }
+
+  async semanticReview(id: string): Promise<AiSessionSummary> {
+    const session = await this.load(id);
+    if (session.status !== 'awaiting-review' || !session.diff) {
+      throw new Error('Semantic review requires a review-ready isolated diff.');
+    }
+    const baseFiles: Record<string, string | null> = {};
+    const currentFiles: Record<string, string | null> = {};
+    let undecodable = false;
+    for (const file of session.touchedFiles) {
+      const baseBuffer = await readGitFileAt(
+        session.worktreeRoot,
+        session.snapshotCommit,
+        file.path,
+      );
+      const currentBuffer = await readCandidateFile(session, file.path);
+      const baseText = decodeMergeText(baseBuffer);
+      const currentText = decodeMergeText(currentBuffer);
+      if (baseText === undefined || currentText === undefined) undecodable = true;
+      baseFiles[file.path] = baseText === undefined ? null : baseText;
+      currentFiles[file.path] = currentText === undefined ? null : currentText;
+    }
+    const plan = buildSemanticMerge({
+      baseFiles,
+      candidates: [
+        { id: 'base', files: baseFiles },
+        { id: session.id, files: currentFiles },
+      ],
+    }).plan;
+    const status: AiSemanticReviewSummary['status'] =
+      !undecodable && plan.conflicts.length === 0 ? 'passed' : 'failed';
+    const review: AiSemanticReviewSummary = {
+      status,
+      engine: 'hawk-semantic-v2',
+      filesChecked: plan.filesAnalyzed,
+      astFilesChecked: plan.astFilesAnalyzed,
+      conflicts: plan.conflicts.length + (undecodable ? 1 : 0),
+      reviewHash: createHash('sha256')
+        .update(`${session.diff.patchHash}\u0000${JSON.stringify(plan)}`)
+        .digest('hex'),
+      reviewedAt: this.timestamp(),
+    };
+    session.quality = {
+      ...qualityFor(session),
+      semanticReview: status,
+      semanticReviewResult: review,
+    };
+    session.updatedAt = this.timestamp();
+    await this.save(session);
+    await this.addEvent(
+      session,
+      status === 'passed' ? 'done' : 'error',
+      `Semantic review ${status}: ${review.conflicts} conflict(s); review hash ${review.reviewHash}.`,
+    );
+    return publicSession(session);
+  }
+
   async cancelTests(id: string): Promise<AiSessionSummary> {
     const session = await this.load(id);
     const controller = this.testControllers.get(id);
@@ -745,6 +859,23 @@ export class AiSessionManager {
     } finally {
       this.testControllers.delete(session.id);
       session.status = source === 'autonomous' ? 'testing' : 'awaiting-review';
+      const allPassed =
+        session.testGates.length > 0 &&
+        session.testGates.every((gate) =>
+          session.testResults.some(
+            (result) => result.gateId === gate.id && result.status === 'passed',
+          ),
+        );
+      session.quality = {
+        ...qualityFor(session),
+        tests: allPassed
+          ? 'passed'
+          : session.testResults.some(
+                (result) => result.status === 'failed' || result.status === 'cancelled',
+              )
+            ? 'failed'
+            : 'pending',
+      };
       session.updatedAt = this.timestamp();
       await this.save(session);
       await this.addEvent(session, 'status', testSummary(session.testResults));
@@ -903,15 +1034,23 @@ export class AiSessionManager {
     if (request.patchHash !== session.diff.patchHash) {
       throw new Error('The reviewed diff changed. Reload it before applying.');
     }
-    const gatesPassed =
-      session.testGates.length === 0 ||
-      session.testGates.every((gate) =>
-        session.testResults.some(
-          (result) => result.gateId === gate.id && result.status === 'passed',
-        ),
-      );
-    if (!gatesPassed && request.allowFailingTests !== true) {
-      throw new Error('Approved test gates have not passed. Explicit override is required.');
+    if (session.branchScope) {
+      const currentBranch = (await git(session.repoRoot, ['branch', '--show-current'])).trim();
+      if (currentBranch !== session.branchScope) {
+        throw new Error(
+          `Apply blocked: branch scope changed from ${session.branchScope} to ${currentBranch || 'detached'}.`,
+        );
+      }
+    }
+    const quality = qualityFor(session);
+    if (quality.reproduction !== 'passed') {
+      throw new Error('Apply is blocked until the fix passes an approved reproduction.');
+    }
+    if (quality.tests !== 'passed') {
+      throw new Error('Apply is blocked: approved test gates have not passed.');
+    }
+    if (quality.semanticReview !== 'passed') {
+      throw new Error('Apply is blocked until semantic review passes with no conflicts.');
     }
     await assertWorkspaceMatchesSnapshot(session);
     const patch = await readFile(session.patchPath);
@@ -1282,6 +1421,7 @@ export class AiSessionManager {
     if (patch.length === 0) {
       session.diff = undefined;
       session.touchedFiles = [];
+      session.quality = defaultQuality('not-run');
       await rm(session.patchPath, { force: true });
       return;
     }
@@ -1335,6 +1475,7 @@ export class AiSessionManager {
         afterHash: await hashWorkspacePath(session.worktreeRoot, relativePath),
       });
     }
+    session.quality = defaultQuality();
   }
 
   private async prepareWorktree(id: string): Promise<{
@@ -1582,9 +1723,16 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
       ({ patchPath: _patchPath, ...checkpoint }) => checkpoint,
     ),
     sandboxPath: session.workerRoot,
+    branchScope: session.branchScope,
     testGates: session.testGates,
     testResults: session.testResults,
-    canApply: session.status === 'awaiting-review' && Boolean(session.diff),
+    quality: structuredClone(qualityFor(session)),
+    canApply:
+      session.status === 'awaiting-review' &&
+      Boolean(session.diff) &&
+      qualityFor(session).reproduction === 'passed' &&
+      qualityFor(session).tests === 'passed' &&
+      qualityFor(session).semanticReview === 'passed',
     canReject:
       session.status === 'awaiting-review' ||
       session.status === 'failed' ||
@@ -1595,6 +1743,55 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
     canResume: session.status === 'paused' || session.status === 'failed',
     canOpenTerminal: session.status === 'awaiting-review' || session.status === 'paused',
   };
+}
+
+function defaultQuality(
+  status: AiQualityGateSummary['reproduction'] = 'pending',
+): AiQualityGateSummary {
+  return { reproduction: status, tests: status, semanticReview: status };
+}
+
+function qualityFor(session: StoredAiSession): AiQualityGateSummary {
+  return session.quality ? structuredClone(session.quality) : defaultQuality();
+}
+
+function validateReproductionCommand(command: string[]): string[] {
+  const allowed = new Set([
+    'node',
+    'nodejs',
+    'npm',
+    'npx',
+    'python',
+    'python3',
+    'pytest',
+    'ruby',
+    'go',
+    'cargo',
+    'dotnet',
+    'java',
+  ]);
+  if (!Array.isArray(command) || command.length < 1 || command.length > 32)
+    throw new Error('Reproduction command must contain 1-32 arguments.');
+  return command.map((part, index) => {
+    if (
+      typeof part !== 'string' ||
+      !part ||
+      part.length > 2_000 ||
+      [...part].some((char) => char.charCodeAt(0) < 32)
+    )
+      throw new Error('Reproduction command contains an invalid argument.');
+    if (index === 0 && !allowed.has(part.toLowerCase()))
+      throw new Error(`Reproduction executable is not allowed: ${part}`);
+    if (part.includes('..') || part.includes('docker.sock'))
+      throw new Error('Reproduction command contains an unsafe path.');
+    return part;
+  });
+}
+
+function validExitCode(value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 255)
+    throw new Error('Expected exit code must be an integer from 0 to 255.');
+  return value;
 }
 
 function scoreMergeCandidate(session: StoredAiSession): AiMergeCandidateScore {

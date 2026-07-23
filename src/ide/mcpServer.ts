@@ -11,6 +11,7 @@ import { DockerDesktopController } from './dockerDesktop.js';
 import { DurableMcpTaskStore } from './durableMcpTaskStore.js';
 import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
 import { importHawkHealthReport } from './hawkReport.js';
+import { listHawkIntegrations } from './integrationHub.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
@@ -164,6 +165,16 @@ async function main(): Promise<void> {
         : inventory.routes;
       return textResult(JSON.stringify({ sourceFiles: inventory.sourceFiles, routes }, null, 2));
     },
+  );
+  mcp.registerTool(
+    'hawk_integrations',
+    {
+      title: 'List Hawk integrations',
+      description:
+        'List GitHub, GitLab, Jira, Slack, Burp, Browser, CI/CD, Docker, and Kubernetes integration contracts with their governance mode.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify({ integrations: listHawkIntegrations() }, null, 2)),
   );
   mcp.registerTool(
     'hawk_protocol_inventory',

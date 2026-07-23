@@ -134,7 +134,8 @@ export function activate(context: vscode.ExtensionContext): void {
         if (target === undefined) return;
         const argsText = await vscode.window.showInputBox({
           title: `${adapter.label} arguments`,
-          prompt: 'Enter direct arguments separated by spaces. Use ${target} for the mounted target path.',
+          prompt:
+            'Enter direct arguments separated by spaces. Use ${target} for the mounted target path.',
           value: '${target}',
           ignoreFocusOut: true,
         });
@@ -160,13 +161,35 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         if (approval !== 'Run adapter') return;
         const result = await client.runSecurityTool(workspace, plan);
-        if (result.status !== 'completed') throw new Error('Adapter did not produce a completed SARIF run.');
+        if (result.status !== 'completed')
+          throw new Error('Adapter did not produce a completed SARIF run.');
         vscode.window.showInformationMessage(
           `Hawk ${adapter.label} completed: ${result.findings.length} finding(s) imported.`,
         );
         await dashboard.refresh();
       } catch (err) {
         vscode.window.showErrorMessage(`Hawk security adapter failed: ${errorMessage(err)}`);
+      }
+    }),
+    vscode.commands.registerCommand('hawk.showIntegrations', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        const response = await client.integrations(workspace);
+        const picked = await vscode.window.showQuickPick(
+          response.integrations.map((integration) => ({
+            label: integration.title,
+            description: `${integration.execution} · auth: ${integration.auth}`,
+            detail: integration.capabilities.join(' · '),
+          })),
+          {
+            title: 'Hawk governed integrations',
+            placeHolder: 'Each action remains scoped and approval-gated.',
+          },
+        );
+        if (picked) vscode.window.showInformationMessage(`${picked.label}: ${picked.detail}`);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Hawk could not load integrations: ${errorMessage(err)}`);
       }
     }),
     vscode.commands.registerCommand('hawk.syncHawkHealth', async () => {
