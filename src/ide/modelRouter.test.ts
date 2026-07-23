@@ -92,4 +92,39 @@ describe('adaptive model router', () => {
       decision.scorecard?.candidates.map((candidate) => candidate.providerModel),
     ).not.toContain('hosted/private');
   });
+
+  it('switches the live route when a new evaluation snapshot arrives', () => {
+    const remediation = { ...capability, category: 'remediation' as const };
+    const router = new HawkModelRouter([
+      {
+        providerModel: 'ollama/old-coder',
+        modelClass: 'local-code',
+        quality: 0.7,
+        reliability: 0.7,
+        p95LatencyMs: 2_000,
+        costPerMillionTokensUsd: 0,
+        contextWindow: 16_384,
+        local: true,
+        sampleSize: 2,
+      },
+    ]);
+    expect(router.route(remediation, goal).modelRoute.providerModel).toBe('ollama/old-coder');
+
+    router.setProfiles([
+      {
+        providerModel: 'ollama/live-coder',
+        modelClass: 'local-code',
+        quality: 0.98,
+        reliability: 0.99,
+        p95LatencyMs: 300,
+        costPerMillionTokensUsd: 0,
+        contextWindow: 32_000,
+        local: true,
+        sampleSize: 40,
+      },
+    ]);
+    const decision = router.route(remediation, goal);
+    expect(decision.modelRoute.providerModel).toBe('ollama/live-coder');
+    expect(decision.scorecard?.candidates[0]?.providerModel).toBe('ollama/live-coder');
+  });
 });

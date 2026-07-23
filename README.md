@@ -340,7 +340,7 @@ The CLI also supports `--backend`, `--model`, `--base-url`, `--api-key`, `--resu
 
 ## Hawk AI and model routing
 
-Hawk supports local and explicit BYOK providers. The adaptive router scores compatible models using measured quality, reliability, p95 latency, cost, privacy, role fit, and sample confidence. It emits an inspectable candidate scorecard, cache contract, and shadow-evaluation candidate while enforcing `local-only` policy. Runtime fallbacks are attempted only before the primary has streamed output.
+Hawk supports local and explicit BYOK providers. The adaptive router scores compatible models using measured quality, reliability, p95 latency, cost, privacy, role fit, and sample confidence. It emits an inspectable candidate scorecard, cache contract, and shadow-evaluation candidate while enforcing `local-only` policy. Hawk evaluation runs publish model profiles into the live router, so new plans adapt without restarting the MCP brain; baseline runs never influence production routing. Runtime fallbacks are attempted only before the primary has streamed output.
 
 | Provider | Local / hosted | Use |
 | --- | --- | --- |

@@ -7,12 +7,15 @@ import type { CapabilityDescriptor, GoalSpec, HawkPlan, HawkRisk, PlanNode } fro
 const RISK_WEIGHT: Record<HawkRisk, number> = { low: 0, medium: 1, high: 2, critical: 3 };
 
 export class SmartPlanner {
-  private readonly modelRouter = new HawkModelRouter();
+  private readonly modelRouter: HawkModelRouter;
 
   constructor(
     private readonly registry: CapabilityRegistry,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+    modelRouter: HawkModelRouter = new HawkModelRouter(),
+  ) {
+    this.modelRouter = modelRouter;
+  }
 
   create(goal: GoalSpec, requestedCapabilities: string[] = []): HawkPlan {
     const capabilityIds =

@@ -26,10 +26,30 @@ export interface ModelPerformanceProfile {
   contextWindow: number;
   local: boolean;
   sampleSize: number;
+  /** ISO timestamp of the newest evaluation used for this profile. */
+  lastEvaluatedAt?: string;
 }
 
 export class HawkModelRouter {
-  constructor(private readonly profiles: ModelPerformanceProfile[] = []) {}
+  private profiles: ModelPerformanceProfile[];
+
+  constructor(profiles: ModelPerformanceProfile[] = []) {
+    this.profiles = [...profiles];
+  }
+
+  /**
+   * Replace the measured profile snapshot used by subsequent route decisions.
+   * Eval telemetry is intentionally kept outside the router; this small live
+   * update boundary lets a running IDE adapt without rebuilding its planner.
+   */
+  setProfiles(profiles: ModelPerformanceProfile[]): void {
+    this.profiles = [...profiles];
+  }
+
+  /** Return a defensive copy of the currently active evaluation snapshot. */
+  getProfiles(): ModelPerformanceProfile[] {
+    return [...this.profiles];
+  }
 
   route(capability: CapabilityDescriptor, goal: GoalSpec): ModelRoutingDecision {
     const agentRole = roleFor(capability.id);

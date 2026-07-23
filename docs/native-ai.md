@@ -119,6 +119,12 @@ prompts, source, diagnostics, file names, or generated edits. The acceptance
 rate is explicitly an operator-feedback proxy rather than a synthetic accuracy
 claim. **Hawk: Clear Next Edit Cache** removes the in-memory source cache.
 
+Smart MCP evaluation runs are also aggregated per Hawk model (quality,
+reliability, p95 latency, cost, model class, and sample count). On startup the
+MCP brain hydrates the adaptive router from those durable profiles; each new
+Hawk evaluation publishes a fresh snapshot to the running planner immediately.
+Baseline records remain comparison-only and cannot change live routing.
+
 ## Coordinated Multi-File Next Edit
 
 **Hawk: Predict Coordinated Multi-File Edit** infers one follow-up spanning

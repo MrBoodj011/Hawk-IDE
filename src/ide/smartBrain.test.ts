@@ -277,6 +277,38 @@ describe('SmartMcpBrain', () => {
     expect(summary.deltas.successRate).toBe(1);
     expect(summary.deltas.falsePositiveRate).toBe(-0.5);
   });
+
+  it('feeds fresh evaluation profiles into the live planner router', async () => {
+    const directory = await workspace();
+    const brain = new SmartMcpBrain(directory, fastExecutor);
+    await brain.initialize();
+    const common = {
+      scenario: 'live route selection',
+      system: 'hawk' as const,
+      tokenBudget: 10_000,
+      costBudgetUsd: 2,
+      signals: 4,
+      verifiedFindings: 1,
+      falsePositives: 0,
+      overScopeActions: 0,
+      regressions: 0,
+      elapsedSeconds: 1,
+      actualCostUsd: 0,
+    };
+    await brain.evals.record({ ...common, model: 'ollama/code-slow', success: false });
+    await brain.evals.record({ ...common, model: 'ollama/code-fast', success: true });
+
+    const { plan } = await brain.createPlan(
+      {
+        objective: 'Fix this vulnerability',
+        allowedActions: ['read-workspace', 'write-workspace'],
+      },
+      ['patch.candidate.generate'],
+    );
+    const patchNode = plan.nodes.find((node) => node.capabilityId === 'patch.candidate.generate');
+    expect(patchNode?.modelRoute.providerModel).toBe('ollama/code-fast');
+    expect(brain.modelRouter.getProfiles()).toHaveLength(2);
+  });
 });
 
 const fastExecutor: CapabilityExecutor = async ({ node }) => ({

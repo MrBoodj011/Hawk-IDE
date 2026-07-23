@@ -2,6 +2,7 @@ import { CapabilityRegistry } from './capabilityRegistry.js';
 import { DurableStore } from './durableStore.js';
 import { HawkEvalLab } from './evalLab.js';
 import { GovernedMemory } from './governedMemory.js';
+import { HawkModelRouter } from './modelRouter.js';
 import { EvidenceVerifier, ProofGraph } from './proofGraph.js';
 import { type GoalInput, ScopePolicyEngine, compileGoal, stableHash } from './scopePolicy.js';
 import { McpSecuritySentinel } from './securitySentinel.js';
@@ -14,6 +15,7 @@ export class SmartMcpBrain {
   readonly capabilities: CapabilityRegistry;
   readonly policy: ScopePolicyEngine;
   readonly planner: SmartPlanner;
+  readonly modelRouter: HawkModelRouter;
   readonly graph: ProofGraph;
   readonly evals: HawkEvalLab;
   readonly verifier: EvidenceVerifier;
@@ -29,9 +31,11 @@ export class SmartMcpBrain {
     this.store = new DurableStore(workspaceRoot);
     this.capabilities = new CapabilityRegistry();
     this.policy = new ScopePolicyEngine();
-    this.planner = new SmartPlanner(this.capabilities, now);
     this.graph = new ProofGraph(this.store, now);
     this.evals = new HawkEvalLab(this.store, now);
+    this.modelRouter = new HawkModelRouter();
+    this.planner = new SmartPlanner(this.capabilities, now, this.modelRouter);
+    this.evals.onModelProfilesChanged((profiles) => this.modelRouter.setProfiles(profiles));
     this.verifier = new EvidenceVerifier(this.graph, this.store, now);
     this.memory = new GovernedMemory(this.store, now);
     this.sentinel = new McpSecuritySentinel(this.store, now);
@@ -39,6 +43,10 @@ export class SmartMcpBrain {
   }
 
   async initialize(): Promise<void> {
+    // Hydrate measured model performance before the first plan is created.
+    // Subsequent eval writes publish through the subscription above, keeping
+    // route decisions live for the lifetime of this brain.
+    this.modelRouter.setProfiles(await this.evals.performanceProfiles());
     await this.runs.initialize();
   }
 
