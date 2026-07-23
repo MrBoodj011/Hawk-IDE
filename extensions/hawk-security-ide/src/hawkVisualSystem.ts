@@ -1594,6 +1594,499 @@ export const hawkVisualSystemCss = String.raw`
     display: none;
   }
 
+  /* Hawk UI V3 */
+  body.mission-ui[data-theme="midnight"] {
+    --hawk-black: #020711;
+    --hawk-carbon: #050d1a;
+    --hawk-panel: #081423;
+    --hawk-panel-2: #0b1b2c;
+    --hawk-line: rgba(101, 190, 231, .16);
+    --hawk-line-strong: rgba(111, 208, 247, .3);
+    --hawk-acid: #65dcff;
+    --hawk-acid-soft: rgba(101, 220, 255, .1);
+    --hawk-coral: #7c8cff;
+    --hawk-cyan: #43ead1;
+  }
+
+  body.mission-ui[data-theme="contrast"] {
+    --hawk-black: #000;
+    --hawk-carbon: #050505;
+    --hawk-panel: #0a0a0a;
+    --hawk-panel-2: #111;
+    --hawk-line: rgba(255, 255, 255, .32);
+    --hawk-line-strong: rgba(255, 209, 102, .75);
+    --hawk-white: #fff;
+    --hawk-copy: #f2f4f5;
+    --hawk-muted: #c8d4dd;
+    --hawk-faint: #aab9c4;
+    --hawk-acid: #ffd166;
+    --hawk-acid-soft: rgba(255, 209, 102, .14);
+    --hawk-coral: #ff7b72;
+    --hawk-cyan: #71e8ff;
+  }
+
+  body.mission-ui[data-theme="midnight"]::before {
+    background:
+      radial-gradient(circle at 15% -10%, rgba(74, 213, 255, .11), transparent 32rem),
+      radial-gradient(circle at 90% 0%, rgba(104, 120, 255, .1), transparent 36rem),
+      linear-gradient(180deg, #04101e 0, #020710 64%, #01050a 100%);
+  }
+
+  body.mission-ui[data-theme="contrast"]::before {
+    background: #000;
+  }
+
+  .mission-ui .topbar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .mission-ui .icon-button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--hawk-line);
+    border-radius: 9px;
+    color: var(--hawk-muted);
+    background: rgba(255,255,255,.025);
+    cursor: pointer;
+  }
+
+  .mission-ui .icon-button:hover {
+    color: var(--hawk-white);
+    border-color: var(--hawk-line-strong);
+    background: var(--hawk-acid-soft);
+  }
+
+  .mission-ui .icon-button svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+  }
+
+  .mission-ui .launch-board {
+    display: grid;
+    grid-template-columns: minmax(210px, .76fr) minmax(0, 2.24fr) auto;
+    gap: 22px;
+    align-items: center;
+    margin-top: 16px;
+    padding: 18px 20px;
+    overflow: hidden;
+    border: 1px solid var(--hawk-line);
+    border-radius: 13px;
+    background:
+      linear-gradient(105deg, rgba(255,180,84,.055), transparent 34%),
+      rgba(8,15,23,.8);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+  }
+
+  .mission-ui .launch-summary {
+    min-width: 0;
+  }
+
+  .mission-ui .launch-label {
+    color: var(--hawk-acid);
+    font: 800 8px/1.2 var(--hawk-mono);
+    letter-spacing: .13em;
+    text-transform: uppercase;
+  }
+
+  .mission-ui .launch-summary strong {
+    display: block;
+    margin-top: 7px;
+    color: var(--hawk-white);
+    font-size: 14px;
+  }
+
+  .mission-ui .launch-progress {
+    width: 100%;
+    height: 3px;
+    margin-top: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255,255,255,.07);
+  }
+
+  .mission-ui .launch-progress span {
+    display: block;
+    width: 25%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--hawk-acid), var(--hawk-cyan));
+    box-shadow: 0 0 14px var(--hawk-acid);
+    transition: width .45s cubic-bezier(.2,.8,.2,1);
+  }
+
+  .mission-ui .launch-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .mission-ui .launch-step {
+    display: grid;
+    grid-template-columns: 22px minmax(0,1fr);
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    padding: 8px 9px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    color: var(--hawk-faint);
+    background: rgba(255,255,255,.018);
+  }
+
+  .mission-ui .launch-step i {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--hawk-line);
+    border-radius: 7px;
+    font: normal 800 8px/1 var(--hawk-mono);
+  }
+
+  .mission-ui .launch-step b,
+  .mission-ui .launch-step small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mission-ui .launch-step b {
+    color: var(--hawk-copy);
+    font-size: 9px;
+  }
+
+  .mission-ui .launch-step small {
+    margin-top: 3px;
+    font: 700 7px/1.2 var(--hawk-mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .mission-ui .launch-step.ready {
+    border-color: rgba(76,240,183,.13);
+    color: var(--hawk-mint);
+    background: rgba(76,240,183,.035);
+  }
+
+  .mission-ui .launch-step.ready i {
+    border-color: rgba(76,240,183,.28);
+    color: var(--hawk-mint);
+    background: rgba(76,240,183,.08);
+  }
+
+  .mission-ui .launch-board .button {
+    white-space: nowrap;
+  }
+
+  .mission-ui .agent-live-grid {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 220px;
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .mission-ui .agent-track,
+  .mission-ui .signal-viz {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid var(--hawk-line);
+    border-radius: 11px;
+    background: rgba(255,255,255,.017);
+  }
+
+  .mission-ui .micro-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 13px;
+    color: var(--hawk-faint);
+    font: 800 8px/1 var(--hawk-mono);
+    letter-spacing: .09em;
+    text-transform: uppercase;
+  }
+
+  .mission-ui .micro-head span:last-child {
+    color: var(--hawk-mint);
+  }
+
+  .mission-ui .agent-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 0;
+  }
+
+  .mission-ui .agent-step {
+    position: relative;
+    min-width: 0;
+    padding: 0 10px 0 18px;
+  }
+
+  .mission-ui .agent-step::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 0;
+    width: 7px;
+    height: 7px;
+    border: 1px solid var(--hawk-faint);
+    border-radius: 50%;
+    background: var(--hawk-panel);
+  }
+
+  .mission-ui .agent-step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 7px;
+    right: 4px;
+    left: 8px;
+    z-index: -1;
+    height: 1px;
+    background: var(--hawk-line);
+  }
+
+  .mission-ui .agent-step.ready::before {
+    border-color: var(--hawk-mint);
+    background: var(--hawk-mint);
+    box-shadow: 0 0 10px rgba(94,224,165,.44);
+  }
+
+  .mission-ui .agent-step b,
+  .mission-ui .agent-step small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mission-ui .agent-step b {
+    color: var(--hawk-copy);
+    font-size: 9px;
+  }
+
+  .mission-ui .agent-step small {
+    margin-top: 4px;
+    color: var(--hawk-faint);
+    font: 700 7px/1.2 var(--hawk-mono);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  .mission-ui .signal-chart {
+    width: 100%;
+    height: 54px;
+    overflow: visible;
+  }
+
+  .mission-ui .signal-chart path.area {
+    fill: url("#signal-fill");
+  }
+
+  .mission-ui .signal-chart path.line {
+    fill: none;
+    stroke: var(--hawk-acid);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 5px rgba(255,180,84,.32));
+  }
+
+  .mission-ui .signal-legend {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+    color: var(--hawk-faint);
+    font: 700 7px/1 var(--hawk-mono);
+  }
+
+  .mission-ui .command-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: start center;
+    padding: min(16vh, 150px) 20px 20px;
+    background: rgba(0,0,0,.58);
+    backdrop-filter: blur(12px);
+    animation: hawkFade .14s ease-out;
+  }
+
+  .mission-ui .command-overlay[hidden] {
+    display: none;
+  }
+
+  .mission-ui .command-panel {
+    width: min(660px, 100%);
+    overflow: hidden;
+    border: 1px solid var(--hawk-line-strong);
+    border-radius: 16px;
+    background: rgba(8,15,23,.98);
+    box-shadow: 0 34px 100px rgba(0,0,0,.72), 0 0 0 1px rgba(255,255,255,.025);
+    animation: hawkCommandIn .2s cubic-bezier(.2,.8,.2,1);
+  }
+
+  .mission-ui .command-input-wrap {
+    display: grid;
+    grid-template-columns: 20px minmax(0,1fr) auto;
+    gap: 11px;
+    align-items: center;
+    padding: 15px 17px;
+    border-bottom: 1px solid var(--hawk-line);
+  }
+
+  .mission-ui .command-input-wrap svg {
+    width: 18px;
+    fill: none;
+    stroke: var(--hawk-acid);
+    stroke-width: 1.7;
+  }
+
+  .mission-ui .command-input {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    color: var(--hawk-white);
+    background: transparent;
+    font-size: 14px;
+  }
+
+  .mission-ui .command-input::placeholder {
+    color: var(--hawk-faint);
+  }
+
+  .mission-ui .command-list {
+    display: grid;
+    gap: 3px;
+    max-height: min(54vh, 460px);
+    padding: 8px;
+    overflow-y: auto;
+  }
+
+  .mission-ui .command-item {
+    display: grid;
+    grid-template-columns: 34px minmax(0,1fr) auto;
+    gap: 11px;
+    align-items: center;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--hawk-copy);
+    text-align: left;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .mission-ui .command-item:hover,
+  .mission-ui .command-item.selected {
+    border-color: rgba(255,180,84,.17);
+    color: var(--hawk-white);
+    background: var(--hawk-acid-soft);
+    transform: none;
+  }
+
+  .mission-ui .command-item > span:first-child {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--hawk-line);
+    border-radius: 9px;
+    color: var(--hawk-acid);
+    font: 800 8px/1 var(--hawk-mono);
+  }
+
+  .mission-ui .command-item b,
+  .mission-ui .command-item small {
+    display: block;
+  }
+
+  .mission-ui .command-item b {
+    font-size: 11px;
+  }
+
+  .mission-ui .command-item small {
+    margin-top: 3px;
+    color: var(--hawk-faint);
+    font-size: 9px;
+  }
+
+  .mission-ui .command-item kbd {
+    padding: 3px 6px;
+    border: 1px solid var(--hawk-line);
+    border-radius: 5px;
+    color: var(--hawk-faint);
+    background: rgba(255,255,255,.025);
+    font: 700 8px/1 var(--hawk-mono);
+  }
+
+  .mission-ui .command-footer {
+    display: flex;
+    gap: 16px;
+    padding: 10px 17px;
+    border-top: 1px solid var(--hawk-line);
+    color: var(--hawk-faint);
+    background: rgba(255,255,255,.012);
+    font: 700 8px/1 var(--hawk-mono);
+  }
+
+  .mission-ui .ui-toast {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 120;
+    max-width: min(360px, calc(100vw - 44px));
+    padding: 11px 14px;
+    border: 1px solid var(--hawk-line-strong);
+    border-left: 3px solid var(--hawk-acid);
+    border-radius: 10px;
+    color: var(--hawk-white);
+    background: rgba(8,15,23,.96);
+    box-shadow: var(--hawk-shadow);
+    font-size: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity .18s ease, transform .18s ease;
+  }
+
+  .mission-ui .ui-toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .mission-ui .section {
+    animation: hawkRise .48s both;
+    animation-timeline: view();
+    animation-range: entry 0 entry 22%;
+  }
+
+  @keyframes hawkFade {
+    from { opacity: 0; }
+  }
+
+  @keyframes hawkCommandIn {
+    from { opacity: 0; transform: translateY(-12px) scale(.985); }
+  }
+
+  @keyframes hawkRise {
+    from { opacity: .25; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   @media (max-width: 1080px) {
     .agent-ui .body {
       grid-template-columns: minmax(0,1fr) 320px;
@@ -1617,6 +2110,15 @@ export const hawkVisualSystemCss = String.raw`
 
     .mission-ui .command-bar {
       display: none;
+    }
+
+    .mission-ui .launch-board {
+      grid-template-columns: 1fr auto;
+    }
+
+    .mission-ui .launch-steps {
+      grid-column: 1 / -1;
+      grid-row: 2;
     }
 
     .mission-ui .tool-grid {
@@ -1795,6 +2297,36 @@ export const hawkVisualSystemCss = String.raw`
     .mission-ui .health-grid,
     .mission-ui .tool-grid {
       grid-template-columns: 1fr;
+    }
+
+    .mission-ui .launch-board {
+      grid-template-columns: 1fr;
+    }
+
+    .mission-ui .launch-steps {
+      grid-column: auto;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+    }
+
+    .mission-ui .launch-board .button {
+      justify-self: start;
+    }
+
+    .mission-ui .agent-live-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .mission-ui .agent-steps {
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      row-gap: 15px;
+    }
+
+    .mission-ui .system-state {
+      display: none;
+    }
+
+    .mission-ui .topbar-actions {
+      gap: 0;
     }
   }
 `;

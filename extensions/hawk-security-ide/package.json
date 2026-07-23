@@ -9,7 +9,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MrBoodj011/hawk.git"
+    "url": "https://github.com/MrBoodj011/Hawk-IDE.git"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -60,6 +60,18 @@
         "label": "Hawk Obsidian",
         "uiTheme": "vs-dark",
         "path": "./themes/hawk-carbon-color-theme.json"
+      },
+      {
+        "id": "Hawk Midnight",
+        "label": "Hawk Midnight",
+        "uiTheme": "vs-dark",
+        "path": "./themes/hawk-midnight-color-theme.json"
+      },
+      {
+        "id": "Hawk High Contrast",
+        "label": "Hawk High Contrast",
+        "uiTheme": "hc-black",
+        "path": "./themes/hawk-high-contrast-color-theme.json"
       }
     ],
     "configurationDefaults": {
@@ -69,8 +81,10 @@
       "chat.disableAIFeatures": true,
       "chat.titleBar.signIn.enabled": false,
       "window.commandCenter": true,
+      "window.titleBarStyle": "custom",
+      "window.menuBarVisibility": "compact",
       "window.title": "HAWK  /  ${activeEditorShort}${separator}${rootName}",
-      "window.titleSeparator": "  ·  ",
+      "window.titleSeparator": "  /  ",
       "workbench.layoutControl.enabled": false,
       "workbench.editor.empty.hint": "hidden",
       "workbench.editor.showTabs": "multiple",
@@ -81,6 +95,35 @@
       "editor.bracketPairColorization.enabled": true,
       "editor.guides.bracketPairs": "active"
     },
+    "walkthroughs": [
+      {
+        "id": "hawk.launch",
+        "title": "Launch Hawk Security IDE",
+        "description": "Bring the private AI coding core, workspace graph and governed security runtime online.",
+        "steps": [
+          {
+            "id": "hawk.launch.local-ai",
+            "title": "Connect the coding core",
+            "description": "Install a verified local Ollama runtime or connect your own provider from OS-backed secret storage.\n[Configure Hawk AI](command:hawk.configureLLMProvider)"
+          },
+          {
+            "id": "hawk.launch.index",
+            "title": "Map the workspace",
+            "description": "Build Hawk's persistent AST, route and security-surface index.\n[Index the workspace](command:hawk.indexWorkspace)"
+          },
+          {
+            "id": "hawk.launch.mission-control",
+            "title": "Open Mission Control",
+            "description": "Inspect source, traffic, findings, evidence and agent health in one operator view.\n[Open Mission Control](command:hawk.openSecurityDashboard)"
+          },
+          {
+            "id": "hawk.launch.scan",
+            "title": "Run an approved security workflow",
+            "description": "Start with a passive workspace scan. Sensitive actions stay approval-gated.\n[Run approved scan](command:hawk.runWorkspaceScan)"
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "hawk.startDaemon",

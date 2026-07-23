@@ -941,7 +941,7 @@ export function renderMissionControlHtml(
     ${hawkVisualSystemCss}
   </style>
 </head>
-<body class="mission-ui">
+<body class="mission-ui" data-theme="obsidian">
   <div class="ambient-grid"></div>
   <div class="app-shell ${mode === 'sidebar' ? 'sidebar-mode' : 'panel-mode'}">
     <aside class="rail" aria-label="Hawk areas">
@@ -973,14 +973,19 @@ export function renderMissionControlHtml(
           <span class="wordmark-slash">/</span>
           <span class="wordmark-context">Mission Control</span>
         </div>
-        <button class="command-bar" data-action="open-agent" aria-label="Open Hawk AI command center">
+        <button class="command-bar" id="open-command-palette" aria-label="Open Hawk command center">
           <svg viewBox="0 0 24 24" fill="none"><path d="m5 5 4 4-4 4M11 15h8" stroke-width="1.8"/></svg>
-          <span class="command-copy">Ask Hawk to investigate this workspace...</span>
+          <span class="command-copy">Search actions, agents and security workflows...</span>
           <span class="key">Ctrl K</span>
         </button>
-        <div id="system-state" class="system-state">
-          <span class="system-dot"></span>
-          <span id="system-label">CONNECTING</span>
+        <div class="topbar-actions">
+          <button id="theme-button" class="icon-button" title="Switch Hawk theme" aria-label="Switch Hawk theme">
+            <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-1-.8-1.7-1.8-1.5-3.9.8-7.5-2.8-6.7-6.7C12.7 3.3 12.5 3 12 3z"/></svg>
+          </button>
+          <div id="system-state" class="system-state">
+            <span class="system-dot"></span>
+            <span id="system-label">CONNECTING</span>
+          </div>
         </div>
       </header>
 
@@ -990,6 +995,21 @@ export function renderMissionControlHtml(
           <strong>LOCAL WORKSPACE CORE</strong>
           <span id="status-message">Starting Hawk workspace services...</span>
         </div>
+
+        <section class="launch-board" aria-label="Hawk launch readiness">
+          <div class="launch-summary">
+            <span class="launch-label">Launch readiness</span>
+            <strong><span id="launch-ready-count">1</span>/4 systems ready</strong>
+            <div class="launch-progress" aria-hidden="true"><span id="launch-progress"></span></div>
+          </div>
+          <div class="launch-steps">
+            <div class="launch-step" id="launch-core"><i>01</i><span><b>Local core</b><small>connecting</small></span></div>
+            <div class="launch-step" id="launch-index"><i>02</i><span><b>Workspace graph</b><small>not indexed</small></span></div>
+            <div class="launch-step" id="launch-trust"><i>03</i><span><b>MCP trust</b><small>waiting</small></span></div>
+            <div class="launch-step ready" id="launch-policy"><i>04</i><span><b>Approval policy</b><small>fail closed</small></span></div>
+          </div>
+          <button class="button small secondary" data-action="setup-local-ai">Complete setup</button>
+        </section>
 
         <section class="hero">
           <div>
@@ -1073,6 +1093,26 @@ export function renderMissionControlHtml(
                     <span class="context-chip"># traffic</span>
                   </div>
                   <button id="send-mission" class="send-button" aria-label="Open task in Hawk AI">↗</button>
+                </div>
+              </div>
+              <div class="agent-live-grid">
+                <div class="agent-track">
+                  <div class="micro-head"><span>Live agent stages</span><span id="agent-stage-label">ready</span></div>
+                  <div class="agent-steps">
+                    <div class="agent-step ready" id="agent-context"><b>Context</b><small>workspace bound</small></div>
+                    <div class="agent-step" id="agent-plan"><b>Plan</b><small>awaiting task</small></div>
+                    <div class="agent-step" id="agent-gates"><b>Gates</b><small>policy armed</small></div>
+                    <div class="agent-step" id="agent-evidence"><b>Evidence</b><small>ledger ready</small></div>
+                  </div>
+                </div>
+                <div class="signal-viz">
+                  <div class="micro-head"><span>Workspace pulse</span><span id="pulse-label">local</span></div>
+                  <svg class="signal-chart" viewBox="0 0 220 54" preserveAspectRatio="none" aria-label="Workspace activity trend">
+                    <defs><linearGradient id="signal-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--hawk-acid)" stop-opacity=".22"/><stop offset="1" stop-color="var(--hawk-acid)" stop-opacity="0"/></linearGradient></defs>
+                    <path class="area" id="signal-area" d="M0 46 L0 42 L28 38 L56 40 L84 28 L112 34 L140 18 L168 22 L196 9 L220 14 L220 46 Z"/>
+                    <path class="line" id="signal-line" d="M0 42 L28 38 L56 40 L84 28 L112 34 L140 18 L168 22 L196 9 L220 14"/>
+                  </svg>
+                  <div class="signal-legend"><span>source</span><span>traffic</span><span>proof</span></div>
                 </div>
               </div>
             </div>
@@ -1244,13 +1284,55 @@ export function renderMissionControlHtml(
     </div>
   </div>
 
+  <div id="command-overlay" class="command-overlay" role="dialog" aria-modal="true" aria-label="Hawk command center" hidden>
+    <div class="command-panel">
+      <div class="command-input-wrap">
+        <svg viewBox="0 0 24 24"><path d="m5 5 4 4-4 4M11 15h8"/></svg>
+        <input id="command-input" class="command-input" type="text" placeholder="Search Hawk commands..." autocomplete="off">
+        <span class="key">ESC</span>
+      </div>
+      <div id="command-list" class="command-list">
+        ${commandItem('AI', 'Open Hawk AI', 'Start a workspace-aware coding or security task.', 'open-agent', 'Enter')}
+        ${commandItem('AP', 'Run Autopilot', 'Correlate source, traffic, findings and proof.', 'autopilot')}
+        ${commandItem('SC', 'Run approved scan', 'Execute the passive workspace security workflow.', 'workspace-scan')}
+        ${commandItem('IX', 'Rebuild workspace graph', 'Refresh the persistent semantic and security index.', 'index')}
+        ${commandItem('MC', 'Plan governed MCP mission', 'Build a policy-bound parallel agent DAG.', 'plan-mission')}
+        ${commandItem('AI', 'Configure AI provider', 'Connect Ollama or a BYOK model route securely.', 'configure-llm')}
+        ${commandItem('EV', 'Build evidence pack', 'Export sanitized, traceable review evidence.', 'evidence-pack')}
+        ${commandItem('UP', 'Check Hawk updates', 'Inspect the signed production release channel.', 'check-updates')}
+      </div>
+      <div class="command-footer"><span>↑↓ Navigate</span><span>Enter Run</span><span>Ctrl K Toggle</span></div>
+    </div>
+  </div>
+  <div id="ui-toast" class="ui-toast" role="status" aria-live="polite"></div>
+
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const q = (selector) => document.querySelector(selector);
     const all = (selector) => Array.from(document.querySelectorAll(selector));
+    const savedUiState = vscode.getState?.() || {};
+    const themes = ['obsidian', 'midnight', 'contrast'];
+    const themeNames = { obsidian: 'Obsidian', midnight: 'Midnight', contrast: 'High Contrast' };
+    let currentTheme = themes.includes(savedUiState.theme) ? savedUiState.theme : 'obsidian';
+    let selectedCommand = 0;
+    let toastTimer;
+
+    applyTheme(currentTheme, false);
 
     all('[data-action]').forEach((element) => {
       element.addEventListener('click', () => vscode.postMessage({ action: element.dataset.action }));
+    });
+    q('#theme-button').addEventListener('click', () => {
+      currentTheme = themes[(themes.indexOf(currentTheme) + 1) % themes.length];
+      applyTheme(currentTheme, true);
+    });
+    q('#open-command-palette').addEventListener('click', openCommandPalette);
+    q('#command-overlay').addEventListener('click', (event) => {
+      if (event.target === q('#command-overlay')) closeCommandPalette();
+    });
+    q('#command-input').addEventListener('input', filterCommands);
+    all('[data-palette-action]').forEach((button) => {
+      button.addEventListener('click', () => runPaletteCommand(button));
     });
     all('.nav-button[data-target]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -1275,6 +1357,50 @@ export function renderMissionControlHtml(
         q('#send-mission').click();
       }
     });
+    window.addEventListener('keydown', (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        q('#command-overlay').hidden ? openCommandPalette() : closeCommandPalette();
+        return;
+      }
+      if (q('#command-overlay').hidden) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCommandPalette();
+        return;
+      }
+      const visible = visibleCommands();
+      if (!visible.length) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedCommand =
+          (selectedCommand + (event.key === 'ArrowDown' ? 1 : -1) + visible.length) %
+          visible.length;
+        updateCommandSelection(visible);
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        runPaletteCommand(visible[selectedCommand]);
+      }
+    });
+    if ('IntersectionObserver' in window) {
+      const sections = all('main [id]').filter((node) =>
+        all('.nav-button[data-target]').some((button) => button.dataset.target === node.id),
+      );
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+          if (!visible) return;
+          all('.nav-button[data-target]').forEach((button) =>
+            button.classList.toggle('active', button.dataset.target === visible.target.id),
+          );
+        },
+        { rootMargin: '-20% 0px -65% 0px', threshold: [0, .1, .4] },
+      );
+      sections.forEach((section) => observer.observe(section));
+    }
     window.addEventListener('message', (event) => {
       if (event.data?.type !== 'state') return;
       renderState(event.data.state);
@@ -1331,6 +1457,115 @@ export function renderMissionControlHtml(
       );
       setText('#mcp-verdicts', (state.mcpTrust?.verdicts ?? 0) + ' checked');
       setText('#memory-stale', (state.memory?.stale ?? 0) + ' stale');
+      renderLaunchState(state);
+      renderAgentStages(state);
+      renderSignalPulse(state);
+    }
+
+    function applyTheme(theme, announce) {
+      document.body.dataset.theme = theme;
+      q('#theme-button').title = 'Theme: ' + themeNames[theme] + '. Click to switch.';
+      vscode.setState?.({ ...savedUiState, theme });
+      if (announce) showToast('Hawk ' + themeNames[theme] + ' theme active');
+    }
+
+    function showToast(message) {
+      const toast = q('#ui-toast');
+      toast.textContent = message;
+      toast.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('visible'), 2200);
+    }
+
+    function openCommandPalette() {
+      const overlay = q('#command-overlay');
+      overlay.hidden = false;
+      q('#command-input').value = '';
+      filterCommands();
+      requestAnimationFrame(() => q('#command-input').focus());
+    }
+
+    function closeCommandPalette() {
+      q('#command-overlay').hidden = true;
+      q('#open-command-palette').focus();
+    }
+
+    function visibleCommands() {
+      return all('[data-palette-action]').filter((item) => !item.hidden);
+    }
+
+    function filterCommands() {
+      const query = q('#command-input').value.trim().toLowerCase();
+      all('[data-palette-action]').forEach((item) => {
+        item.hidden = Boolean(query) && !item.textContent.toLowerCase().includes(query);
+      });
+      selectedCommand = 0;
+      updateCommandSelection(visibleCommands());
+    }
+
+    function updateCommandSelection(visible) {
+      all('[data-palette-action]').forEach((item) => item.classList.remove('selected'));
+      const selected = visible[selectedCommand];
+      selected?.classList.add('selected');
+      selected?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function runPaletteCommand(button) {
+      if (!button) return;
+      const action = button.dataset.paletteAction;
+      closeCommandPalette();
+      showToast(button.dataset.commandLabel + ' started');
+      vscode.postMessage({ action });
+    }
+
+    function renderLaunchState(state) {
+      const inventoryReady = Boolean(state.inventory?.sourceFiles);
+      const trustReady = Boolean((state.mcpTrust?.pins ?? 0) || (state.mcpTrust?.verdicts ?? 0));
+      const ready = [Boolean(state.connected), inventoryReady, trustReady, true];
+      setLaunchStep('#launch-core', '01', ready[0], ready[0] ? 'online / private' : 'connecting');
+      setLaunchStep('#launch-index', '02', ready[1], ready[1] ? state.inventory.sourceFiles + ' files' : 'not indexed');
+      setLaunchStep('#launch-trust', '03', ready[2], ready[2] ? (state.mcpTrust?.pins ?? 0) + ' pins verified' : 'waiting');
+      setLaunchStep('#launch-policy', '04', true, 'fail closed');
+      const readyCount = ready.filter(Boolean).length;
+      setText('#launch-ready-count', readyCount);
+      q('#launch-progress').style.width = readyCount * 25 + '%';
+    }
+
+    function setLaunchStep(selector, step, ready, copy) {
+      const node = q(selector);
+      node.classList.toggle('ready', ready);
+      node.querySelector('small').textContent = copy;
+      node.querySelector('i').textContent = ready ? '✓' : step;
+    }
+
+    function renderAgentStages(state) {
+      const stages = [
+        ['#agent-context', Boolean(state.connected)],
+        ['#agent-plan', Boolean(state.attackTwin || state.inventory)],
+        ['#agent-gates', true],
+        ['#agent-evidence', Boolean((state.reproductions?.length ?? 0) || state.securityGraph?.summary?.evidence)],
+      ];
+      stages.forEach(([selector, ready]) => q(selector).classList.toggle('ready', ready));
+      const completed = stages.filter(([, ready]) => ready).length;
+      setText('#agent-stage-label', completed === 4 ? 'evidence synced' : completed + '/4 ready');
+    }
+
+    function renderSignalPulse(state) {
+      const files = Math.min(100, Math.log10((state.inventory?.sourceFiles ?? 0) + 1) * 28);
+      const routes = Math.min(100, (state.inventory?.routes?.length ?? 0) * 5);
+      const requests = Math.min(100, (state.traffic?.requests?.length ?? 0) * 10);
+      const signals = Math.min(100, (state.findings?.length ?? 0) * 16);
+      const proof = Math.min(100, (state.reproductions?.length ?? 0) * 28);
+      const raw = [files * .55, files * .7, routes, requests * .8, signals, signals * .7, proof, proof * .85 + 12, proof + 8];
+      const points = raw.map((value, index) => {
+        const x = (220 / (raw.length - 1)) * index;
+        const y = 48 - Math.max(4, Math.min(44, value * .42));
+        return [Math.round(x), Math.round(y)];
+      });
+      const line = points.map((point, index) => (index ? 'L' : 'M') + point[0] + ' ' + point[1]).join(' ');
+      q('#signal-line').setAttribute('d', line);
+      q('#signal-area').setAttribute('d', line + ' L220 50 L0 50 Z');
+      setText('#pulse-label', state.traffic?.live ? 'live' : state.connected ? 'local' : 'offline');
     }
 
     function renderAttackTwin(twin, protocols) {
@@ -1687,4 +1922,18 @@ function toolCard(index: string, title: string, copy: string): string {
     <p>${copy}</p>
     <span class="tool-state">● available</span>
   </div>`;
+}
+
+function commandItem(
+  code: string,
+  title: string,
+  copy: string,
+  action: string,
+  key = '',
+): string {
+  return `<button class="command-item" data-palette-action="${action}" data-command-label="${title}">
+    <span>${code}</span>
+    <span><b>${title}</b><small>${copy}</small></span>
+    ${key ? `<kbd>${key}</kbd>` : '<span></span>'}
+  </button>`;
 }
