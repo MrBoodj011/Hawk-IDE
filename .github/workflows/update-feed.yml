@@ -31,9 +31,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.18.0'
-      - name: Build stable and beta feed from published releases
+      - name: Build staged stable, beta and canary feed from published releases
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          HAWK_STABLE_ROLLOUT_PERCENT: ${{ vars.HAWK_STABLE_ROLLOUT_PERCENT || '100' }}
+          HAWK_BETA_ROLLOUT_PERCENT: ${{ vars.HAWK_BETA_ROLLOUT_PERCENT || '100' }}
+          HAWK_CANARY_ROLLOUT_PERCENT: ${{ vars.HAWK_CANARY_ROLLOUT_PERCENT || '10' }}
         run: node scripts/generate-update-feed.mjs --output public/updates/feed.json
       - name: Add immutable service metadata
         shell: bash
@@ -44,7 +47,7 @@ jobs:
           <title>Hawk Update Service</title>
           <meta name="robots" content="noindex">
           <h1>Hawk Security IDE Update Service</h1>
-          <p>Machine-readable Stable/Beta feed: <a href="./updates/feed.json">feed.json</a></p>
+          <p>Machine-readable Stable/Beta/Canary feed: <a href="./updates/feed.json">feed.json</a></p>
           HTML
           printf 'public, max-age=300\n' > public/_headers
       - uses: actions/configure-pages@v5

@@ -28,8 +28,8 @@ Module._load = function load(request, parent, isMain) {
 
 const { renderMissionControlHtml } = require(rendererPath);
 const webview = {
-  cspSource: 'http://127.0.0.1:4175',
-  asWebviewUri: () => 'http://127.0.0.1:4175/hawk-ui-preview/hawk-mark.svg',
+  cspSource: "'self'",
+  asWebviewUri: () => './hawk-mark.svg',
 };
 let html = renderMissionControlHtml(webview, {}, 'panel');
 const nonce = html.match(/script nonce="([^"]+)"/)?.[1];
@@ -117,6 +117,9 @@ const state = {
       evidence: 12,
       patches: 3,
       tests: 3,
+      protocols: 8,
+      infrastructure: 3,
+      trustBoundaries: 4,
       correlatedRequests: 26,
       sourceLinkedFindings: 10,
       evidenceLinkedFindings: 11,
@@ -231,6 +234,71 @@ const state = {
         { id: 'reproduction', status: 'passed' },
       ],
     },
+  ],
+  protocols: {
+    summary: {
+      total: 12,
+      public: 3,
+      authenticated: 5,
+      infrastructure: 3,
+      byKind: {
+        graphql: 3,
+        websocket: 1,
+        openapi: 1,
+        'oauth-oidc': 2,
+        kubernetes: 2,
+        terraform: 1,
+        'cloud-iam': 1,
+        'mobile-api': 1,
+      },
+    },
+  },
+  attackTwin: {
+    summary: {
+      entryPoints: 30,
+      protocolSurfaces: 12,
+      trustBoundaries: 4,
+      hypotheses: 7,
+      reproducedPaths: 2,
+      verifiedPaths: 1,
+      highestScore: 91,
+    },
+    paths: [
+      {
+        title: 'PATCH /api/users/:id/roles -> authorization bypass signal',
+        score: 91,
+        status: 'reproduced',
+        protocol: 'http-route',
+        sourceFiles: ['src/api/users.ts'],
+      },
+      {
+        title: 'GraphQL Mutation -> tenant boundary hypothesis',
+        score: 78,
+        status: 'hypothesis',
+        protocol: 'graphql',
+        sourceFiles: ['src/graphql/mutations.ts'],
+      },
+      {
+        title: 'OAuth callback -> identity trust boundary',
+        score: 69,
+        status: 'verified',
+        protocol: 'oauth-oidc',
+        sourceFiles: ['src/auth/oidc.ts'],
+      },
+      {
+        title: 'Kubernetes Ingress -> billing webhook',
+        score: 64,
+        status: 'hypothesis',
+        protocol: 'kubernetes',
+        sourceFiles: ['deploy/api-ingress.yaml'],
+      },
+    ],
+  },
+  fleet: { summary: { online: 6, availableSlots: 18 } },
+  mcpTrust: { pins: 9, verdicts: 12, allowed: 9, denied: 0 },
+  memory: { active: 42, stale: 2, revoked: 3 },
+  autopilotRuns: [
+    { status: 'completed-with-gates', summary: { attackPaths: 10, reproductionGates: 3 } },
   ],
   hawkHealth: {
     organization: 'Hawk Labs',

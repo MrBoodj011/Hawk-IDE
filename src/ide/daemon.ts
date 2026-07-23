@@ -4,6 +4,7 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import { join, resolve } from 'node:path';
 import { startIngestServer } from '../browser/server.js';
 import { CaptureStore } from '../browser/store.js';
+import { AgentFleetRegistry } from './agentFleet.js';
 import type {
   AiApplyRequest,
   AiCheckpointRequest,
@@ -14,12 +15,15 @@ import type {
   AiRunTestsRequest,
 } from './aiProtocol.js';
 import { AiSessionManager } from './aiSessionManager.js';
+import { buildAttackTwin } from './attackTwin.js';
+import { AutonomousSecurityService } from './autonomousSecurity.js';
 import { runCodingCoreBenchmark } from './codingBenchmark.js';
 import { listDockerAgentProfiles } from './dockerAgentProfiles.js';
 import { DurableStore } from './durableStore.js';
 import { EditPredictionEngine, type EditPredictionFeedback } from './editPredictionEngine.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
+import { GovernedMemory } from './governedMemory.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import {
@@ -33,8 +37,10 @@ import {
   createInlineCompletion,
 } from './inlineCompletion.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
+import { McpTrustPlatform } from './mcpTrust.js';
 import { HawkObservability } from './observability.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
+import { analyzePullRequestDiff, pullRequestReportToSarif } from './prSecurityAgent.js';
 import { ProofGraph } from './proofGraph.js';
 import {
   type DaemonHealth,
@@ -54,6 +60,7 @@ import {
   type WorkspaceScanTemplateId,
   type WorkspaceScanTemplatesResponse,
 } from './protocol.js';
+import { scanProtocolSurfaces } from './protocolIntelligence.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import {
   type ReproductionOrchestrator,
@@ -118,11 +125,16 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   const token = opts.token ?? randomBytes(32).toString('base64url');
   const now = opts.now ?? (() => new Date());
   let latestInventory: WorkspaceInventory | null = null;
+  let latestProtocols: Awaited<ReturnType<typeof scanProtocolSurfaces>> | null = null;
   let findings: SecurityFinding[] = [];
   let importedTraffic: TrafficInventory | null = null;
   const evidencePacks: EvidencePackReport[] = [];
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const durableStore = new DurableStore(workspaceRoot);
+  const autonomousSecurity = new AutonomousSecurityService(workspaceRoot, durableStore, now);
+  const agentFleet = new AgentFleetRegistry(durableStore, now);
+  const governedMemory = new GovernedMemory(durableStore, now);
+  const mcpTrust = new McpTrustPlatform(durableStore, now);
   const observability = new HawkObservability(now);
   const proofGraph = new ProofGraph(durableStore, now);
   const reproducer = new SandboxVulnerabilityReproducer(
@@ -176,6 +188,10 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       setInventory: (value) => {
         latestInventory = value;
       },
+      protocols: () => latestProtocols,
+      setProtocols: (value) => {
+        latestProtocols = value;
+      },
       findings: () => findings,
       setFindings: (value) => {
         findings = value;
@@ -207,6 +223,10 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       completionLatencies: () => [...completionLatencies],
       identityReplay,
       observability,
+      autonomousSecurity,
+      agentFleet,
+      governedMemory,
+      mcpTrust,
       recordCompletionLatency: (latencyMs) => {
         completionLatencies.push(latencyMs);
         if (completionLatencies.length > 100) completionLatencies.shift();
@@ -259,6 +279,8 @@ interface RequestContext {
   now: () => Date;
   inventory: () => WorkspaceInventory | null;
   setInventory(value: WorkspaceInventory): void;
+  protocols(): Awaited<ReturnType<typeof scanProtocolSurfaces>> | null;
+  setProtocols(value: Awaited<ReturnType<typeof scanProtocolSurfaces>>): void;
   findings(): SecurityFinding[];
   setFindings(value: SecurityFinding[]): void;
   traffic(): TrafficInventory | null;
@@ -274,6 +296,10 @@ interface RequestContext {
   editPredictions: EditPredictionEngine;
   identityReplay: IdentityReplayService;
   observability: HawkObservability;
+  autonomousSecurity: AutonomousSecurityService;
+  agentFleet: AgentFleetRegistry;
+  governedMemory: GovernedMemory;
+  mcpTrust: McpTrustPlatform;
   completionLatencies(): number[];
   recordCompletionLatency(latencyMs: number): void;
 }
@@ -527,6 +553,7 @@ async function handleRequest(
         evidencePacks: context.evidencePacks(),
         sessions: await context.aiSessions.list(50),
         reproductions: await context.reproducer.list(100),
+        protocols: context.protocols() ?? undefined,
       });
       const nodeId = requestURL.searchParams.get('nodeId')?.trim();
       if (!nodeId) {
@@ -543,6 +570,291 @@ async function handleRequest(
       sendJSON(res, 200, securityGraphResponse(snapshot));
     } catch (err) {
       sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/security/protocols') {
+    try {
+      const protocols = await scanProtocolSurfaces(context.workspaceRoot, context.now());
+      context.setProtocols(protocols);
+      sendJSON(res, 200, protocols);
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/security/attack-twin') {
+    try {
+      let inventory = context.inventory();
+      if (!inventory) {
+        const scan = await scanWorkspaceRoutes(context.workspaceRoot);
+        inventory = {
+          protocolVersion: IDE_PROTOCOL_VERSION,
+          root: context.workspaceRoot,
+          indexedAt: context.now().toISOString(),
+          sourceFiles: scan.sourceFiles,
+          routes: scan.routes,
+        };
+        context.setInventory(inventory);
+      }
+      const protocols =
+        context.protocols() ?? (await scanProtocolSurfaces(context.workspaceRoot, context.now()));
+      context.setProtocols(protocols);
+      const graph = await buildUnifiedSecurityGraph(context.proofGraph, {
+        inventory,
+        findings: context.findings(),
+        traffic: context.traffic(),
+        evidencePacks: context.evidencePacks(),
+        sessions: await context.aiSessions.list(50),
+        reproductions: await context.reproducer.list(100),
+        protocols,
+      });
+      sendJSON(
+        res,
+        200,
+        buildAttackTwin({
+          inventory,
+          protocols,
+          graph,
+          findings: context.findings(),
+          now: context.now(),
+        }),
+      );
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/autopilot/plan') {
+    try {
+      const input = parseJSONBody<{
+        objective?: string;
+        networkPolicy?: 'offline' | 'captured-only';
+        scopeHosts?: string[];
+      }>(await readBody(req));
+      sendJSON(res, 201, await context.autonomousSecurity.createPlan(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/autopilot/run') {
+    try {
+      const input = parseJSONBody<{
+        planId: string;
+        planHash: string;
+        approved: boolean;
+      }>(await readBody(req));
+      const run = await context.autonomousSecurity.run(input, {
+        inventory: async () => {
+          const scan = await scanWorkspaceRoutes(context.workspaceRoot);
+          const inventory: WorkspaceInventory = {
+            protocolVersion: IDE_PROTOCOL_VERSION,
+            root: context.workspaceRoot,
+            indexedAt: context.now().toISOString(),
+            sourceFiles: scan.sourceFiles,
+            routes: scan.routes,
+          };
+          context.setInventory(inventory);
+          await context.semanticIndex.build();
+          return inventory;
+        },
+        protocols: async () => {
+          const protocols = await scanProtocolSurfaces(context.workspaceRoot, context.now());
+          context.setProtocols(protocols);
+          return protocols;
+        },
+        audit: async () => {
+          const audit = await scanWorkspaceSecurity(context.workspaceRoot, context.now());
+          context.setFindings(audit.findings);
+          return audit;
+        },
+        attackTwin: async () => {
+          const inventory = context.inventory();
+          const protocols = context.protocols();
+          if (!inventory || !protocols)
+            throw new Error('Autopilot discovery stages are incomplete');
+          const graph = await buildUnifiedSecurityGraph(context.proofGraph, {
+            inventory,
+            findings: context.findings(),
+            traffic: context.traffic(),
+            evidencePacks: context.evidencePacks(),
+            sessions: await context.aiSessions.list(50),
+            reproductions: await context.reproducer.list(100),
+            protocols,
+          });
+          return buildAttackTwin({
+            inventory,
+            protocols,
+            graph,
+            findings: context.findings(),
+            now: context.now(),
+          });
+        },
+      });
+      sendJSON(res, 200, run);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/security/autopilot/runs') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      runs: await context.autonomousSecurity.list(),
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/pr/analyze') {
+    try {
+      const input = parseJSONBody<{ diff?: string }>(await readBody(req));
+      if (typeof input.diff !== 'string') throw new Error('Git diff is required');
+      const report = analyzePullRequestDiff(input.diff, context.now());
+      sendJSON(res, 200, { report, sarif: pullRequestReportToSarif(report) });
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/fleet') {
+    sendJSON(res, 200, await context.agentFleet.snapshot());
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/fleet/dispatch-plan') {
+    try {
+      const input = parseJSONBody<Parameters<AgentFleetRegistry['planDispatch']>[0]>(
+        await readBody(req),
+      );
+      sendJSON(res, 201, await context.agentFleet.planDispatch(input));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/fleet/register') {
+    try {
+      sendJSON(res, 201, await context.agentFleet.register(parseJSONBody(await readBody(req))));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/fleet/heartbeat') {
+    try {
+      sendJSON(res, 200, await context.agentFleet.heartbeat(parseJSONBody(await readBody(req))));
+    } catch (err) {
+      sendJSON(res, 401, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const fleetRevokeMatch = pathname.match(/^\/v1\/fleet\/([^/]+)\/revoke$/);
+  if (req.method === 'POST' && fleetRevokeMatch?.[1]) {
+    try {
+      const input = parseJSONBody<{ approved?: boolean }>(await readBody(req));
+      sendJSON(
+        res,
+        200,
+        await context.agentFleet.revoke(
+          decodeURIComponent(fleetRevokeMatch[1]),
+          input.approved === true,
+        ),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/memory/posture') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      ...(await context.governedMemory.posture()),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/memory/query') {
+    const query = requestURL.searchParams.get('q') ?? '';
+    const layerValue = requestURL.searchParams.get('layer');
+    const layer = ['run', 'project', 'organization'].includes(layerValue ?? '')
+      ? (layerValue as 'run' | 'project' | 'organization')
+      : undefined;
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      entries: await context.governedMemory.query(query, layer),
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/memory/audit') {
+    try {
+      const input = parseJSONBody<{ sourceDigests?: Record<string, string>; branch?: string }>(
+        await readBody(req),
+      );
+      sendJSON(
+        res,
+        200,
+        await context.governedMemory.auditProvenance({
+          sourceDigests: input.sourceDigests ?? {},
+          branch: input.branch,
+        }),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/mcp/trust') {
+    sendJSON(res, 200, await context.mcpTrust.posture());
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/mcp/trust/inspect') {
+    try {
+      const input = parseJSONBody<{ manifest?: unknown; artifactSha256?: string }>(
+        await readBody(req),
+      );
+      if (!input.artifactSha256) throw new Error('Actual artifact SHA-256 is required');
+      sendJSON(res, 200, await context.mcpTrust.inspect(input.manifest, input.artifactSha256));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/mcp/trust/approve') {
+    try {
+      const input = parseJSONBody<{
+        manifest?: unknown;
+        artifactSha256?: string;
+        approvedBy?: string;
+        approved?: boolean;
+      }>(await readBody(req));
+      if (!input.artifactSha256) throw new Error('Actual artifact SHA-256 is required');
+      sendJSON(
+        res,
+        200,
+        await context.mcpTrust.approve(
+          input.manifest,
+          input.artifactSha256,
+          input.approvedBy ?? '',
+          input.approved === true,
+        ),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
     return;
   }

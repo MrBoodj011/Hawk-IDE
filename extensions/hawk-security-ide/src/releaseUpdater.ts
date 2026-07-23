@@ -1,26 +1,28 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, stat, unlink } from 'node:fs/promises';
+import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as vscode from 'vscode';
 import {
+  DEFAULT_HAWK_UPDATE_FEED,
+  HAWK_RELEASE_REPOSITORY,
+  type HawkFeedRelease,
+  eligibleForRollout,
+  parseHawkUpdateFeed,
+  validateUpdateFeedUrl,
+} from './releaseFeed.js';
+import {
   compareReleaseVersions,
   isValidReleaseVersion,
   normalizeReleaseVersion,
 } from './releaseSemver.js';
-import {
-  DEFAULT_HAWK_UPDATE_FEED,
-  HAWK_RELEASE_REPOSITORY,
-  type HawkFeedRelease,
-  parseHawkUpdateFeed,
-  validateUpdateFeedUrl,
-} from './releaseFeed.js';
 import { verifyWindowsAuthenticode } from './windowsAuthenticode.js';
 
 const RELEASE_TOKEN_KEY = 'hawk.releaseToken';
+const UPDATE_TRANSACTION_KEY = 'hawk.updateTransaction';
 const MAX_ASSET_BYTES = 1_500_000_000;
 const MAX_FEED_BYTES = 2_000_000;
 
@@ -58,7 +60,12 @@ export class HawkReleaseUpdater implements vscode.Disposable {
           token.trim() ? 'Hawk release access configured.' : 'Hawk release access cleared.',
         );
       }),
+      vscode.commands.registerCommand('hawk.rollbackUpdate', async () => {
+        await this.rollback();
+      }),
     );
+
+    void this.reconcileUpdateTransaction();
 
     if (vscode.workspace.getConfiguration('hawk').get<boolean>('updates.checkOnStartup', true)) {
       this.startupTimer = setTimeout(() => {
@@ -80,7 +87,7 @@ export class HawkReleaseUpdater implements vscode.Disposable {
       '';
     const channel = vscode.workspace
       .getConfiguration('hawk')
-      .get<'stable' | 'beta'>('updates.channel', 'stable');
+      .get<'stable' | 'beta' | 'canary'>('updates.channel', 'stable');
     const expectedPublisher = vscode.workspace
       .getConfiguration('hawk')
       .get<string>('updates.expectedPublisher', '');
@@ -111,19 +118,16 @@ export class HawkReleaseUpdater implements vscode.Disposable {
         (candidate) =>
           !candidate.draft &&
           isValidReleaseVersion(candidate.tag_name) &&
-          (channel === 'beta' || candidate.prerelease === false),
+          (channel !== 'stable' || candidate.prerelease === false) &&
+          (interactive || eligibleForRollout(candidate, vscode.env.machineId)),
       )
-      .sort((left, right) =>
-        compareReleaseVersions(right.tag_name, left.tag_name),
-      )[0];
+      .sort((left, right) => compareReleaseVersions(right.tag_name, left.tag_name))[0];
     if (!release) {
       if (interactive) vscode.window.showInformationMessage('No Hawk release is available yet.');
       return;
     }
     const currentVersion = String(this.context.extension.packageJSON.version ?? '0.0.0');
-    if (
-      compareReleaseVersions(release.tag_name, currentVersion) <= 0
-    ) {
+    if (compareReleaseVersions(release.tag_name, currentVersion) <= 0) {
       if (interactive) {
         vscode.window.showInformationMessage(`Hawk ${currentVersion} is up to date.`);
       }
@@ -177,6 +181,12 @@ export class HawkReleaseUpdater implements vscode.Disposable {
             'Install Hawk update',
           );
           if (approval !== 'Install Hawk update') return;
+          await this.context.globalState.update(UPDATE_TRANSACTION_KEY, {
+            fromVersion: currentVersion,
+            toVersion: normalizeReleaseVersion(release.tag_name),
+            installer,
+            startedAt: new Date().toISOString(),
+          });
           const child = spawn(installer, [], {
             detached: true,
             stdio: 'ignore',
@@ -192,11 +202,65 @@ export class HawkReleaseUpdater implements vscode.Disposable {
       },
     );
   }
+
+  private async reconcileUpdateTransaction(): Promise<void> {
+    const transaction = this.context.globalState.get<{
+      fromVersion: string;
+      toVersion: string;
+      installer: string;
+      startedAt: string;
+    }>(UPDATE_TRANSACTION_KEY);
+    if (!transaction) return;
+    const current = String(this.context.extension.packageJSON.version ?? '0.0.0');
+    if (compareReleaseVersions(current, transaction.toVersion) >= 0) {
+      await this.context.globalState.update(UPDATE_TRANSACTION_KEY, undefined);
+    }
+  }
+
+  private async rollback(): Promise<void> {
+    if (process.platform !== 'win32') {
+      vscode.window.showInformationMessage('Hawk cached-installer rollback is currently Windows-only.');
+      return;
+    }
+    const current = String(this.context.extension.packageJSON.version ?? '0.0.0');
+    const candidates = await cachedWindowsInstallers(this.context.globalStorageUri.fsPath, current);
+    if (!candidates.length) {
+      vscode.window.showInformationMessage(
+        'No older verified Hawk installer is available in the local update cache.',
+      );
+      return;
+    }
+    const selected = await vscode.window.showQuickPick(
+      candidates.map((candidate) => ({
+        label: `Hawk ${candidate.version}`,
+        description: basename(candidate.path),
+        candidate,
+      })),
+      { title: 'Hawk rollback', placeHolder: 'Choose a cached previous installer' },
+    );
+    if (!selected) return;
+    const expectedPublisher = vscode.workspace
+      .getConfiguration('hawk')
+      .get<string>('updates.expectedPublisher', '');
+    await verifyWindowsAuthenticode(selected.candidate.path, expectedPublisher);
+    const approval = await vscode.window.showWarningMessage(
+      `Roll back Hawk ${current} to ${selected.candidate.version}? The cached installer signature will be verified again.`,
+      { modal: true },
+      'Run rollback installer',
+    );
+    if (approval !== 'Run rollback installer') return;
+    const child = spawn(selected.candidate.path, [], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    });
+    child.unref();
+  }
 }
 
 async function fetchReleases(
   token: string,
-  channel: 'stable' | 'beta',
+  channel: 'stable' | 'beta' | 'canary',
   feedUrl: string,
 ): Promise<GitHubRelease[]> {
   let feedFailure = '';
@@ -358,4 +422,31 @@ function githubHeaders(token: string, binary = false): Record<string, string> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function cachedWindowsInstallers(
+  storageRoot: string,
+  currentVersion: string,
+): Promise<Array<{ version: string; path: string }>> {
+  const updates = join(storageRoot, 'updates');
+  let versions;
+  try {
+    versions = await readdir(updates, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const output: Array<{ version: string; path: string }> = [];
+  for (const versionEntry of versions) {
+    if (!versionEntry.isDirectory() || !isValidReleaseVersion(versionEntry.name)) continue;
+    if (compareReleaseVersions(versionEntry.name, currentVersion) >= 0) continue;
+    const directory = join(updates, versionEntry.name);
+    const files = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const file of files) {
+      if (!file.isFile() || !/^HawkSetup-windows-(?:x64|arm64)-.+\.exe$/i.test(file.name))
+        continue;
+      const path = join(directory, file.name);
+      if ((await stat(path)).size > 0) output.push({ version: versionEntry.name, path });
+    }
+  }
+  return output.sort((left, right) => compareReleaseVersions(right.version, left.version));
 }

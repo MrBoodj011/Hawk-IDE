@@ -222,7 +222,10 @@ export type ProofNodeKind =
   | 'run'
   | 'agent'
   | 'tool'
-  | 'model';
+  | 'model'
+  | 'protocol'
+  | 'infrastructure'
+  | 'trust-boundary';
 
 export interface ProofNode {
   id: string;
@@ -297,6 +300,13 @@ export interface GovernedMemoryEntry {
   createdAt: string;
   expiresAt: string;
   contentHash: string;
+  sourceDigest: string;
+  branch?: string;
+  commit?: string;
+  lastValidatedAt: string;
+  validationStatus: 'active' | 'stale' | 'revoked';
+  validationReason?: string;
+  citations: Array<{ uri: string; digest: string; line?: number }>;
 }
 
 export interface SentinelFinding {

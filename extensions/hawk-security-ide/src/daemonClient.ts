@@ -11,6 +11,9 @@ import type {
   AiParallelBatchResponse,
   AiSessionList,
   AiSessionSummary,
+  AttackTwinResponse,
+  AutonomousSecurityPlan,
+  AutonomousSecurityRun,
   CodingCoreBenchmark,
   DaemonDescriptor,
   DaemonHealth,
@@ -19,13 +22,17 @@ import type {
   EditPredictionResponse,
   EvidencePackReport,
   FindingsResponse,
+  FleetSnapshot,
+  GovernedMemoryPosture,
   GovernedMissionPlan,
   GovernedMissionProfile,
   HawkHealthReport,
   IdentityReplayPlan,
   IdentityReplayResult,
   InlineCompletionResponse,
+  McpTrustPosture,
   ObservabilitySnapshot,
+  ProtocolSurfaceInventory,
   RetestResult,
   SandboxReproductionPlan,
   SandboxReproductionResult,
@@ -312,6 +319,62 @@ export class DaemonClient implements vscode.Disposable {
       ? `?nodeId=${encodeURIComponent(nodeId)}&depth=${Math.max(0, Math.min(depth, 5))}`
       : '';
     return await this.request<SecurityGraphResponse>(daemon, `/v1/security/graph${query}`);
+  }
+
+  async protocolSurfaces(workspace: vscode.Uri): Promise<ProtocolSurfaceInventory> {
+    const daemon = await this.start(workspace);
+    return await this.request<ProtocolSurfaceInventory>(daemon, '/v1/security/protocols');
+  }
+
+  async attackTwin(workspace: vscode.Uri): Promise<AttackTwinResponse> {
+    const daemon = await this.start(workspace);
+    return await this.request<AttackTwinResponse>(daemon, '/v1/security/attack-twin');
+  }
+
+  async createAutonomousSecurityPlan(
+    workspace: vscode.Uri,
+    objective = 'Map this workspace and prioritize evidence-backed security paths',
+  ): Promise<AutonomousSecurityPlan> {
+    const daemon = await this.start(workspace);
+    return await this.request<AutonomousSecurityPlan>(daemon, '/v1/security/autopilot/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objective, networkPolicy: 'offline', scopeHosts: [] }),
+    });
+  }
+
+  async runAutonomousSecurity(
+    workspace: vscode.Uri,
+    plan: Pick<AutonomousSecurityPlan, 'id' | 'planHash'>,
+  ): Promise<AutonomousSecurityRun> {
+    const daemon = await this.start(workspace);
+    return await this.request<AutonomousSecurityRun>(daemon, '/v1/security/autopilot/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id, planHash: plan.planHash, approved: true }),
+    });
+  }
+
+  async autonomousSecurityRuns(
+    workspace: vscode.Uri,
+  ): Promise<{ protocolVersion: number; runs: AutonomousSecurityRun[] }> {
+    const daemon = await this.start(workspace);
+    return await this.request(daemon, '/v1/security/autopilot/runs');
+  }
+
+  async fleet(workspace: vscode.Uri): Promise<FleetSnapshot> {
+    const daemon = await this.start(workspace);
+    return await this.request<FleetSnapshot>(daemon, '/v1/fleet');
+  }
+
+  async mcpTrustPosture(workspace: vscode.Uri): Promise<McpTrustPosture> {
+    const daemon = await this.start(workspace);
+    return await this.request<McpTrustPosture>(daemon, '/v1/mcp/trust');
+  }
+
+  async memoryPosture(workspace: vscode.Uri): Promise<GovernedMemoryPosture> {
+    const daemon = await this.start(workspace);
+    return await this.request<GovernedMemoryPosture>(daemon, '/v1/memory/posture');
   }
 
   async importHar(workspace: vscode.Uri, har: unknown): Promise<TrafficInventory> {

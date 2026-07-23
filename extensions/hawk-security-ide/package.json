@@ -42,6 +42,7 @@
     "onCommand:hawk.clearEditPredictionCache",
     "onCommand:hawk.checkForUpdates",
     "onCommand:hawk.configureReleaseToken",
+    "onCommand:hawk.rollbackUpdate",
     "onCommand:hawk.setupLocalAI",
     "onCommand:hawk.showLocalAIStatus",
     "onCommand:hawk.configureLLMProvider",
@@ -165,6 +166,10 @@
       {
         "command": "hawk.configureReleaseToken",
         "title": "Hawk: Configure Release Access Token"
+      },
+      {
+        "command": "hawk.rollbackUpdate",
+        "title": "Hawk: Roll Back from Verified Installer Cache"
       },
       {
         "command": "hawk.setupLocalAI",
@@ -343,10 +348,11 @@
           "type": "string",
           "enum": [
             "stable",
-            "beta"
+            "beta",
+            "canary"
           ],
           "default": "stable",
-          "description": "Hawk release channel."
+          "description": "Hawk release channel. Canary receives staged cohorts before broader beta/stable rollout."
         },
         "hawk.updates.feedUrl": {
           "type": "string",

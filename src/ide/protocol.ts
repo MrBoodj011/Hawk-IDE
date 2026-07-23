@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 12;
+export const IDE_PROTOCOL_VERSION = 13;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -347,7 +347,10 @@ export interface SecurityGraphNode {
     | 'evidence'
     | 'patch'
     | 'test'
-    | 'agent';
+    | 'agent'
+    | 'protocol'
+    | 'infrastructure'
+    | 'trust-boundary';
   label: string;
   attributes: Record<string, string | number | boolean>;
 }
@@ -375,6 +378,9 @@ export interface SecurityGraphResponse {
     evidence: number;
     patches: number;
     tests: number;
+    protocols: number;
+    infrastructure: number;
+    trustBoundaries: number;
     reproductions: number;
     correlatedRequests: number;
     sourceLinkedFindings: number;
@@ -383,6 +389,200 @@ export interface SecurityGraphResponse {
   nodes: SecurityGraphNode[];
   edges: SecurityGraphEdge[];
   truncated: boolean;
+}
+
+export type ProtocolSurfaceKind =
+  | 'graphql'
+  | 'websocket'
+  | 'grpc'
+  | 'openapi'
+  | 'oauth-oidc'
+  | 'saml'
+  | 'kubernetes'
+  | 'terraform'
+  | 'cloud-iam'
+  | 'mobile-api';
+
+export interface ProtocolSurface {
+  id: string;
+  kind: ProtocolSurfaceKind;
+  label: string;
+  file: string;
+  line: number;
+  exposure: 'public' | 'authenticated' | 'internal' | 'unknown';
+  authSignals: string[];
+  evidence: string;
+  provenance: 'hawk-protocol-intelligence';
+}
+
+export interface ProtocolSurfaceInventory {
+  protocolVersion: number;
+  scannedAt: string;
+  sourceFiles: number;
+  surfaces: ProtocolSurface[];
+  summary: {
+    total: number;
+    public: number;
+    authenticated: number;
+    infrastructure: number;
+    byKind: Partial<Record<ProtocolSurfaceKind, number>>;
+  };
+  truncated: boolean;
+}
+
+export interface AttackTwinPath {
+  id: string;
+  title: string;
+  score: number;
+  status: 'hypothesis' | 'reproduced' | 'verified';
+  entryPoint: string;
+  protocol: ProtocolSurfaceKind | 'http-route';
+  assets: string[];
+  findingIds: string[];
+  evidenceNodeIds: string[];
+  sourceFiles: string[];
+  rationale: string[];
+  recommendedNextGate: string;
+}
+
+/** An evidence-aware attack model. Hypotheses never become verdicts without reproduction gates. */
+export interface AttackTwinResponse {
+  protocolVersion: number;
+  generatedAt: string;
+  summary: {
+    entryPoints: number;
+    protocolSurfaces: number;
+    trustBoundaries: number;
+    hypotheses: number;
+    reproducedPaths: number;
+    verifiedPaths: number;
+    highestScore: number;
+  };
+  paths: AttackTwinPath[];
+  trustBoundaries: Array<{
+    id: string;
+    label: string;
+    kind: 'identity' | 'network' | 'runtime' | 'cloud';
+    sourceFiles: string[];
+  }>;
+  whatIf: Array<{
+    id: string;
+    premise: string;
+    affectedPathIds: string[];
+    estimatedBlastRadius: number;
+    statement: string;
+  }>;
+  statement: string;
+}
+
+export interface AutonomousSecurityPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  workspaceRoot: string;
+  objective: string;
+  planHash: string;
+  networkPolicy: 'offline' | 'captured-only';
+  scopeHosts: string[];
+  stages: Array<{
+    id: 'inventory' | 'protocols' | 'static-audit' | 'attack-twin' | 'reproduction-gates';
+    title: string;
+    execution: 'automatic' | 'approval-gate';
+    risk: 'low' | 'medium' | 'high';
+  }>;
+  statement: string;
+}
+
+export interface AutonomousSecurityRun {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  planHash: string;
+  status: 'completed' | 'completed-with-gates';
+  startedAt: string;
+  completedAt: string;
+  stages: Array<{
+    id: AutonomousSecurityPlan['stages'][number]['id'];
+    status: 'completed' | 'awaiting-approval';
+    startedAt: string;
+    completedAt: string;
+    summary: string;
+    artifactDigest: string;
+  }>;
+  summary: {
+    sourceFiles: number;
+    protocolSurfaces: number;
+    findings: number;
+    attackPaths: number;
+    reproductionGates: number;
+  };
+  statement: string;
+}
+
+export interface FleetNodeSnapshot {
+  id: string;
+  label: string;
+  endpoint: string;
+  fingerprint: string;
+  capabilities: string[];
+  platform: string;
+  arch: string;
+  maxConcurrent: number;
+  activeTasks: number;
+  cpuPercent: number;
+  memoryMbAvailable: number;
+  status: 'online' | 'draining' | 'offline' | 'revoked';
+  registeredAt: string;
+  lastHeartbeatAt: string;
+}
+
+export interface FleetSnapshot {
+  protocolVersion: number;
+  generatedAt: string;
+  nodes: FleetNodeSnapshot[];
+  summary: {
+    total: number;
+    online: number;
+    availableSlots: number;
+    activeTasks: number;
+    capabilities: string[];
+  };
+}
+
+export interface FleetDispatchPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  strategy: 'balanced' | 'latency' | 'throughput';
+  workspaceDigest: string;
+  imageDigest: string;
+  assignments: Array<{
+    taskId: string;
+    nodeId: string;
+    endpoint: string;
+    fingerprint: string;
+    score: number;
+    reasons: string[];
+    dispatchHash: string;
+  }>;
+  unassignedTaskIds: string[];
+  statement: string;
+}
+
+export interface McpTrustVerdict {
+  protocolVersion: number;
+  name: string;
+  version: string;
+  artifactSha256: string;
+  manifestFingerprint: string;
+  trusted: boolean;
+  signature: 'verified' | 'missing' | 'invalid';
+  decision: 'allow' | 'require-approval' | 'deny';
+  findings: string[];
+  capabilities: string[];
+  checkedAt: string;
 }
 
 export type GovernedMissionProfile = 'review' | 'remediate' | 'authorized-validation';

@@ -3,16 +3,23 @@ import { join, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { AgentFleetRegistry } from './agentFleet.js';
+import { buildAttackTwin } from './attackTwin.js';
+import { AutonomousSecurityService } from './autonomousSecurity.js';
 import { listDockerAgentProfiles, profileAgentInstances } from './dockerAgentProfiles.js';
 import { DockerDesktopController } from './dockerDesktop.js';
 import { DurableMcpTaskStore } from './durableMcpTaskStore.js';
 import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
+import { McpTrustPlatform } from './mcpTrust.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
+import { IDE_PROTOCOL_VERSION, type WorkspaceInventory } from './protocol.js';
+import { scanProtocolSurfaces } from './protocolIntelligence.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
 import { SandboxVulnerabilityReproducer } from './sandboxReproduction.js';
+import { buildUnifiedSecurityGraph } from './securityGraph.js';
 import {
   type SecurityTestTemplateId,
   createSecurityTestPlan,
@@ -84,6 +91,9 @@ async function main(): Promise<void> {
   const brain = new SmartMcpBrain(args.workspaceRoot, executor);
   brainReference.current = brain;
   await brain.initialize();
+  const autonomousSecurity = new AutonomousSecurityService(args.workspaceRoot, brain.store);
+  const agentFleet = new AgentFleetRegistry(brain.store);
+  const mcpTrust = new McpTrustPlatform(brain.store);
   const reproducer = new SandboxVulnerabilityReproducer(
     args.workspaceRoot,
     brain.store,
@@ -148,6 +158,231 @@ async function main(): Promise<void> {
         : inventory.routes;
       return textResult(JSON.stringify({ sourceFiles: inventory.sourceFiles, routes }, null, 2));
     },
+  );
+  mcp.registerTool(
+    'hawk_protocol_inventory',
+    {
+      title: 'Discover protocol and infrastructure surfaces',
+      description:
+        'Passively map GraphQL, WebSocket, gRPC, OpenAPI, identity, Kubernetes, Terraform, cloud IAM, and mobile API surfaces.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(await scanProtocolSurfaces(args.workspaceRoot), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_attack_twin',
+    {
+      title: 'Build Hawk Attack Twin',
+      description:
+        'Build an evidence-aware attack-path model. Unreproduced paths remain hypotheses.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const [routeScan, protocols, audit] = await Promise.all([
+          scanWorkspaceRoutes(args.workspaceRoot),
+          scanProtocolSurfaces(args.workspaceRoot),
+          scanWorkspaceSecurity(args.workspaceRoot),
+        ]);
+        const inventory: WorkspaceInventory = {
+          protocolVersion: IDE_PROTOCOL_VERSION,
+          root: args.workspaceRoot,
+          indexedAt: new Date().toISOString(),
+          sourceFiles: routeScan.sourceFiles,
+          routes: routeScan.routes,
+        };
+        const graph = await buildUnifiedSecurityGraph(brain.graph, {
+          inventory,
+          protocols,
+          findings: audit.findings,
+        });
+        return textResult(
+          JSON.stringify(
+            buildAttackTwin({ inventory, protocols, graph, findings: audit.findings }),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_security_autopilot_plan',
+    {
+      title: 'Plan autonomous security discovery',
+      description:
+        'Create an exact hash-bound offline or captured-only mission. Planning does not execute stages.',
+      inputSchema: {
+        objective: z.string().min(1).max(2_000).optional(),
+        network_policy: z.enum(['offline', 'captured-only']).optional(),
+        scope_hosts: z.array(z.string().min(1).max(253)).max(100).optional(),
+      },
+    },
+    async (input) =>
+      textResult(
+        JSON.stringify(
+          await autonomousSecurity.createPlan({
+            objective: input.objective,
+            networkPolicy: input.network_policy,
+            scopeHosts: input.scope_hosts,
+          }),
+          null,
+          2,
+        ),
+      ),
+  );
+  mcp.registerTool(
+    'hawk_security_autopilot_run',
+    {
+      title: 'Run approved autonomous security discovery',
+      description:
+        'Execute passive stages and stop at reproduction gates. Requires the exact plan id and hash.',
+      inputSchema: {
+        plan_id: z.string().min(1),
+        plan_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        approved: z.literal(true),
+      },
+    },
+    async (input) => {
+      try {
+        let inventory: WorkspaceInventory | undefined;
+        let protocols: Awaited<ReturnType<typeof scanProtocolSurfaces>> | undefined;
+        let findings: Awaited<ReturnType<typeof scanWorkspaceSecurity>> | undefined;
+        const run = await autonomousSecurity.run(
+          { planId: input.plan_id, planHash: input.plan_hash, approved: input.approved },
+          {
+            inventory: async () => {
+              const scan = await scanWorkspaceRoutes(args.workspaceRoot);
+              inventory = {
+                protocolVersion: IDE_PROTOCOL_VERSION,
+                root: args.workspaceRoot,
+                indexedAt: new Date().toISOString(),
+                sourceFiles: scan.sourceFiles,
+                routes: scan.routes,
+              };
+              return inventory;
+            },
+            protocols: async () => {
+              protocols = await scanProtocolSurfaces(args.workspaceRoot);
+              return protocols;
+            },
+            audit: async () => {
+              findings = await scanWorkspaceSecurity(args.workspaceRoot);
+              return findings;
+            },
+            attackTwin: async () => {
+              if (!inventory || !protocols || !findings)
+                throw new Error('Autopilot stages are incomplete');
+              const graph = await buildUnifiedSecurityGraph(brain.graph, {
+                inventory,
+                protocols,
+                findings: findings.findings,
+              });
+              return buildAttackTwin({
+                inventory,
+                protocols,
+                graph,
+                findings: findings.findings,
+              });
+            },
+          },
+        );
+        return textResult(JSON.stringify(run, null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_fleet_status',
+    {
+      title: 'Inspect Hawk multi-host fleet',
+      description: 'Read authenticated worker health, capabilities, load and available slots.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(await agentFleet.snapshot(), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_fleet_dispatch_plan',
+    {
+      title: 'Plan a multi-host fleet dispatch',
+      description:
+        'Schedule bounded tasks across authenticated healthy workers and bind them to immutable workspace and image digests. Planning never executes code.',
+      inputSchema: {
+        workspace_digest: z.string().regex(/^(?:sha256:)?[a-fA-F0-9]{64}$/),
+        image_digest: z.string().regex(/^(?:sha256:)?[a-fA-F0-9]{64}$/),
+        strategy: z.enum(['balanced', 'latency', 'throughput']).optional(),
+        tasks: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(160),
+              dependsOn: z.array(z.string().min(1).max(160)).max(100),
+              requiredCapabilities: z.array(z.string().min(1).max(64)).max(32),
+              preferredCapabilities: z.array(z.string().min(1).max(64)).max(32),
+              priority: z.number().int().min(0).max(100),
+              estimatedSeconds: z.number().int().min(1).max(86_400),
+              cpu: z.number().min(0.1).max(100),
+              memoryMb: z.number().int().min(16).max(1_048_576),
+            }),
+          )
+          .min(1)
+          .max(1_000),
+      },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          JSON.stringify(
+            await agentFleet.planDispatch({
+              tasks: input.tasks,
+              workspaceDigest: input.workspace_digest,
+              imageDigest: input.image_digest,
+              strategy: input.strategy,
+            }),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_mcp_trust_inspect',
+    {
+      title: 'Inspect an MCP trust manifest',
+      description:
+        'Verify the declared artifact digest, Ed25519 signature, capabilities, network policy and trust pin.',
+      inputSchema: {
+        manifest: z.record(z.unknown()),
+        actual_artifact_sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
+      },
+    },
+    async (input) => {
+      try {
+        return textResult(
+          JSON.stringify(
+            await mcpTrust.inspect(input.manifest, input.actual_artifact_sha256),
+            null,
+            2,
+          ),
+        );
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+  mcp.registerTool(
+    'hawk_memory_posture',
+    {
+      title: 'Inspect provenance memory posture',
+      description: 'Read counts of active, stale and revoked provenance-bound Hawk memories.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(await brain.memory.posture(), null, 2)),
   );
   mcp.registerTool(
     'hawk_security_test_templates',

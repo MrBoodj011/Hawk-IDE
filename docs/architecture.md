@@ -40,6 +40,20 @@ The current local-first slice provides:
     deliberately approved, sanitized debug bundle with a SHA-256 manifest.
 14. Migrate AI sessions, semantic indexes, and Docker orchestration snapshots
     forward without silently increasing their authority.
+15. Discover GraphQL, WebSocket, gRPC, OpenAPI, OAuth/OIDC, SAML,
+    Kubernetes, Terraform, cloud-IAM, and mobile-client surfaces without
+    executing the workspace.
+16. Build Hawk Attack Twin paths from entry points, trust boundaries, source,
+    findings, runtime context, and reproduction evidence while keeping
+    unverified correlations explicitly hypothetical.
+17. Run exact-hash Autopilot missions through safe passive stages and pause at
+    the active-reproduction approval boundary.
+18. Enroll authenticated HTTPS fleet nodes, validate pinned fingerprints and
+    heartbeat tokens, then schedule digest-bound short-lease dispatch plans.
+19. Bind long-term memory to source/evidence digests, branch/commit context,
+    citations, revalidation state, and explicit revocation.
+20. Verify MCP artifacts through SHA-256 and Ed25519 trust manifests in
+    addition to content-level Sentinel inspection.
 
 ## Runtime layout
 
@@ -51,17 +65,21 @@ Code-OSS-compatible extension
 Hawk IDE daemon
     +-- Agent core
     +-- Security graph
+    +-- Protocol Intelligence and Attack Twin
+    +-- Passive Autopilot mission engine
     +-- Findings and evidence
     +-- Sandbox reproduction planner and history
     +-- Tool runtime and permissions
     +-- MCP gateway
+    +-- MCP Trust Platform
+    +-- Authenticated multi-host fleet registry
     +-- Browser and Burp bridge
 
 Hawk Smart MCP Brain
     +-- Intent and scope compiler
     +-- Policy and exact-plan approvals
     +-- Semantic capability registry
-    +-- Model and agent router
+    +-- Adaptive model scorecard and agent router
     +-- Intelligent distributed scheduler and worker leases
     +-- ProofGraph and evidence verifier
     +-- Governed memory and MCP Sentinel

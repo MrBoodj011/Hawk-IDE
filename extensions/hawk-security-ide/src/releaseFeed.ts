@@ -1,8 +1,8 @@
+import { createHash } from 'node:crypto';
 import { isValidReleaseVersion } from './releaseSemver';
 
 export const HAWK_RELEASE_REPOSITORY = 'MrBoodj011/hawk';
-export const DEFAULT_HAWK_UPDATE_FEED =
-  'https://mrboodj011.github.io/hawk/updates/feed.json';
+export const DEFAULT_HAWK_UPDATE_FEED = 'https://mrboodj011.github.io/hawk/updates/feed.json';
 
 export interface HawkFeedAsset {
   name: string;
@@ -18,6 +18,11 @@ export interface HawkFeedRelease {
   draft: false;
   prerelease: boolean;
   assets: HawkFeedAsset[];
+  rollout?: {
+    percentage: number;
+    seed: string;
+    startsAt: string;
+  };
 }
 
 export interface HawkUpdateFeed {
@@ -28,6 +33,7 @@ export interface HawkUpdateFeed {
   channels: {
     stable: HawkFeedRelease[];
     beta: HawkFeedRelease[];
+    canary: HawkFeedRelease[];
   };
 }
 
@@ -37,6 +43,23 @@ export function validateUpdateFeedUrl(value: string): string {
     throw new Error('The Hawk production update feed must use HTTPS without URL credentials.');
   }
   return url.toString();
+}
+
+export function eligibleForRollout(
+  release: HawkFeedRelease,
+  machineId: string,
+  now: Date = new Date(),
+): boolean {
+  const policy = release.rollout;
+  if (!policy) return true;
+  if (Date.parse(policy.startsAt) > now.getTime()) return false;
+  if (policy.percentage >= 100) return true;
+  if (policy.percentage <= 0) return false;
+  const digest = createHash('sha256')
+    .update(`${policy.seed}\u0000${release.tag_name}\u0000${machineId}`)
+    .digest();
+  const bucket = (digest.readUInt32BE(0) / 0x1_0000_0000) * 100;
+  return bucket < policy.percentage;
 }
 
 export function parseHawkUpdateFeed(value: unknown): HawkUpdateFeed {
@@ -58,6 +81,7 @@ export function parseHawkUpdateFeed(value: unknown): HawkUpdateFeed {
     channels: {
       stable: parseChannel(channels.stable, false),
       beta: parseChannel(channels.beta, true),
+      canary: parseChannel(channels.canary ?? channels.beta, true),
     },
   };
 }
@@ -94,6 +118,29 @@ function parseRelease(value: unknown, allowPrerelease: boolean): HawkFeedRelease
     draft: false,
     prerelease: input.prerelease,
     assets: input.assets.map(parseAsset),
+    ...(input.rollout ? { rollout: parseRollout(input.rollout) } : {}),
+  };
+}
+
+function parseRollout(value: unknown): NonNullable<HawkFeedRelease['rollout']> {
+  const input = record(value, 'release rollout');
+  if (
+    typeof input.percentage !== 'number' ||
+    !Number.isFinite(input.percentage) ||
+    input.percentage < 0 ||
+    input.percentage > 100 ||
+    typeof input.seed !== 'string' ||
+    input.seed.length < 1 ||
+    input.seed.length > 160 ||
+    typeof input.startsAt !== 'string' ||
+    !Number.isFinite(Date.parse(input.startsAt))
+  ) {
+    throw new Error('Update feed rollout policy is invalid.');
+  }
+  return {
+    percentage: input.percentage,
+    seed: input.seed,
+    startsAt: input.startsAt,
   };
 }
 

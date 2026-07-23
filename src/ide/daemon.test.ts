@@ -39,7 +39,7 @@ describe('startIdeDaemon', () => {
       expect(health.headers.get('cache-control')).toBe('no-store');
       expect(health.headers.get('x-content-type-options')).toBe('nosniff');
       expect(health.headers.get('x-hawk-trace-id')).toMatch(/^trace-/);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 12 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 13 });
 
       const metrics = await fetch(`${daemon.url}/v1/diagnostics/metrics`, { headers });
       expect(metrics.status).toBe(200);
@@ -414,7 +414,7 @@ describe('startIdeDaemon', () => {
       const securityGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
       expect(securityGraph.status).toBe(200);
       await expect(securityGraph.json()).resolves.toMatchObject({
-        protocolVersion: 12,
+        protocolVersion: 13,
         summary: {
           routes: 1,
           requests: expect.any(Number),
@@ -427,6 +427,54 @@ describe('startIdeDaemon', () => {
           expect.objectContaining({ kind: 'evidence' }),
         ]),
       });
+      const protocols = await fetch(`${daemon.url}/v1/security/protocols`, { headers });
+      expect(protocols.status).toBe(200);
+      await expect(protocols.json()).resolves.toMatchObject({
+        protocolVersion: 13,
+        summary: { total: expect.any(Number) },
+      });
+      const attackTwin = await fetch(`${daemon.url}/v1/security/attack-twin`, { headers });
+      expect(attackTwin.status).toBe(200);
+      await expect(attackTwin.json()).resolves.toMatchObject({
+        summary: { entryPoints: expect.any(Number), hypotheses: expect.any(Number) },
+        statement: expect.stringMatching(/not vulnerability verdicts/i),
+      });
+      const autopilotPlanResponse = await fetch(`${daemon.url}/v1/security/autopilot/plan`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objective: 'Map the local workspace', networkPolicy: 'offline' }),
+      });
+      expect(autopilotPlanResponse.status).toBe(201);
+      const autopilotPlan = (await autopilotPlanResponse.json()) as {
+        id: string;
+        planHash: string;
+      };
+      const autopilotRun = await fetch(`${daemon.url}/v1/security/autopilot/run`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: autopilotPlan.id,
+          planHash: autopilotPlan.planHash,
+          approved: true,
+        }),
+      });
+      expect(autopilotRun.status).toBe(200);
+      await expect(autopilotRun.json()).resolves.toMatchObject({
+        status: 'completed-with-gates',
+        stages: expect.arrayContaining([
+          expect.objectContaining({ id: 'attack-twin', status: 'completed' }),
+          expect.objectContaining({ id: 'reproduction-gates', status: 'awaiting-approval' }),
+        ]),
+      });
+      const fleet = await fetch(`${daemon.url}/v1/fleet`, { headers });
+      expect(fleet.status).toBe(200);
+      await expect(fleet.json()).resolves.toMatchObject({ summary: { total: 0, online: 0 } });
+      const trust = await fetch(`${daemon.url}/v1/mcp/trust`, { headers });
+      expect(trust.status).toBe(200);
+      await expect(trust.json()).resolves.toMatchObject({ pins: 0, denied: 0 });
+      const memory = await fetch(`${daemon.url}/v1/memory/posture`, { headers });
+      expect(memory.status).toBe(200);
+      await expect(memory.json()).resolves.toMatchObject({ active: 0, stale: 0, revoked: 0 });
       const mission = await fetch(`${daemon.url}/v1/missions/plan`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },

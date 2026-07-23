@@ -4,21 +4,21 @@
  */
 export const hawkVisualSystemCss = String.raw`
   :root {
-    --hawk-black: #050609;
-    --hawk-carbon: #080b10;
-    --hawk-panel: #0d1117;
-    --hawk-panel-2: #121821;
-    --hawk-line: rgba(224, 231, 235, .12);
-    --hawk-line-strong: rgba(224, 231, 235, .21);
-    --hawk-white: #f4f6f3;
-    --hawk-copy: #c1c9ce;
-    --hawk-muted: #7d8992;
-    --hawk-faint: #4f5b64;
-    --hawk-acid: #f5c15b;
-    --hawk-acid-soft: rgba(245, 193, 91, .10);
-    --hawk-coral: #ff7357;
-    --hawk-cyan: #52ded4;
-    --hawk-mint: #65d9a6;
+    --hawk-black: #05080d;
+    --hawk-carbon: #081019;
+    --hawk-panel: #0c151f;
+    --hawk-panel-2: #111d29;
+    --hawk-line: rgba(148, 177, 201, .14);
+    --hawk-line-strong: rgba(170, 199, 221, .25);
+    --hawk-white: #f5f7f4;
+    --hawk-copy: #bdcad3;
+    --hawk-muted: #7f91a0;
+    --hawk-faint: #506272;
+    --hawk-acid: #ffb454;
+    --hawk-acid-soft: rgba(255, 180, 84, .10);
+    --hawk-coral: #ff704d;
+    --hawk-cyan: #43dfd2;
+    --hawk-mint: #5ee0a5;
     --hawk-red: #ff5f73;
     --hawk-shadow: 0 24px 70px rgba(0, 0, 0, .34);
     --hawk-radius: 14px;
@@ -939,6 +939,8 @@ export const hawkVisualSystemCss = String.raw`
   }
 
   .mission-ui .ai-orb {
+    display: grid;
+    place-items: center;
     width: 48px;
     height: 48px;
     border-color: rgba(245,193,91,.28);
@@ -946,6 +948,11 @@ export const hawkVisualSystemCss = String.raw`
     background:
       center / 78% no-repeat var(--hawk-panel-2);
     box-shadow: inset 0 0 0 1px rgba(82,222,212,.08), 0 0 36px rgba(245,193,91,.06);
+  }
+
+  .mission-ui .ai-orb img {
+    width: 38px;
+    height: 38px;
   }
 
   .mission-ui .ai-message {
@@ -1099,13 +1106,17 @@ export const hawkVisualSystemCss = String.raw`
   }
 
   .mission-ui .tool-grid {
+    grid-template-columns: repeat(3, minmax(0,1fr));
     gap: 12px;
   }
 
   .mission-ui .tool-card {
-    min-height: 158px;
+    min-height: 148px;
     padding: 18px;
     border-radius: 12px;
+    background:
+      linear-gradient(145deg, rgba(67,223,210,.024), transparent 50%),
+      rgba(255,255,255,.016);
   }
 
   .mission-ui .tool-index {
@@ -1128,6 +1139,459 @@ export const hawkVisualSystemCss = String.raw`
     margin-top: 68px;
     border-top-color: var(--hawk-line);
     font: 650 9px/1.4 var(--hawk-mono);
+  }
+
+  /* Mission Control 2.0: a branded operator deck, not a generic card wall. */
+  .mission-ui .app-shell {
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+
+  .mission-ui .rail {
+    align-items: stretch;
+    gap: 18px;
+    padding: 18px 14px;
+    background:
+      linear-gradient(180deg, rgba(17,29,41,.72), transparent 34%),
+      rgba(5,8,13,.96);
+    box-shadow: 18px 0 60px rgba(0,0,0,.16);
+  }
+
+  .mission-ui .rail-brand {
+    display: grid;
+    grid-template-columns: 44px minmax(0,1fr);
+    align-items: center;
+    gap: 11px;
+    min-height: 50px;
+    padding: 0 6px;
+  }
+
+  .mission-ui .rail-logo {
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    border-radius: 12px;
+  }
+
+  .mission-ui .rail-wordmark {
+    min-width: 0;
+  }
+
+  .mission-ui .rail-wordmark strong,
+  .mission-ui .rail-wordmark span {
+    display: block;
+  }
+
+  .mission-ui .rail-wordmark strong {
+    color: var(--hawk-white);
+    font-size: 16px;
+    font-weight: 850;
+    letter-spacing: -.035em;
+  }
+
+  .mission-ui .rail-wordmark span {
+    margin-top: 4px;
+    color: var(--hawk-acid);
+    font: 800 8px/1 var(--hawk-mono);
+    letter-spacing: .16em;
+  }
+
+  .mission-ui .rail-nav {
+    gap: 5px;
+    padding-top: 12px;
+    border-top: 1px solid var(--hawk-line);
+  }
+
+  .mission-ui .nav-button {
+    display: grid;
+    grid-template-columns: 24px minmax(0,1fr);
+    place-items: center start;
+    gap: 11px;
+    width: 100%;
+    min-height: 44px;
+    aspect-ratio: auto;
+    padding: 0 12px;
+    border-radius: 10px;
+    color: var(--hawk-muted);
+  }
+
+  .mission-ui .nav-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mission-ui .nav-copy {
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 680;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mission-ui .nav-button:hover {
+    color: var(--hawk-white);
+    border-color: var(--hawk-line);
+    background: rgba(255,255,255,.026);
+  }
+
+  .mission-ui .nav-button.active {
+    color: var(--hawk-white);
+    border-color: rgba(255,180,84,.19);
+    background:
+      linear-gradient(90deg, rgba(255,180,84,.12), rgba(255,112,77,.035));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+  }
+
+  .mission-ui .nav-button.active svg {
+    color: var(--hawk-acid);
+  }
+
+  .mission-ui .nav-button.active::before {
+    left: -15px;
+    width: 3px;
+    height: 24px;
+  }
+
+  .mission-ui .rail-bottom {
+    margin-top: auto;
+  }
+
+  .mission-ui .rail-status {
+    display: grid;
+    grid-template-columns: 8px minmax(0,1fr);
+    align-items: center;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid var(--hawk-line);
+    border-radius: 10px;
+    background: rgba(255,255,255,.018);
+  }
+
+  .mission-ui .rail-status > span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--hawk-mint);
+    box-shadow: 0 0 14px rgba(94,224,165,.58);
+  }
+
+  .mission-ui .rail-status b,
+  .mission-ui .rail-status small {
+    display: block;
+  }
+
+  .mission-ui .rail-status b {
+    color: var(--hawk-copy);
+    font: 800 8px/1.2 var(--hawk-mono);
+    letter-spacing: .09em;
+  }
+
+  .mission-ui .rail-status small {
+    margin-top: 4px;
+    color: var(--hawk-faint);
+    font-size: 8px;
+  }
+
+  .mission-ui .workspace {
+    padding: 0 34px 72px;
+  }
+
+  .mission-ui .topbar {
+    grid-template-columns: minmax(260px,1fr) minmax(360px,620px) auto;
+    height: 66px;
+    margin: 0 -34px;
+    padding: 0 34px;
+    background: rgba(5,8,13,.82);
+  }
+
+  .mission-ui .content {
+    width: min(1360px, 100%);
+  }
+
+  .mission-ui .mission-strip {
+    min-height: 38px;
+    margin-top: 18px;
+    border-radius: 9px;
+    background:
+      linear-gradient(90deg, rgba(67,223,210,.055), transparent 44%),
+      rgba(12,21,31,.72);
+  }
+
+  .mission-ui .hero {
+    grid-template-columns: minmax(0,1.15fr) minmax(360px,.85fr);
+    gap: clamp(30px, 4vw, 64px);
+    align-items: center;
+    min-height: 386px;
+    padding: 48px 0 42px;
+  }
+
+  .mission-ui .hero::before {
+    content: "";
+    position: absolute;
+    right: 28%;
+    bottom: -80px;
+    width: 420px;
+    height: 210px;
+    pointer-events: none;
+    background: radial-gradient(ellipse, rgba(255,112,77,.08), transparent 68%);
+    filter: blur(12px);
+  }
+
+  .mission-ui h1 {
+    max-width: 690px;
+    font-size: clamp(48px, 5vw, 72px);
+    line-height: .91;
+  }
+
+  .mission-ui .hero-copy {
+    max-width: 640px;
+    color: #aab9c4;
+    font-size: 14px;
+  }
+
+  .mission-ui .hero-proofline {
+    gap: 9px;
+  }
+
+  .mission-ui .hero-proofline span {
+    padding: 6px 8px;
+    border: 1px solid var(--hawk-line);
+    border-radius: 7px;
+    background: rgba(255,255,255,.018);
+  }
+
+  .mission-ui .command-focus {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--hawk-line-strong);
+    border-radius: 18px;
+    background:
+      linear-gradient(145deg, rgba(67,223,210,.055), transparent 38%),
+      linear-gradient(315deg, rgba(255,112,77,.06), transparent 40%),
+      rgba(10,17,25,.94);
+    box-shadow: 0 28px 80px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+
+  .mission-ui .command-focus::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 28px;
+    width: 92px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--hawk-acid), var(--hawk-coral));
+    box-shadow: 0 0 22px rgba(255,112,77,.32);
+  }
+
+  .mission-ui .focus-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 52px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--hawk-line);
+    color: var(--hawk-muted);
+    font: 800 8px/1 var(--hawk-mono);
+    letter-spacing: .13em;
+  }
+
+  .mission-ui .focus-head b {
+    color: var(--hawk-mint);
+    font-size: 8px;
+  }
+
+  .mission-ui .focus-head i {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--hawk-mint);
+    box-shadow: 0 0 12px rgba(94,224,165,.6);
+  }
+
+  .mission-ui .focus-posture {
+    display: grid;
+    grid-template-columns: 112px minmax(0,1fr);
+    align-items: center;
+    gap: 18px;
+    padding: 24px 20px 22px;
+  }
+
+  .mission-ui .posture-ring {
+    position: relative;
+    display: grid;
+    place-content: center;
+    width: 108px;
+    height: 108px;
+    border: 1px solid rgba(67,223,210,.25);
+    border-radius: 50%;
+    text-align: center;
+    background:
+      radial-gradient(circle, rgba(67,223,210,.07), transparent 62%),
+      conic-gradient(var(--hawk-cyan) 0 80%, rgba(255,255,255,.055) 80%);
+    box-shadow: inset 0 0 0 7px #0b131c, 0 0 42px rgba(67,223,210,.08);
+  }
+
+  .mission-ui .posture-ring::after {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    background: #0b131c;
+    z-index: 0;
+  }
+
+  .mission-ui .posture-ring strong,
+  .mission-ui .posture-ring small {
+    position: relative;
+    z-index: 1;
+    display: block;
+  }
+
+  .mission-ui .posture-ring strong {
+    color: var(--hawk-white);
+    font: 850 25px/1 var(--hawk-mono);
+    letter-spacing: -.06em;
+  }
+
+  .mission-ui .posture-ring small {
+    margin-top: 7px;
+    color: var(--hawk-muted);
+    font: 800 7px/1 var(--hawk-mono);
+    letter-spacing: .14em;
+  }
+
+  .mission-ui .focus-copy {
+    min-width: 0;
+  }
+
+  .mission-ui .focus-copy span,
+  .mission-ui .focus-copy strong,
+  .mission-ui .focus-copy small {
+    display: block;
+  }
+
+  .mission-ui .focus-copy span {
+    color: var(--hawk-acid);
+    font: 800 8px/1.2 var(--hawk-mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  .mission-ui .focus-copy strong {
+    margin-top: 8px;
+    color: var(--hawk-white);
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  .mission-ui .focus-copy small {
+    margin-top: 8px;
+    color: var(--hawk-muted);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .mission-ui .focus-stats {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    border-top: 1px solid var(--hawk-line);
+    border-bottom: 1px solid var(--hawk-line);
+  }
+
+  .mission-ui .focus-stats > div {
+    min-width: 0;
+    padding: 13px 15px;
+    border-right: 1px solid var(--hawk-line);
+  }
+
+  .mission-ui .focus-stats > div:last-child {
+    border-right: 0;
+  }
+
+  .mission-ui .focus-stats b,
+  .mission-ui .focus-stats span {
+    display: block;
+  }
+
+  .mission-ui .focus-stats b {
+    color: var(--hawk-white);
+    font: 850 16px/1 var(--hawk-mono);
+  }
+
+  .mission-ui .focus-stats span {
+    margin-top: 5px;
+    overflow: hidden;
+    color: var(--hawk-faint);
+    font-size: 8px;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .mission-ui .focus-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: calc(100% - 28px);
+    min-height: 40px;
+    margin: 14px;
+    padding: 0 13px;
+    border: 1px solid rgba(255,180,84,.28);
+    border-radius: 9px;
+    color: #0b0b08;
+    background: linear-gradient(110deg, var(--hawk-acid), #ffd07c 62%, var(--hawk-coral));
+    cursor: pointer;
+  }
+
+  .mission-ui .focus-action span {
+    font-size: 10px;
+    font-weight: 850;
+  }
+
+  .mission-ui .focus-action b {
+    font: 800 7px/1 var(--hawk-mono);
+    letter-spacing: .08em;
+    opacity: .58;
+  }
+
+  .mission-ui .metrics {
+    gap: 11px;
+    margin-top: 18px;
+  }
+
+  .mission-ui .metric {
+    min-height: 112px;
+    padding: 18px;
+    border-radius: 12px;
+    background:
+      linear-gradient(145deg, rgba(67,223,210,.025), transparent 48%),
+      rgba(12,21,31,.84);
+  }
+
+  .mission-ui .metric:hover {
+    border-color: rgba(67,223,210,.24);
+    transform: translateY(-2px);
+  }
+
+  .mission-ui .card {
+    background:
+      linear-gradient(140deg, rgba(67,223,210,.02), transparent 40%),
+      rgba(10,18,27,.90);
+  }
+
+  .mission-ui .section-head {
+    padding-left: 15px;
+    border-left: 2px solid var(--hawk-acid);
+  }
+
+  .mission-ui .section-note {
+    max-width: 510px;
+  }
+
+  .mission-ui .sidebar-mode .command-focus {
+    display: none;
   }
 
   @media (max-width: 1080px) {
@@ -1153,6 +1617,49 @@ export const hawkVisualSystemCss = String.raw`
 
     .mission-ui .command-bar {
       display: none;
+    }
+
+    .mission-ui .tool-grid {
+      grid-template-columns: repeat(2, minmax(0,1fr));
+    }
+  }
+
+  @media (max-width: 1260px) and (min-width: 621px) {
+    .mission-ui .app-shell {
+      grid-template-columns: 78px minmax(0,1fr);
+    }
+
+    .mission-ui .rail {
+      align-items: center;
+      padding: 17px 10px;
+    }
+
+    .mission-ui .rail-brand {
+      display: block;
+      padding: 0;
+    }
+
+    .mission-ui .rail-wordmark,
+    .mission-ui .nav-copy,
+    .mission-ui .rail-status {
+      display: none;
+    }
+
+    .mission-ui .rail-nav {
+      width: 100%;
+    }
+
+    .mission-ui .nav-button {
+      display: grid;
+      grid-template-columns: 1fr;
+      place-items: center;
+      width: 100%;
+      min-height: 48px;
+      padding: 0;
+    }
+
+    .mission-ui .nav-button.active::before {
+      left: -11px;
     }
   }
 
@@ -1250,6 +1757,10 @@ export const hawkVisualSystemCss = String.raw`
     .mission-ui .hero {
       min-height: 0;
       padding: 50px 0 38px;
+    }
+
+    .mission-ui .command-focus {
+      display: none;
     }
 
     .mission-ui h1 {

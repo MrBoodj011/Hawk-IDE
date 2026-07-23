@@ -4,6 +4,7 @@ import type { ProofEdgeInput, ProofGraph, ProofNodeInput } from './proofGraph.js
 import {
   type EvidencePackReport,
   IDE_PROTOCOL_VERSION,
+  type ProtocolSurfaceInventory,
   type SandboxReproductionResult,
   type SecurityFinding,
   type SecurityGraphEdge,
@@ -28,6 +29,9 @@ const VISIBLE_NODE_KINDS = new Set<ProofNodeKind>([
   'patch',
   'test',
   'agent',
+  'protocol',
+  'infrastructure',
+  'trust-boundary',
 ]);
 
 export interface SecurityGraphBuildInput {
@@ -37,6 +41,7 @@ export interface SecurityGraphBuildInput {
   evidencePacks?: EvidencePackReport[];
   sessions?: AiSessionSummary[];
   reproductions?: SandboxReproductionResult[];
+  protocols?: ProtocolSurfaceInventory;
 }
 
 export interface SecurityTrafficCorrelation {
@@ -121,6 +126,61 @@ export async function buildUnifiedSecurityGraph(
       to: routeId,
       relation: 'handles',
       attributes: { confidence: 1, provenance: 'hawk-route-scanner' },
+    });
+  }
+
+  for (const surface of input.protocols?.surfaces.slice(0, MAX_INPUT_ITEMS) ?? []) {
+    const fileId = fileNodeId(surface.file);
+    const surfaceId = `protocol-${stableHash(surface.id)}`;
+    const infrastructure = ['kubernetes', 'terraform', 'cloud-iam'].includes(surface.kind);
+    addNode({
+      id: fileId,
+      kind: 'file',
+      label: surface.file,
+      attributes: { file: surface.file, provenance: 'hawk-protocol-intelligence' },
+    });
+    addNode({
+      id: surfaceId,
+      kind: infrastructure ? 'infrastructure' : 'protocol',
+      label: surface.label,
+      attributes: {
+        protocolKind: surface.kind,
+        file: surface.file,
+        line: surface.line,
+        exposure: surface.exposure,
+        authSignals: surface.authSignals.join(','),
+        provenance: surface.provenance,
+      },
+    });
+    addEdge({
+      from: repositoryId,
+      to: fileId,
+      relation: 'contains',
+      attributes: { confidence: 1, provenance: 'hawk-protocol-intelligence' },
+    });
+    addEdge({
+      from: fileId,
+      to: surfaceId,
+      relation: infrastructure ? 'configures' : 'exposes',
+      attributes: { confidence: 0.9, provenance: 'hawk-protocol-intelligence' },
+    });
+    const boundaryKind = ['oauth-oidc', 'saml'].includes(surface.kind)
+      ? 'identity'
+      : infrastructure
+        ? 'cloud-runtime'
+        : 'network';
+    const boundaryId = `trust-boundary-${boundaryKind}`;
+    addNode({
+      id: boundaryId,
+      kind: 'trust-boundary',
+      label: `${boundaryKind} trust boundary`,
+      attributes: { boundaryKind, provenance: 'hawk-attack-twin' },
+    });
+    addEdge({
+      from: surfaceId,
+      to: boundaryId,
+      relation: 'crosses',
+      attributes: { confidence: 0.7, provenance: 'hawk-attack-twin', verified: false },
     });
   }
 
@@ -423,6 +483,9 @@ export function securityGraphResponse(
       evidence: count('evidence'),
       patches: count('patch'),
       tests: count('test'),
+      protocols: count('protocol'),
+      infrastructure: count('infrastructure'),
+      trustBoundaries: count('trust-boundary'),
       reproductions: snapshot.edges.filter(
         (edge) =>
           edge.relation === 'reproduces-signal' || edge.relation === 'attempted-reproduction',
@@ -533,6 +596,9 @@ function nodePriority(kind: ProofNodeKind): number {
     test: 65,
     agent: 60,
     repository: 50,
+    protocol: 88,
+    infrastructure: 87,
+    'trust-boundary': 86,
   };
   return priorities[kind] ?? 0;
 }

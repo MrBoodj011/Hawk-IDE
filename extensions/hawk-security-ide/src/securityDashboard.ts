@@ -6,8 +6,14 @@ import type { DaemonClient } from './daemonClient';
 import type { HawkHealthSync } from './hawkHealthSync';
 import { renderMissionControlHtml } from './missionControlHtml';
 import type {
+  AttackTwinResponse,
+  AutonomousSecurityRun,
+  FleetSnapshot,
+  GovernedMemoryPosture,
   GovernedMissionProfile,
   HawkHealthReport,
+  McpTrustPosture,
+  ProtocolSurfaceInventory,
   SandboxReproductionResult,
   SecurityFinding,
   SecurityGraphResponse,
@@ -24,6 +30,12 @@ interface DashboardState {
   traffic?: TrafficInventory;
   hawkHealth?: HawkHealthReport;
   securityGraph?: SecurityGraphResponse;
+  protocols?: ProtocolSurfaceInventory;
+  attackTwin?: AttackTwinResponse;
+  fleet?: FleetSnapshot;
+  mcpTrust?: McpTrustPosture;
+  memory?: GovernedMemoryPosture;
+  autopilotRuns: AutonomousSecurityRun[];
   reproductions: SandboxReproductionResult[];
 }
 
@@ -35,6 +47,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     message: 'Starting Hawk local control plane...',
     findings: [],
     reproductions: [],
+    autopilotRuns: [],
   };
   private liveRefresh: NodeJS.Timeout | undefined;
 
@@ -99,20 +112,39 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         message: 'Open a folder to start a security workspace.',
         findings: [],
         reproductions: [],
+        autopilotRuns: [],
       });
       return;
     }
     try {
       await this.client.health(workspace);
-      const [inventory, findings, traffic, hawkHealth, securityGraph, reproductions] =
-        await Promise.all([
-          this.client.inventory(workspace),
-          this.client.findings(workspace),
-          this.client.traffic(workspace),
-          this.client.hawkHealth(workspace),
-          this.client.securityGraph(workspace),
-          this.client.reproductions(workspace),
-        ]);
+      const [
+        inventory,
+        findings,
+        traffic,
+        hawkHealth,
+        securityGraph,
+        reproductions,
+        protocols,
+        attackTwin,
+        fleet,
+        mcpTrust,
+        memory,
+        autopilot,
+      ] = await Promise.all([
+        this.client.inventory(workspace),
+        this.client.findings(workspace),
+        this.client.traffic(workspace),
+        this.client.hawkHealth(workspace),
+        this.client.securityGraph(workspace),
+        this.client.reproductions(workspace),
+        this.client.protocolSurfaces(workspace),
+        this.client.attackTwin(workspace),
+        this.client.fleet(workspace),
+        this.client.mcpTrustPosture(workspace),
+        this.client.memoryPosture(workspace),
+        this.client.autonomousSecurityRuns(workspace),
+      ]);
       this.post({
         connected: true,
         message: inventory
@@ -123,7 +155,13 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         traffic,
         hawkHealth,
         securityGraph,
+        protocols,
+        attackTwin,
+        fleet,
+        mcpTrust,
+        memory,
         reproductions: reproductions.reproductions,
+        autopilotRuns: autopilot.runs,
       });
     } catch (err) {
       this.post({
@@ -131,6 +169,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         message: `Local agent unavailable: ${errorMessage(err)}`,
         findings: [],
         reproductions: [],
+        autopilotRuns: [],
       });
     }
   }
@@ -161,6 +200,44 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
       await this.refresh();
     } catch (err) {
       vscode.window.showErrorMessage(`Hawk could not audit this workspace: ${errorMessage(err)}`);
+      await this.refresh();
+    }
+  }
+
+  async runAutonomousSecurity(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    try {
+      const plan = await this.client.createAutonomousSecurityPlan(workspace);
+      const approved = await vscode.window.showWarningMessage(
+        'Run Hawk Autopilot on this workspace?',
+        {
+          modal: true,
+          detail: [
+            `${plan.stages.filter((stage) => stage.execution === 'automatic').length} passive stages will run automatically.`,
+            `Network policy: ${plan.networkPolicy}.`,
+            'No active target requests or exploit reproduction will run.',
+            'Reproduction remains paused behind a separate exact-plan approval.',
+            `Plan hash: ${plan.planHash.slice(0, 16)}...`,
+          ].join('\n'),
+        },
+        'Run passive Autopilot',
+      );
+      if (approved !== 'Run passive Autopilot') return;
+      const run = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Hawk Autopilot is mapping the workspace',
+          cancellable: false,
+        },
+        async () => await this.client.runAutonomousSecurity(workspace, plan),
+      );
+      vscode.window.showInformationMessage(
+        `Hawk Autopilot mapped ${run.summary.protocolSurfaces} protocol surfaces, ${run.summary.attackPaths} attack paths, and held ${run.summary.reproductionGates} signals for approval.`,
+      );
+      await this.refresh();
+    } catch (err) {
+      vscode.window.showErrorMessage(`Hawk Autopilot failed: ${errorMessage(err)}`);
       await this.refresh();
     }
   }
@@ -297,7 +374,8 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         if (!label) return;
         const credential = await vscode.window.showInputBox({
           title: 'Hawk: Credential header for ' + label,
-          prompt: 'Enter one credential header as Name: value. This input is hidden and never persisted.',
+          prompt:
+            'Enter one credential header as Name: value. This input is hidden and never persisted.',
           password: true,
           validateInput: (value) => {
             const separator = value.indexOf(':');
@@ -312,7 +390,11 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         const headerName = credential.slice(0, separator).trim();
         const headerValue = credential.slice(separator + 1).trim();
         usedIds.add(id.trim());
-        identities.push({ id: id.trim(), label: label.trim(), headers: { [headerName]: headerValue } });
+        identities.push({
+          id: id.trim(),
+          label: label.trim(),
+          headers: { [headerName]: headerValue },
+        });
       }
       const rateText = await vscode.window.showInputBox({
         title: 'Hawk: Replay rate limit',
@@ -333,7 +415,11 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         maxRequestsPerSecond: Number(rateText),
       });
       const approval = await vscode.window.showWarningMessage(
-        'Hawk will send ' + plan.rateLimit.maxRequests + ' governed request(s) to ' + plan.request.host + '.',
+        'Hawk will send ' +
+          plan.rateLimit.maxRequests +
+          ' governed request(s) to ' +
+          plan.request.host +
+          '.',
         {
           modal: true,
           detail: [
@@ -677,6 +763,10 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     }
     if (action === 'audit') {
       await this.runStaticAudit();
+      return;
+    }
+    if (action === 'autopilot') {
+      await this.runAutonomousSecurity();
       return;
     }
     if (action === 'import-har') {

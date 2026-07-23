@@ -33,6 +33,10 @@ export class GovernedMemory {
     verified: boolean;
     reviewer: string;
     retentionDays?: number;
+    sourceDigest?: string;
+    branch?: string;
+    commit?: string;
+    citations?: Array<{ uri: string; digest: string; line?: number }>;
   }): Promise<GovernedMemoryEntry> {
     if (input.layer !== 'run' && !input.verified)
       throw new Error('Project and organization memory requires verified evidence');
@@ -76,6 +80,18 @@ export class GovernedMemory {
       createdAt: created.toISOString(),
       expiresAt: new Date(created.getTime() + retentionDays * 86_400_000).toISOString(),
       contentHash: stableHash({ key: input.key, value: input.value, source: input.sourceUri }),
+      sourceDigest: normalizeDigest(input.sourceDigest ?? stableHash({ source: input.sourceUri })),
+      ...(input.branch?.trim() ? { branch: input.branch.trim().slice(0, 240) } : {}),
+      ...(input.commit?.trim() ? { commit: input.commit.trim().slice(0, 160) } : {}),
+      lastValidatedAt: created.toISOString(),
+      validationStatus: 'active',
+      citations: normalizeCitations(
+        input.citations ??
+          input.evidenceUris.map((uri) => ({
+            uri,
+            digest: stableHash({ uri }),
+          })),
+      ),
     };
     await this.store.writeJson('memory', entry.id, entry);
     return entry;
@@ -86,6 +102,7 @@ export class GovernedMemory {
     const tokens = tokenize(query);
     return (await this.store.listJson<GovernedMemoryEntry>('memory'))
       .filter((entry) => Date.parse(entry.expiresAt) > now)
+      .filter((entry) => (entry.validationStatus ?? 'active') === 'active')
       .filter((entry) => !layer || entry.layer === layer)
       .map((entry) => ({
         entry,
@@ -107,6 +124,75 @@ export class GovernedMemory {
       .slice(0, Math.max(1, Math.min(limit, 50)))
       .map(({ entry }) => entry);
   }
+
+  async auditProvenance(input: {
+    sourceDigests: Record<string, string>;
+    branch?: string;
+  }): Promise<{ active: number; stale: number; revoked: number; checkedAt: string }> {
+    const checkedAt = this.now().toISOString();
+    const entries = await this.store.listJson<GovernedMemoryEntry>('memory');
+    for (const entry of entries) {
+      if ((entry.validationStatus ?? 'active') === 'revoked') continue;
+      const currentDigest = input.sourceDigests[entry.sourceUri];
+      const branchChanged = Boolean(entry.branch && input.branch && entry.branch !== input.branch);
+      const digestChanged = Boolean(
+        currentDigest && normalizeDigest(currentDigest) !== entry.sourceDigest,
+      );
+      const sourceMissing = Object.keys(input.sourceDigests).length > 0 && !currentDigest;
+      const stale = branchChanged || digestChanged || sourceMissing;
+      const updated: GovernedMemoryEntry = {
+        ...entry,
+        sourceDigest: entry.sourceDigest ?? stableHash({ source: entry.sourceUri }),
+        lastValidatedAt: checkedAt,
+        validationStatus: stale ? 'stale' : 'active',
+        ...(stale
+          ? {
+              validationReason: branchChanged
+                ? 'branch-changed'
+                : digestChanged
+                  ? 'source-digest-changed'
+                  : 'source-unavailable',
+            }
+          : { validationReason: undefined }),
+        citations: entry.citations ?? [],
+      };
+      await this.store.writeJson('memory', entry.id, updated);
+    }
+    return await this.posture(checkedAt);
+  }
+
+  async revoke(id: string, reviewer: string, reason: string): Promise<GovernedMemoryEntry> {
+    if (!reviewer.trim() || !reason.trim())
+      throw new Error('Revocation requires reviewer and reason');
+    const entry = await this.store.readJson<GovernedMemoryEntry>('memory', id);
+    if (!entry) throw new Error('Memory entry not found');
+    const updated: GovernedMemoryEntry = {
+      ...entry,
+      sourceDigest: entry.sourceDigest ?? stableHash({ source: entry.sourceUri }),
+      lastValidatedAt: this.now().toISOString(),
+      validationStatus: 'revoked',
+      validationReason: reason.trim().slice(0, 500),
+      reviewer: reviewer.trim().slice(0, 160),
+      citations: entry.citations ?? [],
+    };
+    await this.store.writeJson('memory', id, updated);
+    return updated;
+  }
+
+  async posture(checkedAt = this.now().toISOString()): Promise<{
+    active: number;
+    stale: number;
+    revoked: number;
+    checkedAt: string;
+  }> {
+    const entries = await this.store.listJson<GovernedMemoryEntry>('memory');
+    return {
+      active: entries.filter((entry) => (entry.validationStatus ?? 'active') === 'active').length,
+      stale: entries.filter((entry) => entry.validationStatus === 'stale').length,
+      revoked: entries.filter((entry) => entry.validationStatus === 'revoked').length,
+      checkedAt,
+    };
+  }
 }
 
 function tokenize(value: string): string[] {
@@ -118,4 +204,21 @@ function tokenize(value: string): string[] {
         .filter((token) => token.length > 2),
     ),
   ];
+}
+
+function normalizeDigest(value: string): string {
+  const digest = value.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(digest))
+    throw new Error('Source and citation digests must be SHA-256');
+  return digest;
+}
+
+function normalizeCitations(
+  citations: Array<{ uri: string; digest: string; line?: number }>,
+): GovernedMemoryEntry['citations'] {
+  return citations.slice(0, 100).map((citation) => ({
+    uri: citation.uri.trim().slice(0, 2_000),
+    digest: normalizeDigest(citation.digest),
+    ...(citation.line ? { line: Math.max(1, Math.floor(citation.line)) } : {}),
+  }));
 }

@@ -88,10 +88,17 @@ An in-editor engineering room with streaming responses, plans, tool events, task
 ### Security workflow
 
 - Passive route indexing for Express, Fastify, and common Next.js API layouts.
+- Protocol Intelligence for GraphQL, WebSocket, gRPC, OpenAPI, OAuth/OIDC, SAML, Kubernetes, Terraform, cloud IAM, and mobile API clients.
 - Passive rules for embedded credentials, disabled TLS verification, `eval`, interpolated SQL-looking calls, and risky CORS combinations.
 - Deterministic offline reproduction in Docker with baseline, negative-control, and reproduction gates.
 - Findings triage with source navigation, reproduction, retest, evidence packs, and proof history.
 - Security Graph linking repositories, files, symbols, routes, requests, identities, findings, patches, tests, runs, and artifacts.
+
+### Hawk Attack Twin and Autopilot
+
+Attack Twin turns the Security Graph into prioritized, evidence-aware attack paths. It joins protocol entry points, trust boundaries, source files, findings, runtime observations, reproduction evidence, patches, and tests. Every path is explicitly labelled `hypothesis`, `reproduced`, or `verified`; a static correlation is never presented as a confirmed vulnerability.
+
+Autopilot runs an exact-hash, operator-approved passive mission: inventory, protocol discovery, static audit, graph correlation, and Attack Twin generation. It completes the safe stages automatically and stops at the reproduction boundary. Active requests and exploit reproduction require a new, separate approval.
 
 Hawk also exposes a governed security-test catalog (`static-code`, `route-coverage`, `dependency-manifest`, and `sandbox-signal`) through the daemon and MCP. Every plan is bound to an approval hash and workspace governance hash. Docker worker presets (`balanced`, `security-sandbox`, and `throughput`), MCP risk metadata, and a tamper-evident evidence artifact chain are documented in [Security testing, agent mesh, and governance](docs/security-testing-governance.md).
 
@@ -122,13 +129,13 @@ Governed identity replay is available for an explicitly approved captured reques
 
 ### Smart MCP Brain
 
-Hawk includes a typed MCP control plane for goals, scope, capability discovery, policies, DAG plans, model routing, approvals, durable runs, worker leases, memory, Sentinel checks, structured artifacts, and native MCP Tasks.
+Hawk includes a typed MCP control plane for goals, scope, capability discovery, policies, DAG plans, measured model routing, approvals, durable runs, worker leases, provenance-bound memory, signed MCP trust, structured artifacts, and native MCP Tasks.
 
 The MCP App is sandboxed and zero-egress by default. The MCP server exposes local resources, prompts, typed tools, risk annotations, and live event notifications without turning the IDE into an unbounded agent shell.
 
 ### Distributed Docker workers
 
-Long jobs can fan out across up to 32 bounded worker instances with dependency-aware scheduling, critical-path scoring, leases, retry reassignment, resource governance, checkpoints, and restart recovery.
+Long jobs can fan out across up to 32 bounded local Docker workers. A separate multi-host fleet control plane enrolls HTTPS workers with a pinned SHA-256 mTLS/public-key fingerprint and one-time node token, checks authenticated heartbeats, detects stale/draining/revoked nodes, and creates one-minute dispatch plans bound to exact workspace and container-image digests. Dependency-aware scheduling uses critical-path, capability, health, load, CPU, RAM, and reliability signals.
 
 | Network mode | Guardrail |
 | --- | --- |
@@ -327,7 +334,7 @@ The CLI also supports `--backend`, `--model`, `--base-url`, `--api-key`, `--resu
 
 ## Hawk AI and model routing
 
-Hawk supports local and explicit BYOK providers. The router selects a configured primary and can use named fallbacks for fast, reasoning, security, or general tasks. A fallback is attempted only before the primary has streamed output.
+Hawk supports local and explicit BYOK providers. The adaptive router scores compatible models using measured quality, reliability, p95 latency, cost, privacy, role fit, and sample confidence. It emits an inspectable candidate scorecard, cache contract, and shadow-evaluation candidate while enforcing `local-only` policy. Runtime fallbacks are attempted only before the primary has streamed output.
 
 | Provider | Local / hosted | Use |
 | --- | --- | --- |
@@ -355,6 +362,9 @@ code, sessions, or engagement data to a Hawk cloud.
 | `.hawk/reports/` | Evidence packs, reports, SARIF, and manifests. |
 | `.hawk/plans/` | Governed mission plans and approval hashes. |
 | `.hawk/brain/` | Goals, policies, memory, runs, and MCP events. |
+| `.hawk/brain/fleet-nodes/` | Hashed fleet credentials, fingerprints, capabilities, heartbeat state, and revocation status. |
+| `.hawk/brain/mcp-trust-*` | Signed MCP artifact verdicts and operator-approved immutable pins. |
+| `.hawk/brain/autonomous-security-*` | Exact Autopilot plans, stage digests, runs, and paused approval gates. |
 | `.hawk/orchestrations/` | Docker run snapshots, leases, logs, and artifacts. |
 | `.hawk/diagnostics/` | Operator-approved, sanitized debug bundles and SHA-256 manifests. |
 | `~/.hawk/ide/workspaces/<hash>/ai-sessions/` | Durable AI sessions, events, checkpoints, patches, and task recovery state. |
@@ -380,6 +390,15 @@ The daemon is loopback-only and requires `X-Hawk-Token`. The most important endp
 | `POST` | `/v1/ai/sessions/:id/apply` | Apply a hash-bound patch. |
 | `POST` | `/v1/ai/sessions/:id/revert` | Revert only when drift checks pass. |
 | `GET` | `/v1/security/graph` | Read graph nodes and edges. |
+| `GET` | `/v1/security/protocols` | Discover API, identity, infrastructure, IAM, and mobile surfaces. |
+| `GET` | `/v1/security/attack-twin` | Read prioritized evidence-aware attack paths and what-if scenarios. |
+| `POST` | `/v1/security/autopilot/plan` | Create an exact hash-bound autonomous passive mission. |
+| `POST` | `/v1/security/autopilot/run` | Run approved passive stages and stop at reproduction gates. |
+| `POST` | `/v1/security/pr/analyze` | Analyze a bounded Git diff and return JSON plus SARIF. |
+| `GET` | `/v1/fleet` | Read authenticated multi-host worker capacity and health. |
+| `POST` | `/v1/fleet/dispatch-plan` | Schedule immutable task envelopes without executing them. |
+| `GET` | `/v1/memory/posture` | Read active, stale, and revoked provenance memory counts. |
+| `POST` | `/v1/mcp/trust/inspect` | Verify MCP digests, Ed25519 signatures, capabilities, and trust drift. |
 | `GET` | `/v1/traffic` | Read imported/live traffic metadata. |
 | `POST` | `/v1/traffic/replay/plan` | Plan a governed identity replay. |
 | `POST` | `/v1/traffic/replay/execute` | Execute a second-approved replay. |
@@ -405,6 +424,10 @@ The Smart MCP Brain is not a free-form shell. A mission carries a typed goal, ta
 | Evidence builder | Export portable reports with SHA-256 manifests. |
 | Worker orchestration | Estimate critical path, start a DAG, poll status, cancel, and recover tasks. |
 | Sentinel | Fingerprint MCP servers and guard against poisoning, injection, secret-like output, and trust changes. |
+| MCP Trust Platform | Verify artifact SHA-256, Ed25519 publisher signatures, network policy, capabilities, and post-approval rug pulls. |
+| Attack Twin and Autopilot | Discover protocol surfaces, model attack paths, run safe stages, and pause before reproduction. |
+| Multi-host fleet | Read fleet posture and create short-lived digest-bound dispatch plans for pinned workers. |
+| Provenance memory | Query only active cited memories; stale or revoked facts are excluded from retrieval. |
 | A2A bridge and Eval Lab | Exchange local task envelopes and compare agent strategies under equal budgets. |
 
 Sensitive actions are separated from planning. Planning a mission does not approve it, and an approval hash does not bypass runtime policy checks.
@@ -433,7 +456,9 @@ Hawk is a security tool, so its own actions are constrained:
 - **Patch boundary:** Apply and Revert verify preimage/postimage hashes and refuse drift.
 - **Evidence boundary:** bodies, cookies, credentials, debugger values, and secret-shaped strings are redacted or capped.
 - **Agent boundary:** model output can propose a change, but cannot silently apply it to the real workspace.
-- **MCP boundary:** Sentinel fingerprints manifests and detects poisoning, injection, secret-like results, allowlist violations, and post-trust changes.
+- **MCP boundary:** Sentinel inspects content; MCP Trust separately verifies artifact digests, Ed25519 signatures, publisher pins, network policy, capabilities, and post-trust changes.
+- **Memory boundary:** project knowledge carries source/evidence citations, content digests, branch/commit context, TTL, reviewer, and an active/stale/revoked state.
+- **Fleet boundary:** remote nodes require HTTPS (except loopback), fingerprint pinning, hashed node tokens, authenticated heartbeats, immutable input digests, and short dispatch leases.
 
 Read the [threat model](docs/security/THREAT_MODEL.md), [Security Policy](SECURITY.md), and [Responsible Use Policy](RESPONSIBLE_USE.md) before using active validation features. Use Hawk only against projects and targets you are authorized to test.
 
@@ -443,14 +468,14 @@ The latest local validation snapshot for the current source tree:
 
 | Check | Result |
 | --- | --- |
-| Test files | 99 |
-| Tests passed | 776 |
+| Test files | 108 |
+| Tests passed | 796 |
 | Tests skipped | 16 |
 | Chaos scenarios | 4/4 |
 | TypeScript / Biome / tsup build | PASS |
 | Packaged daemon + MCP runtime E2E | PASS |
 | Index benchmark | PASS, 1.55 s cold build and peak RSS under the 500 MiB limit |
-| Coverage gate | PASS, 66.71% statements / 58.57% branches / 66.90% functions / 69.44% lines |
+| Coverage gate | PASS, 66.91% statements / 59.23% branches / 67.82% functions / 69.63% lines |
 | Desktop extension-host E2E | PASS locally on VS Code 1.129.1 |
 | Production dependency audit | 0 vulnerabilities |
 | Branding guard | PASS across the working tree |
@@ -474,7 +499,7 @@ The code and local release workflow are present. These owner-controlled producti
 - Independent external security assessment.
 - Chrome Web Store, Visual Studio Marketplace, and PortSwigger BApp Store
   owner accounts/review.
-- One-time GitHub Pages enablement for the production Stable/Beta update feed.
+- Signed installer publication and a real staged update rehearsal across Canary, Beta, and Stable cohorts. The HTTPS feed service is already live; rollout percentages are controlled by repository variables.
 
 Hawk is intentionally a personal, local-first product: no Hawk account, team/RBAC system, Stripe billing, cloud synchronization, telemetry collector, Apple build, or hosted Hawk backend is required.
 

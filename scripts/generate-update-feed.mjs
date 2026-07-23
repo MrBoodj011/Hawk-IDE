@@ -4,6 +4,9 @@ import { dirname, resolve } from 'node:path';
 const repository = argument('--repository') || process.env.GITHUB_REPOSITORY || 'MrBoodj011/hawk';
 const output = resolve(argument('--output') || 'artifacts/update-feed.json');
 const token = process.env.GITHUB_TOKEN || process.env.HAWK_GITHUB_TOKEN || '';
+const stableRollout = rollout('HAWK_STABLE_ROLLOUT_PERCENT', 100, 'hawk-stable');
+const betaRollout = rollout('HAWK_BETA_ROLLOUT_PERCENT', 100, 'hawk-beta');
+const canaryRollout = rollout('HAWK_CANARY_ROLLOUT_PERCENT', 10, 'hawk-canary');
 
 if (repository !== 'MrBoodj011/hawk') {
   throw new Error('The production feed generator is pinned to MrBoodj011/hawk.');
@@ -33,15 +36,16 @@ const feed = {
   repository,
   generatedAt: new Date().toISOString(),
   channels: {
-    stable: releases.filter((release) => !release.prerelease),
-    beta: releases,
+    stable: releases.filter((release) => !release.prerelease).map((release) => ({ ...release, rollout: stableRollout })),
+    beta: releases.map((release) => ({ ...release, rollout: betaRollout })),
+    canary: releases.map((release) => ({ ...release, rollout: canaryRollout })),
   },
 };
 
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${JSON.stringify(feed, null, 2)}\n`, { encoding: 'utf8', mode: 0o644 });
 process.stdout.write(
-  `${JSON.stringify({ output, stable: feed.channels.stable.length, beta: feed.channels.beta.length })}\n`,
+  `${JSON.stringify({ output, stable: feed.channels.stable.length, beta: feed.channels.beta.length, canary: feed.channels.canary.length })}\n`,
 );
 
 function normalizeRelease(release) {
@@ -77,4 +81,16 @@ function validVersion(value) {
 function argument(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function rollout(environmentName, fallback, seed) {
+  const value = Number(process.env[environmentName] ?? fallback);
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new Error(`${environmentName} must be between 0 and 100.`);
+  }
+  return {
+    percentage: value,
+    seed,
+    startsAt: process.env.HAWK_ROLLOUT_STARTS_AT || new Date().toISOString(),
+  };
 }

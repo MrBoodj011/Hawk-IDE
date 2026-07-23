@@ -593,6 +593,8 @@ export function renderMissionControlHtml(
       box-shadow: 0 10px 26px rgba(0,0,0,.24), 0 0 24px rgba(76,240,183,.06);
     }
     .graph-node.finding { border-color: rgba(255,84,112,.38); color: #ff8ca0; }
+    .graph-node.protocol, .graph-node.trust-boundary { border-color: rgba(69,217,255,.38); color: #8fe8ff; }
+    .graph-node.infrastructure { border-color: rgba(255,188,92,.38); color: #ffd28a; }
     .graph-node.evidence { border-color: rgba(76,240,183,.34); color: var(--mint); }
     .graph-node.request { border-color: rgba(255,178,76,.34); color: var(--amber); }
     .graph-node.patch, .graph-node.test { border-color: rgba(187,130,255,.34); color: #caa4ff; }
@@ -901,6 +903,38 @@ export function renderMissionControlHtml(
     }
     @keyframes sweep { to { transform: rotate(360deg); } }
     @keyframes pulse { 50% { opacity: .35; transform: scale(.75); } }
+    .twin-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid var(--stroke); }
+    .twin-stat { min-width: 0; padding: 16px; border-right: 1px solid var(--stroke); background: rgba(255,255,255,.012); }
+    .twin-stat:last-child { border-right: 0; }
+    .twin-stat b { display: block; color: var(--bright); font-family: 'JetBrains Mono', monospace; font-size: 22px; }
+    .twin-stat span { display: block; margin-top: 5px; color: var(--faint); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .twin-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(240px, .8fr); }
+    .twin-paths { min-height: 140px; border-right: 1px solid var(--stroke); }
+    .twin-path { display: grid; grid-template-columns: 58px minmax(0,1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 13px 16px; border: 0; border-bottom: 1px solid var(--stroke); color: var(--copy); text-align: left; background: transparent; }
+    .twin-score { color: var(--amber); font-family: 'JetBrains Mono', monospace; font-weight: 900; }
+    .twin-path-copy { min-width: 0; }
+    .twin-path-copy b, .twin-path-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .twin-path-copy b { color: var(--bright); font-size: 11px; }
+    .twin-path-copy span { margin-top: 4px; color: var(--faint); font-size: 10px; }
+    .twin-status { border: 1px solid var(--stroke); border-radius: 999px; padding: 4px 7px; color: var(--muted); font-size: 8px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .protocol-cloud { display: flex; align-content: flex-start; flex-wrap: wrap; gap: 7px; padding: 16px; }
+    .protocol-chip { border: 1px solid rgba(69,217,255,.18); border-radius: 999px; padding: 6px 8px; color: #8fe8ff; background: rgba(69,217,255,.04); font: 800 9px 'JetBrains Mono', monospace; text-transform: uppercase; }
+    .trust-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1px; margin-bottom: 16px; border: 1px solid var(--stroke); background: var(--stroke); }
+    .trust-cell { padding: 14px; background: var(--panel); }
+    .trust-cell b { display: block; color: var(--bright); font: 900 18px 'JetBrains Mono', monospace; }
+    .trust-cell span { color: var(--faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .evidence-bento { grid-template-columns: minmax(0,.85fr) minmax(0,1.15fr); grid-template-areas: 'org brain' 'runtime brain'; align-items: start; }
+    .org-posture { grid-area: org; }
+    .mcp-brain { grid-area: brain; }
+    .runtime-trust { grid-area: runtime; }
+    .runtime-trust .row-title, .runtime-trust .row-sub { display: block; }
+    @media (max-width: 900px) {
+      .twin-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .twin-layout { grid-template-columns: 1fr; }
+      .twin-paths { border-right: 0; border-bottom: 1px solid var(--stroke); }
+      .trust-strip { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .evidence-bento { grid-template-columns: 1fr; grid-template-areas: 'org' 'runtime' 'brain'; }
+    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; }
     }
@@ -911,7 +945,10 @@ export function renderMissionControlHtml(
   <div class="ambient-grid"></div>
   <div class="app-shell ${mode === 'sidebar' ? 'sidebar-mode' : 'panel-mode'}">
     <aside class="rail" aria-label="Hawk areas">
-      <div class="rail-logo"><img src="${logoUri}" alt="Hawk"></div>
+      <div class="rail-brand">
+        <div class="rail-logo"><img src="${logoUri}" alt="Hawk"></div>
+        <div class="rail-wordmark"><strong>HAWK</strong><span>SECURITY IDE</span></div>
+      </div>
       <nav class="rail-nav">
         ${navButton('overview', 'Overview', 'M3 3h7v7H3zM14 3h7v4h-7zM14 11h7v10h-7zM3 14h7v7H3z', true)}
         ${navButton('ai', 'Hawk AI', 'M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1M9 9h6v6H9z')}
@@ -922,7 +959,9 @@ export function renderMissionControlHtml(
       </nav>
       <button class="nav-button rail-bottom" data-action="refresh" title="Refresh local activity" aria-label="Refresh local activity">
         <svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M6.1 8.2A7 7 0 0 1 18.7 7M17.9 15.8A7 7 0 0 1 5.3 17"/></svg>
+        <span class="nav-copy">Refresh</span>
       </button>
+      <div class="rail-status"><span></span><div><b>LOCAL CORE</b><small>Private / online</small></div></div>
     </aside>
 
     <div class="workspace">
@@ -962,6 +1001,7 @@ export function renderMissionControlHtml(
             </p>
             <div class="hero-actions">
               <button class="button primary" data-action="open-agent">Open Hawk AI <span>↗</span></button>
+              <button class="button primary" data-action="autopilot">Run Autopilot</button>
               <button class="button secondary" data-action="workspace-scan">Run approved scan</button>
               <button class="button ghost" data-action="index">Refresh surface</button>
             </div>
@@ -971,14 +1011,26 @@ export function renderMissionControlHtml(
               <span>Hash-bound approvals</span>
             </div>
           </div>
-          <div class="radar" aria-hidden="true">
-            <div class="radar-ring"></div>
-            <div class="radar-sweep"></div>
-            <div class="radar-cross-x"></div>
-            <div class="radar-cross-y"></div>
-            <div class="radar-core"><img src="${logoUri}" alt=""></div>
-            <div class="radar-label"><span>WORKSPACE</span><b>LIVE</b></div>
-          </div>
+          <aside class="command-focus" aria-label="Current security posture">
+            <div class="focus-head">
+              <span>LIVE PRIORITY</span>
+              <b><i></i> WORKSPACE SYNCED</b>
+            </div>
+            <div class="focus-posture">
+              <div class="posture-ring"><strong id="focus-score">--</strong><small>POSTURE</small></div>
+              <div class="focus-copy">
+                <span>Highest-confidence signal</span>
+                <strong id="focus-title">Waiting for local audit</strong>
+                <small id="focus-meta">Run Autopilot to correlate source, traffic and proof.</small>
+              </div>
+            </div>
+            <div class="focus-stats">
+              <div><b id="focus-signal-count">0</b><span>signals</span></div>
+              <div><b id="focus-proof-count">0</b><span>reproduced</span></div>
+              <div><b>0</b><span>silent actions</span></div>
+            </div>
+            <button class="focus-action" data-action="autopilot"><span>Start evidence run</span><b>CTRL + ENTER</b></button>
+          </aside>
         </section>
 
         <section class="metrics" aria-label="Local security activity">
@@ -1002,7 +1054,7 @@ export function renderMissionControlHtml(
             </div>
             <div class="card-body">
               <div class="ai-intro">
-                <div class="ai-orb"></div>
+                <div class="ai-orb"><img src="${logoUri}" alt=""></div>
                 <div class="ai-message"><strong>One task, complete workspace context, exact review controls.</strong><br>Give Hawk an objective. It will plan the work, preserve the evidence and stop before any sensitive action.</div>
               </div>
               <div class="suggestions">
@@ -1058,6 +1110,7 @@ export function renderMissionControlHtml(
               <button class="button small secondary" data-action="import-har">Import HAR</button>
               <button class="button small primary" data-action="pair-capture">Pair live capture</button>
               <button class="button small secondary" data-action="audit">Audit code</button>
+              <button class="button small primary" data-action="autopilot">Run Autopilot</button>
               <button class="button small ghost" data-action="refresh">Refresh</button>
             </div>
           </div>
@@ -1083,6 +1136,24 @@ export function renderMissionControlHtml(
               </article>
             </div>
           </div>
+          <article class="card" style="margin-top:16px">
+            <div class="card-head">
+              <div class="card-title">Hawk Attack Twin <span id="twin-caption">waiting for workspace model</span></div>
+              <div class="status-pill">evidence-aware / no fake verdicts</div>
+            </div>
+            <div class="twin-grid">
+              <div class="twin-stat"><b id="twin-entry">0</b><span>entry points</span></div>
+              <div class="twin-stat"><b id="twin-protocols">0</b><span>protocol surfaces</span></div>
+              <div class="twin-stat"><b id="twin-boundaries">0</b><span>trust boundaries</span></div>
+              <div class="twin-stat"><b id="twin-hypotheses">0</b><span>hypotheses</span></div>
+              <div class="twin-stat"><b id="twin-reproduced">0</b><span>reproduced</span></div>
+              <div class="twin-stat"><b id="twin-score">0</b><span>highest score</span></div>
+            </div>
+            <div class="twin-layout">
+              <div id="twin-paths" class="twin-paths"><div class="empty-state">Run Autopilot to build the evidence-aware attack model.</div></div>
+              <div id="protocol-cloud" class="protocol-cloud"><span class="protocol-chip">HTTP ROUTES</span></div>
+            </div>
+          </article>
         </section>
 
         <section class="section" id="findings-section">
@@ -1118,8 +1189,8 @@ export function renderMissionControlHtml(
               <button class="button small ghost" data-action="copy-mcp">Copy MCP config</button>
             </div>
           </div>
-          <div class="bento">
-            <article class="card">
+          <div class="bento evidence-bento">
+            <article class="card org-posture">
               <div class="card-head"><div class="card-title">Organization posture <span id="health-org">no report imported</span></div><button class="button small secondary" data-action="import-hawk">Import health</button></div>
               <div class="card-body">
                 <div id="health-grid" class="health-grid">
@@ -1131,9 +1202,15 @@ export function renderMissionControlHtml(
                 <div id="repo-risk" class="repo-risk"></div>
               </div>
             </article>
-            <article class="card">
+            <article class="card mcp-brain">
               <div class="card-head"><div class="card-title">Smart MCP Brain <span>governed agent fabric</span></div><div class="status-pill">brain online</div></div>
               <div class="card-body">
+                <div class="trust-strip">
+                  <div class="trust-cell"><b id="fleet-online">0</b><span>fleet nodes online</span></div>
+                  <div class="trust-cell"><b id="fleet-slots">0</b><span>remote slots ready</span></div>
+                  <div class="trust-cell"><b id="mcp-pins">0</b><span>signed MCP pins</span></div>
+                  <div class="trust-cell"><b id="memory-active">0</b><span>active memories</span></div>
+                </div>
                 <div class="tool-grid">
                   ${toolCard('BRAIN/01', 'Intent & scope', 'Typed goals bind repositories, hosts, identities, actions, budgets and success criteria.')}
                   ${toolCard('BRAIN/02', 'Agent DAG', 'Immutable plans route specialized agents and models across safe parallel groups.')}
@@ -1143,6 +1220,16 @@ export function renderMissionControlHtml(
                   ${toolCard('TRUST/06', 'MCP Sentinel', 'Tool poisoning, secret output, trust drift and prompt injection are inspected locally.')}
                   ${toolCard('MESH/07', 'Distributed agent mesh', 'Capability-aware scheduling scores critical path, health, CPU, RAM and load; leases recover or rebalance Docker agents after failure.')}
                   ${toolCard('LAB/08', 'A2A & Eval Lab', 'Task envelopes interoperate locally; same-model baselines prove whether Hawk adds value.')}
+                </div>
+              </div>
+            </article>
+            <article class="card runtime-trust">
+              <div class="card-head"><div class="card-title">Runtime trust posture <span>live local control plane</span></div><div class="status-pill">fail closed</div></div>
+              <div class="card-body">
+                <div class="list">
+                  <div class="list-row"><span class="row-icon">AUTO</span><span><b class="row-title">Autopilot missions</b><small class="row-sub">Passive stages stop at reproduction gates</small></span><span id="autopilot-runs" class="row-tail">0 runs</span></div>
+                  <div class="list-row"><span class="row-icon">MCP</span><span><b class="row-title">Artifact trust verdicts</b><small class="row-sub">SHA-256, Ed25519 and publisher pinning</small></span><span id="mcp-verdicts" class="row-tail">0 checked</span></div>
+                  <div class="list-row"><span class="row-icon">MEM</span><span><b class="row-title">Provenance refresh</b><small class="row-sub">Changed citations leave retrieval immediately</small></span><span id="memory-stale" class="row-tail">0 stale</span></div>
                 </div>
               </div>
             </article>
@@ -1213,19 +1300,91 @@ export function renderMissionControlHtml(
           : (traffic?.source === 'har' ? 'HAR import' : 'waiting'),
       );
       setText('#metric-findings', findings.length);
+      setText('#focus-signal-count', findings.length);
       setText(
         '#metric-reproductions',
+        reproductions.filter((result) => result.status === 'reproduced').length,
+      );
+      setText(
+        '#focus-proof-count',
         reproductions.filter((result) => result.status === 'reproduced').length,
       );
       setText(
         '#reproduction-count',
         reproductions.length + (reproductions.length === 1 ? ' attempt' : ' attempts'),
       );
-      setText('#metric-posture', postureScore(inventory, traffic, findings, state.hawkHealth));
+      const currentPosture = postureScore(inventory, traffic, findings, state.hawkHealth);
+      setText('#metric-posture', currentPosture);
+      setText('#focus-score', currentPosture);
       renderRoutes(inventory?.routes || [], traffic, state.securityGraph);
+      renderAttackTwin(state.attackTwin, state.protocols);
       renderTraffic(traffic);
       renderFindings(findings, reproductions);
       renderHealth(state.hawkHealth);
+      setText('#fleet-online', state.fleet?.summary?.online ?? 0);
+      setText('#fleet-slots', state.fleet?.summary?.availableSlots ?? 0);
+      setText('#mcp-pins', state.mcpTrust?.pins ?? 0);
+      setText('#memory-active', state.memory?.active ?? 0);
+      setText(
+        '#autopilot-runs',
+        (state.autopilotRuns?.length ?? 0) + ((state.autopilotRuns?.length ?? 0) === 1 ? ' run' : ' runs'),
+      );
+      setText('#mcp-verdicts', (state.mcpTrust?.verdicts ?? 0) + ' checked');
+      setText('#memory-stale', (state.memory?.stale ?? 0) + ' stale');
+    }
+
+    function renderAttackTwin(twin, protocols) {
+      const summary = twin?.summary || {};
+      setText('#twin-entry', summary.entryPoints ?? 0);
+      setText('#twin-protocols', summary.protocolSurfaces ?? 0);
+      setText('#twin-boundaries', summary.trustBoundaries ?? 0);
+      setText('#twin-hypotheses', summary.hypotheses ?? 0);
+      setText('#twin-reproduced', summary.reproducedPaths ?? 0);
+      setText('#twin-score', summary.highestScore ?? 0);
+      setText(
+        '#twin-caption',
+        twin
+          ? ((twin.paths?.length || 0) + ' prioritized paths / ' + (summary.verifiedPaths || 0) + ' independently verified')
+          : 'waiting for workspace model',
+      );
+      const pathRoot = q('#twin-paths');
+      pathRoot.replaceChildren();
+      const paths = Array.isArray(twin?.paths) ? twin.paths.slice(0, 6) : [];
+      if (!paths.length) {
+        pathRoot.append(empty('No modeled path yet. Run Autopilot or refresh the surface.'));
+      } else {
+        paths.forEach((path) => {
+          const row = document.createElement('button');
+          row.className = 'twin-path';
+          const copy = document.createElement('span');
+          copy.className = 'twin-path-copy';
+          copy.append(
+            textElement('b', path.title),
+            textElement('span', path.protocol + ' / ' + (path.sourceFiles?.[0] || 'workspace')),
+          );
+          row.append(
+            textElement('span', String(path.score).padStart(2, '0') + '/100', 'twin-score'),
+            copy,
+            textElement('span', path.status, 'twin-status'),
+          );
+          const file = path.sourceFiles?.[0];
+          if (file) {
+            row.addEventListener('click', () =>
+              vscode.postMessage({ action: 'open-graph-node', file, line: 1 }),
+            );
+          }
+          pathRoot.append(row);
+        });
+      }
+      const cloud = q('#protocol-cloud');
+      cloud.replaceChildren();
+      const entries = Object.entries(protocols?.summary?.byKind || {}).sort(
+        (left, right) => Number(right[1]) - Number(left[1]),
+      );
+      if (!entries.length) cloud.append(textElement('span', 'HTTP ROUTES ONLY', 'protocol-chip'));
+      entries.forEach(([kind, count]) =>
+        cloud.append(textElement('span', kind + ' ' + count, 'protocol-chip')),
+      );
     }
 
     function renderRoutes(routes, traffic, securityGraph) {
@@ -1358,9 +1517,19 @@ export function renderMissionControlHtml(
       const list = q('#finding-list');
       list.replaceChildren();
       if (!findings.length) {
+        setText('#focus-title', 'No local signals yet');
+        setText('#focus-meta', 'Run Autopilot to correlate source, traffic and proof.');
         list.append(empty('No local audit signals yet. Run an audit to populate the queue.'));
         return;
       }
+      const lead = findings[0];
+      setText('#focus-title', lead.title || 'Security signal ready for review');
+      setText(
+        '#focus-meta',
+        (lead.severity || 'unranked').toUpperCase() +
+          ' / ' +
+          (lead.source ? lead.source.file + ':' + lead.source.line : 'manual validation required'),
+      );
       findings.forEach((finding) => {
         const row = document.createElement('div');
         row.className = 'list-row finding-row';
@@ -1495,6 +1664,7 @@ export function renderMissionControlHtml(
 function navButton(target: string, label: string, path: string, active = false): string {
   return `<button class="nav-button${active ? ' active' : ''}" data-target="${target}" title="${label}" aria-label="${label}">
     <svg viewBox="0 0 24 24"><path d="${path}"/></svg>
+    <span class="nav-copy">${label}</span>
   </button>`;
 }
 

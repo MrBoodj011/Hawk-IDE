@@ -1,0 +1,40 @@
+name: Hawk Release Provenance
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  provenance:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+          cache: npm
+      - run: npm ci
+      - name: Verify deterministic core build
+        run: node scripts/verify-reproducible-build.mjs
+      - name: Build package and CycloneDX SBOM
+        shell: bash
+        run: |
+          mkdir -p artifacts/provenance
+          npm pack --pack-destination artifacts/provenance
+          npm sbom --sbom-format cyclonedx > artifacts/provenance/hawk-sbom.cdx.json
+          cd artifacts/provenance
+          sha256sum * > SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/provenance/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hawk-release-provenance
+          path: artifacts/provenance/
+          if-no-files-found: error
