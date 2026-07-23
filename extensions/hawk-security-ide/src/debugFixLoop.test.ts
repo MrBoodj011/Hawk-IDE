@@ -109,6 +109,10 @@ function makeSession(status: AiSessionSummary['status']): AiSessionSummary {
     background: false,
     autoResume: false,
     resumeCount: 0,
+    autoVerify: false,
+    maxAutoFixAttempts: 0,
+    autoFixAttempt: 0,
+    verificationHistory: [],
     checkpoints: [],
     testGates: [
       {
