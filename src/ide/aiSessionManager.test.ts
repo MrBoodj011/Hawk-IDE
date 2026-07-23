@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AiDockerScheduler } from './aiDockerScheduler.js';
 import { AiSessionManager } from './aiSessionManager.js';
+import type { GovernedMemory } from './governedMemory.js';
 
 const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];
@@ -17,6 +18,71 @@ afterEach(async () => {
 });
 
 describe('AiSessionManager', () => {
+  it('injects active governed memory as redacted read-only agent context', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ai-memory-'));
+    temporaryRoots.push(root);
+    await git(root, ['init']);
+    await git(root, ['config', 'user.name', 'Hawk Test']);
+    await git(root, ['config', 'user.email', 'hawk-test@localhost']);
+    await writeFile(join(root, 'app.txt'), 'base\n', 'utf8');
+    await git(root, ['add', 'app.txt']);
+    await git(root, ['commit', '-m', 'base']);
+    const worker = join(root, 'memory-worker.cjs');
+    await writeFile(
+      worker,
+      [
+        "const fs = require('node:fs');",
+        'process.stdin.resume();',
+        "process.stdin.once('data', (chunk) => {",
+        "  fs.writeFileSync('context.json', JSON.parse(chunk.toString()).context);",
+        "  console.log(JSON.stringify({ type: 'worker-result', ok: true }));",
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+    const governedMemory = {
+      query: async () => [
+        {
+          id: 'memory-project-1',
+          layer: 'project',
+          key: 'API contract',
+          value: 'Use the v2 endpoint. api_key=super-secret-value-123456789',
+          sourceUri: 'hawk://finding/api-contract',
+          evidenceUris: ['hawk://evidence/api-contract'],
+          confidence: 0.94,
+          verified: true,
+          reviewer: 'test',
+          createdAt: '2026-07-20T00:00:00.000Z',
+          expiresAt: '2099-07-20T00:00:00.000Z',
+          contentHash: 'hash',
+          sourceDigest: 'digest',
+          lastValidatedAt: '2026-07-20T00:00:00.000Z',
+          validationStatus: 'active',
+          citations: [],
+        },
+      ],
+    } as unknown as GovernedMemory;
+    const manager = new AiSessionManager({
+      workspaceRoot: root,
+      storageRoot: join(root, '.test-storage'),
+      workerLaunch: { command: process.execPath, args: [worker] },
+      governedMemory,
+    });
+    await manager.initialize();
+    try {
+      const session = await manager.create({ prompt: 'Implement the API contract' });
+      await waitForStatus(manager, session.id, 'awaiting-review');
+      const persisted = await manager.get(session.id);
+      const context = await readFile(join(persisted.sandboxPath ?? '', 'context.json'), 'utf8');
+      expect(context).toContain('<hawk-governed-memory>');
+      expect(context).toContain('API contract');
+      expect(context).toContain('[REDACTED');
+      expect(context).toContain('read-only evidence');
+    } finally {
+      await manager.dispose();
+    }
+  });
+
   it('migrates a legacy session in place and preserves review state', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-ai-migration-'));
     temporaryRoots.push(root);

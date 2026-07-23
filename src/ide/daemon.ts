@@ -144,7 +144,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
     opts.reproductionOrchestrator ?? new HawkDockerOrchestrator(workspaceRoot),
     now,
   );
-  const aiSessions = new AiSessionManager({ workspaceRoot, now });
+  const aiSessions = new AiSessionManager({ workspaceRoot, now, governedMemory });
   await aiSessions.initialize();
   const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot, {
     embeddings: {

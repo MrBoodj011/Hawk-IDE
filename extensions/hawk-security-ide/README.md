@@ -14,6 +14,9 @@ integration from command start, accepts only trusted-workspace working
 directories, strips control sequences, redacts secret-shaped values, and keeps
 only a bounded memory-only tail. The operator can inspect or clear the exact
 captured context from the Command Palette.
+Active governed project, organization, and run memory is automatically queried
+per agent turn, filtered for the current branch, redacted, bounded, and injected
+as read-only evidence into native, resumed, and Docker sessions.
 Hawk Tab adds inline completion, cached confidence-filtered multiline Next
 Edit, and an approval-gated coordinated Multi-File Next Edit. The multi-file
 flow selects related bounded documents, requires unique exact replacements,

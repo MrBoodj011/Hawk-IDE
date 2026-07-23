@@ -106,6 +106,12 @@ file.
   observed by Hawk Tab using structured-edit validity, explicit editor
   acceptance/rejection feedback, cache reuse, and p50/p95 generation latency.
   Recommendations are labelled low, medium, or high evidence confidence.
+- **Governed memory injection** runs automatically for every native, background,
+  Docker, resumed, and semantic-merge agent turn. Hawk retrieves only active
+  entries relevant to the prompt, excludes branch-mismatched facts, redacts
+  credential-shaped values, bounds the injected context to 12,000 characters,
+  and wraps it as read-only evidence with prompt-injection guidance. Revoked,
+  stale, expired, or unrelated memory is not injected.
 - **Hawk: Issue → Branch → PR Automation** creates a GitHub issue, derives and
   creates a local feature branch, commits only after a modal approval, rejects
   secret-like paths, runs `git diff --check`, pushes the branch, opens a PR
