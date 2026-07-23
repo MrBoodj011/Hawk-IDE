@@ -593,7 +593,39 @@ export function renderAgentPanelHtml(
       }
       if (data.type === 'parallel-batch') {
         document.getElementById('smart-merge').hidden = !(data.sessionIds && data.sessionIds.length > 1);
-        addActivity('plan', 'Parallel batch', (data.sessionIds || []).length + ' durable lanes are active. Smart Synthesis becomes available when at least two diffs are ready.');
+        const scheduler = data.scheduler || {};
+        addActivity(
+          'plan',
+          'Docker AI scheduler',
+          (data.sessionIds || []).length + ' durable container lanes are active' +
+            (scheduler.strategy ? ' with ' + scheduler.strategy + ' placement' : '') +
+            (scheduler.dockerVersion ? ' on Docker ' + scheduler.dockerVersion : '') +
+            (data.batchId ? ' · batch ' + String(data.batchId).slice(0, 8) : '') +
+            '. Smart Synthesis becomes available when at least two diffs are ready.',
+        );
+        return;
+      }
+      if (data.type === 'parallel-batch-status') {
+        const batch = data.batch || {};
+        const counts = Object.entries(batch.counts || {})
+          .map(([status, count]) => status + ': ' + count)
+          .join(' · ');
+        addActivity(
+          'status',
+          'Docker batch ' + (batch.lifecycle || 'running'),
+          (counts || 'Lanes are progressing') + (batch.scheduler && batch.scheduler.dockerVersion
+            ? ' · Docker ' + batch.scheduler.dockerVersion
+            : ''),
+        );
+        return;
+      }
+      if (data.type === 'parallel-lane-event') {
+        const event = data.event || {};
+        addActivity(
+          event.type === 'error' ? 'error' : 'status',
+          'Parallel lane ' + (event.laneId || event.sessionId || 'worker'),
+          event.text || event.type || 'Lane updated',
+        );
         return;
       }
       if (data.type === 'merge-score') {
@@ -760,7 +792,11 @@ export function renderAgentPanelHtml(
       const statusLabel = offline ? 'model offline' : labelStatus(session.status);
       document.getElementById('session-state').textContent = statusLabel;
       document.getElementById('session-time').textContent = relativeTime(session.updatedAt);
-      modelBadge.textContent = [session.provider, session.model].filter(Boolean).join(' · ') || 'Local control plane';
+      const modelIdentity = [session.provider, session.model].filter(Boolean).join(' · ');
+      const dockerIdentity = session.execution
+        ? 'Docker · ' + session.execution.instanceId
+        : '';
+      modelBadge.textContent = [modelIdentity, dockerIdentity].filter(Boolean).join(' / ') || 'Local control plane';
       const busy = ['preparing', 'running', 'testing'].includes(session.status);
       const failed = session.status === 'failed';
       stateBadge.className = 'state-badge' + (busy ? ' busy' : offline ? ' offline' : failed ? ' failed' : '');

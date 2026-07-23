@@ -912,6 +912,42 @@ async function handleRequest(
     return;
   }
 
+  const aiBatchMatch = pathname.match(/^\/v1\/ai\/batches\/([^/]+)$/);
+  if (req.method === 'GET' && aiBatchMatch?.[1]) {
+    try {
+      sendJSON(res, 200, await context.aiSessions.batch(decodeURIComponent(aiBatchMatch[1])));
+    } catch (err) {
+      sendJSON(res, statusForSessionError(err), { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const aiBatchEventsMatch = pathname.match(/^\/v1\/ai\/batches\/([^/]+)\/events$/);
+  if (req.method === 'GET' && aiBatchEventsMatch?.[1]) {
+    try {
+      const rawAfter = requestURL.searchParams.get('after');
+      let after: Record<string, number> = {};
+      if (rawAfter) {
+        const parsed = JSON.parse(rawAfter) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          after = Object.fromEntries(
+            Object.entries(parsed).filter(
+              ([, value]) => typeof value === 'number' && Number.isFinite(value),
+            ),
+          );
+        }
+      }
+      sendJSON(
+        res,
+        200,
+        await context.aiSessions.batchEvents(decodeURIComponent(aiBatchEventsMatch[1]), after),
+      );
+    } catch (err) {
+      sendJSON(res, statusForSessionError(err), { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/v1/ai/batches/merge') {
     try {
       const input = parseJSONBody<AiMergeBatchRequest>(await readBody(req));

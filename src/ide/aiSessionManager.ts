@@ -19,8 +19,17 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
+import {
+  type AiDockerExecution,
+  type AiDockerScheduler,
+  type AiWorkerLaunchPlan,
+  HawkAiDockerScheduler,
+} from './aiDockerScheduler.js';
 import type {
   AiApplyRequest,
+  AiBatchEvent,
+  AiBatchEventPage,
+  AiBatchStatus,
   AiCheckpointRequest,
   AiCheckpointSummary,
   AiCreateSessionRequest,
@@ -65,6 +74,7 @@ export interface AiSessionManagerOptions {
   workspaceRoot: string;
   storageRoot?: string;
   workerLaunch?: WorkerLaunch;
+  dockerScheduler?: AiDockerScheduler;
   now?: () => Date;
 }
 
@@ -97,6 +107,7 @@ interface StoredAiSession {
   lastEventId: number;
   provider?: string;
   model?: string;
+  execution?: AiDockerExecution;
   background?: boolean;
   autoResume?: boolean;
   resumeCount?: number;
@@ -139,8 +150,10 @@ interface SeedFile {
 }
 
 interface InternalCreateOptions {
+  id?: string;
   seedFiles?: SeedFile[];
   preparationEvents?: string[];
+  execution?: AiDockerExecution;
 }
 
 interface SemanticMergePreparation {
@@ -162,8 +175,10 @@ export class AiSessionManager {
   private readonly agentSessionsRoot: string;
   private readonly worktreesRoot: string;
   private readonly workerLaunch: WorkerLaunch;
+  private readonly dockerScheduler: AiDockerScheduler;
   private readonly now: () => Date;
   private readonly workers = new Map<string, ChildProcessWithoutNullStreams>();
+  private readonly workerCancels = new Map<string, () => Promise<void>>();
   private readonly workerLifecycles = new Map<string, Promise<void>>();
   private readonly testControllers = new Map<string, AbortController>();
   private readonly saveQueues = new Map<string, Promise<void>>();
@@ -182,6 +197,12 @@ export class AiSessionManager {
     this.agentSessionsRoot = join(this.storageRoot, 'agent');
     this.worktreesRoot = join(tmpdir(), 'hawk-ai-worktrees', workspaceKey);
     this.workerLaunch = options.workerLaunch ?? defaultWorkerLaunch();
+    this.dockerScheduler =
+      options.dockerScheduler ??
+      new HawkAiDockerScheduler({
+        daemonEntry: this.workerLaunch.args[0] ?? '',
+        daemonEnvironment: { ...process.env, ...this.workerLaunch.env },
+      });
     this.now = options.now ?? (() => new Date());
   }
 
@@ -258,7 +279,7 @@ export class AiSessionManager {
           'Hawk paused this task for shutdown. Resume will continue from saved agent memory.',
         );
       }
-      if (!child.killed) child.kill();
+      await this.stopWorker(id, child);
     }
     // The child `close` handler owns line processing and final session state.
     // Wait for it before returning so a restarted manager (or a recovery
@@ -277,7 +298,8 @@ export class AiSessionManager {
       throw new Error('Operator approval is required for autonomous test and repair execution.');
     }
     const prompt = validatePrompt(input.prompt);
-    const id = randomUUID();
+    const id = internal.id ?? randomUUID();
+    validateSessionId(id);
     const createdAt = this.timestamp();
     const prepared = await this.prepareWorktree(id);
     await seedPreparedWorktree(prepared.worktreeRoot, internal.seedFiles ?? []);
@@ -298,6 +320,7 @@ export class AiSessionManager {
       patchPath: join(this.patchesRoot, `${id}.patch`),
       agentSessionPath: join(this.agentSessionsRoot, `${id}.json`),
       lastEventId: 0,
+      execution: internal.execution,
       checkpoints: [],
       touchedFiles: [],
       testGates: await detectTestGates(prepared.workerRoot),
@@ -323,57 +346,114 @@ export class AiSessionManager {
     if (input.approved !== true) {
       throw new Error('Operator approval is required to launch autonomous parallel lanes.');
     }
+    if (input.dockerApproved !== true) {
+      throw new Error(
+        'Operator approval is required to mount isolated worktrees and connect AI providers from Docker lanes.',
+      );
+    }
     const objective = validatePrompt(input.objective);
     const laneCount = Math.max(2, Math.min(6, Math.floor(input.lanes ?? 3)));
     const roles = [
       {
         name: 'Architecture',
+        capabilities: ['code', 'general'],
         instruction:
           'Map the relevant system, identify root causes and implement the smallest coherent solution.',
       },
       {
         name: 'Implementation',
+        capabilities: ['code'],
         instruction:
           'Implement a production-ready solution with strong typing, error handling and maintainability.',
       },
       {
         name: 'Verification',
+        capabilities: ['test', 'security'],
         instruction:
           'Approach the task as an adversarial reviewer, implement the safest solution and strengthen regression coverage.',
       },
       {
         name: 'Performance',
+        capabilities: ['code', 'test'],
         instruction:
           'Optimize for latency, memory and large-repository behavior without weakening correctness.',
       },
       {
         name: 'Security',
+        capabilities: ['security', 'code'],
         instruction:
           'Trace trust boundaries and implement the solution with secure defaults and explicit approvals.',
       },
       {
         name: 'Minimal patch',
+        capabilities: ['code', 'general'],
         instruction:
           'Produce the smallest reviewable patch that fully meets the objective and preserves compatibility.',
       },
     ].slice(0, laneCount);
+    const batchId = randomUUID();
+    const laneIds = roles.map(() => randomUUID());
+    const plan = await this.dockerScheduler.planBatch(
+      batchId,
+      roles.map((role, index) => ({
+        id: laneIds[index] ?? '',
+        role: role.name,
+        capabilities: role.capabilities,
+      })),
+      input.docker,
+    );
     const sessions: AiSessionSummary[] = [];
-    for (const role of roles) {
-      sessions.push(
-        await this.create({
-          prompt: `[${role.name} lane] ${objective}\n\nLane focus: ${role.instruction}`,
-          context: input.context,
-          background: true,
-          autoResume: true,
-          autoVerify: true,
-          autoVerifyApproved: true,
-          maxAutoFixAttempts: DEFAULT_AUTO_FIX_ATTEMPTS,
-        }),
-      );
+    try {
+      for (const [index, role] of roles.entries()) {
+        const id = laneIds[index] ?? '';
+        const placement = plan.executions.get(id);
+        if (!placement)
+          throw new Error(`Docker scheduler did not return placement for ${role.name}.`);
+        if (placement.laneId && placement.laneId !== id) {
+          throw new Error(
+            `Docker scheduler returned a placement bound to ${placement.laneId} for lane ${id}.`,
+          );
+        }
+        const execution: AiDockerExecution = {
+          ...placement,
+          laneId: placement.laneId ?? id,
+          strategy: placement.strategy ?? plan.strategy,
+          dockerVersion: placement.dockerVersion ?? plan.dockerVersion,
+        };
+        sessions.push(
+          await this.create(
+            {
+              prompt: `[${role.name} lane] ${objective}\n\nLane focus: ${role.instruction}`,
+              context: input.context,
+              background: true,
+              autoResume: true,
+              autoVerify: true,
+              autoVerifyApproved: true,
+              maxAutoFixAttempts: DEFAULT_AUTO_FIX_ATTEMPTS,
+            },
+            {
+              id,
+              execution,
+              preparationEvents: [
+                `Docker scheduler placed this lane on ${execution.instanceId} (${execution.cpu} CPU, ${execution.memoryMb} MB, ${execution.networkMode}).`,
+                `Immutable worker image: ${execution.resolvedImage}.`,
+              ],
+            },
+          ),
+        );
+      }
+    } catch (error) {
+      await Promise.allSettled(sessions.map((session) => this.cancel(session.id)));
+      throw error;
     }
     return {
-      batchId: randomUUID(),
+      batchId,
       createdAt: this.timestamp(),
+      scheduler: {
+        runtime: 'docker',
+        strategy: plan.strategy,
+        dockerVersion: plan.dockerVersion,
+      },
       sessions,
     };
   }
@@ -490,6 +570,63 @@ export class AiSessionManager {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, Math.max(1, Math.min(100, limit)))
       .map(publicSession);
+  }
+
+  /** Return the durable lifecycle of a Docker-backed parallel batch. */
+  async batch(batchId: string): Promise<AiBatchStatus> {
+    const sessions = await this.loadBatchSessions(batchId);
+    if (sessions.length === 0) throw new Error('Hawk AI batch not found.');
+    return batchStatus(batchId, sessions);
+  }
+
+  /** Read events for all lanes with independent per-session cursors. */
+  async batchEvents(
+    batchId: string,
+    after: Record<string, number> = {},
+  ): Promise<AiBatchEventPage> {
+    const sessions = await this.loadBatchSessions(batchId);
+    if (sessions.length === 0) throw new Error('Hawk AI batch not found.');
+    const events: AiBatchEvent[] = [];
+    const next: Record<string, number> = {};
+    for (const session of sessions) {
+      const cursorValue = after[session.id];
+      const cursor =
+        typeof cursorValue === 'number' && Number.isFinite(cursorValue)
+          ? Math.max(0, cursorValue)
+          : 0;
+      let lines: string[] = [];
+      try {
+        lines = (await readFile(this.eventsPath(session.id), 'utf8'))
+          .split(/\r?\n/)
+          .filter(Boolean);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+      for (const line of lines.slice(0, 2_000)) {
+        const event = JSON.parse(line) as AiSessionEvent;
+        if (event.id <= cursor) continue;
+        events.push({
+          ...event,
+          sessionId: session.id,
+          batchId,
+          ...(session.execution?.laneId ? { laneId: session.execution.laneId } : {}),
+        });
+        next[session.id] = Math.max(next[session.id] ?? cursor, event.id);
+      }
+      if (next[session.id] === undefined) next[session.id] = cursor;
+    }
+    events.sort((left, right) => left.at.localeCompare(right.at) || left.id - right.id);
+    return { events: events.slice(0, 2_000), next, batch: batchStatus(batchId, sessions) };
+  }
+
+  private async loadBatchSessions(batchId: string): Promise<StoredAiSession[]> {
+    if (!/^[a-f0-9-]{8,128}$/i.test(batchId)) throw new Error('Invalid Hawk AI batch id.');
+    const sessions = await this.loadAll();
+    return sessions
+      .filter(
+        (session) => session.execution?.kind === 'docker' && session.execution.batchId === batchId,
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
   async get(id: string): Promise<AiSessionSummary> {
@@ -838,7 +975,6 @@ export class AiSessionManager {
     const session = await this.load(id);
     this.testControllers.get(id)?.abort();
     const worker = this.workers.get(id);
-    if (worker && !worker.killed) worker.kill();
     if (
       session.status === 'running' ||
       session.status === 'preparing' ||
@@ -850,6 +986,7 @@ export class AiSessionManager {
       await this.save(session);
       await this.addEvent(session, 'status', 'Hawk task cancelled by the operator.');
     }
+    if (worker) await this.stopWorker(id, worker);
     return publicSession(session);
   }
 
@@ -867,7 +1004,7 @@ export class AiSessionManager {
       'status',
       'Task paused. The isolated worktree and saved agent memory were preserved.',
     );
-    if (worker && !worker.killed) worker.kill();
+    if (worker) await this.stopWorker(id, worker);
     const deadline = Date.now() + 5_000;
     while (this.workers.has(id) && Date.now() < deadline) {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
@@ -913,13 +1050,15 @@ export class AiSessionManager {
     session.status = 'running';
     session.updatedAt = this.timestamp();
     await this.save(session);
-    const child = spawn(this.workerLaunch.command, this.workerLaunch.args, {
-      cwd: session.workerRoot,
+    const launch = await this.workerLaunchPlan(session);
+    const child = spawn(launch.command, launch.args, {
+      cwd: launch.cwd,
       windowsHide: true,
-      env: { ...process.env, ...this.workerLaunch.env },
+      env: launch.env ?? process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.workers.set(session.id, child);
+    if (launch.cancel) this.workerCancels.set(session.id, launch.cancel);
     let settleLifecycle = (): void => undefined;
     const lifecycle = new Promise<void>((resolveLifecycle) => {
       settleLifecycle = resolveLifecycle;
@@ -948,6 +1087,7 @@ export class AiSessionManager {
     child.once('close', (code) => {
       reader.close();
       this.workers.delete(session.id);
+      this.workerCancels.delete(session.id);
       void lineProcessing
         .then(() =>
           this.finishWorker(
@@ -969,12 +1109,37 @@ export class AiSessionManager {
     child.stdin.end(
       `${JSON.stringify({
         sessionId: session.id,
-        agentSessionPath: session.agentSessionPath,
-        workspaceRoot: session.workerRoot,
+        agentSessionPath: launch.requestAgentSessionPath,
+        workspaceRoot: launch.requestWorkspaceRoot,
         prompt,
         context,
       })}\n`,
     );
+  }
+
+  private async workerLaunchPlan(session: StoredAiSession): Promise<AiWorkerLaunchPlan> {
+    if (session.execution?.kind === 'docker') {
+      return await this.dockerScheduler.launch({
+        id: session.id,
+        workerRoot: session.workerRoot,
+        agentSessionPath: session.agentSessionPath,
+        execution: session.execution,
+      });
+    }
+    return {
+      command: this.workerLaunch.command,
+      args: [...this.workerLaunch.args],
+      env: { ...process.env, ...this.workerLaunch.env },
+      cwd: session.workerRoot,
+      requestWorkspaceRoot: session.workerRoot,
+      requestAgentSessionPath: session.agentSessionPath,
+    };
+  }
+
+  private async stopWorker(id: string, child: ChildProcessWithoutNullStreams): Promise<void> {
+    const cancel = this.workerCancels.get(id);
+    if (!child.killed) child.kill();
+    if (cancel) await cancel();
   }
 
   private async handleWorkerLine(id: string, line: string): Promise<boolean> {
@@ -1222,6 +1387,13 @@ export class AiSessionManager {
       at: session.updatedAt,
       type,
       text: boundText(text, MAX_EVENT_TEXT),
+      sessionId: session.id,
+      ...(session.execution?.kind === 'docker'
+        ? {
+            batchId: session.execution.batchId,
+            ...(session.execution.laneId ? { laneId: session.execution.laneId } : {}),
+          }
+        : {}),
       ...(tool ? { tool: boundText(tool, 200) } : {}),
       ...(typeof durationMs === 'number' ? { durationMs } : {}),
     };
@@ -1299,6 +1471,52 @@ export class AiSessionManager {
   }
 }
 
+function batchStatus(batchId: string, sessions: StoredAiSession[]): AiBatchStatus {
+  const summaries = sessions.map(publicSession);
+  const counts: Partial<Record<AiSessionStatus, number>> = {};
+  for (const session of sessions) counts[session.status] = (counts[session.status] ?? 0) + 1;
+  const statuses = sessions.map((session) => session.status);
+  const terminal = new Set<AiSessionStatus>(['applied', 'rejected', 'reverted']);
+  const cancelled = statuses.length > 0 && statuses.every((status) => status === 'cancelled');
+  const failed = statuses.some((status) => status === 'failed');
+  const active = statuses.some((status) => ['preparing', 'running', 'testing'].includes(status));
+  const paused = statuses.length > 0 && statuses.every((status) => status === 'paused');
+  const allTerminal = statuses.length > 0 && statuses.every((status) => terminal.has(status));
+  const lifecycle = cancelled
+    ? 'cancelled'
+    : failed && !active
+      ? 'failed'
+      : active
+        ? 'running'
+        : paused
+          ? 'paused'
+          : allTerminal
+            ? 'completed'
+            : 'awaiting-review';
+  const execution = sessions.find((session) => session.execution)?.execution;
+  const createdAt = sessions.reduce(
+    (earliest, session) => (session.createdAt < earliest ? session.createdAt : earliest),
+    sessions[0]?.createdAt ?? new Date(0).toISOString(),
+  );
+  const updatedAt = sessions.reduce(
+    (latest, session) => (session.updatedAt > latest ? session.updatedAt : latest),
+    sessions[0]?.updatedAt ?? createdAt,
+  );
+  return {
+    batchId,
+    createdAt,
+    updatedAt,
+    lifecycle,
+    scheduler: {
+      runtime: 'docker',
+      strategy: execution?.strategy ?? 'latency',
+      dockerVersion: execution?.dockerVersion,
+    },
+    counts,
+    sessions: summaries,
+  };
+}
+
 function publicSession(session: StoredAiSession): AiSessionSummary {
   return {
     id: session.id,
@@ -1309,6 +1527,7 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
     updatedAt: session.updatedAt,
     provider: session.provider,
     model: session.model,
+    execution: session.execution ? structuredClone(session.execution) : undefined,
     background: session.background === true,
     autoResume: session.autoResume === true,
     resumeCount: session.resumeCount ?? 0,

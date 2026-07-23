@@ -19,6 +19,8 @@ export class HawkAgentPanel implements vscode.Disposable {
   private activeSessionId: string | undefined;
   private lastEventId = 0;
   private parallelBatchSessionIds: string[] = [];
+  private parallelBatchId: string | undefined;
+  private parallelBatchCursors: Record<string, number> = {};
   private pollTimer: NodeJS.Timeout | undefined;
   private polling = false;
 
@@ -72,6 +74,8 @@ export class HawkAgentPanel implements vscode.Disposable {
       context.slice(0, MAX_CONTEXT_CHARS),
     );
     this.activeSessionId = session.id;
+    this.parallelBatchId = undefined;
+    this.parallelBatchCursors = {};
     this.lastEventId = 0;
     this.post({ type: 'session', session });
     await this.syncHistory();
@@ -205,28 +209,35 @@ export class HawkAgentPanel implements vscode.Disposable {
       throw new Error(`Keep each Hawk task below ${MAX_PROMPT_CHARS} characters.`);
     }
     const approval = await vscode.window.showWarningMessage(
-      'Launch three isolated Hawk agents for architecture, implementation, and verification? Each lane can use model tokens independently and will run detected test gates with bounded repair attempts.',
+      'Launch three isolated Hawk agents through the Docker scheduler? Hawk will mount one writable review worktree per container, connect the configured AI provider, enforce CPU/RAM limits, and run detected test gates with bounded repair attempts.',
       { modal: true },
-      'Launch 3 lanes',
+      'Launch 3 Docker lanes',
     );
-    if (approval !== 'Launch 3 lanes') return;
+    if (approval !== 'Launch 3 Docker lanes') return;
     const workspace = this.requireWorkspace();
     const contexts = Array.isArray(record.contexts)
       ? record.contexts.filter((value): value is string => typeof value === 'string')
       : [];
     const context = await this.composeContext(workspace, contexts, prompt);
-    this.post({ type: 'busy', text: 'Launching three isolated Hawk worktree lanes...' });
+    this.post({ type: 'busy', text: 'Scheduling three isolated Docker AI lanes...' });
     const batch = await this.client.createParallelAiBatch(workspace, prompt, context, 3);
     const first = batch.sessions[0];
     if (!first) throw new Error('Hawk did not create any parallel lanes.');
     this.activeSessionId = first.id;
+    this.parallelBatchId = batch.batchId;
+    this.parallelBatchCursors = {};
     this.parallelBatchSessionIds = batch.sessions.map((session) => session.id);
-    this.post({ type: 'parallel-batch', sessionIds: this.parallelBatchSessionIds });
+    this.post({
+      type: 'parallel-batch',
+      batchId: batch.batchId,
+      sessionIds: this.parallelBatchSessionIds,
+      scheduler: batch.scheduler,
+    });
     this.lastEventId = 0;
     await this.syncHistory();
     await this.selectSession(first.id);
     vscode.window.showInformationMessage(
-      'Three durable Hawk lanes are running. When they finish, use Smart Synthesis to combine the strongest verified parts.',
+      `Three durable Hawk Docker lanes are running with the ${batch.scheduler.strategy} scheduler. When they finish, use Smart Synthesis to combine the strongest verified parts.`,
     );
   }
 
@@ -299,6 +310,8 @@ export class HawkAgentPanel implements vscode.Disposable {
       ready[0]?.prompt.replace(/^\[[^\]]+ lane\]\s*/, '') ?? '',
     );
     this.activeSessionId = result.mergeSession.id;
+    this.parallelBatchId = undefined;
+    this.parallelBatchCursors = {};
     this.lastEventId = 0;
     this.post({ type: 'merge-score', candidates: result.candidates });
     this.post({ type: 'semantic-merge-plan', plan: result.semanticMerge });
@@ -335,11 +348,28 @@ export class HawkAgentPanel implements vscode.Disposable {
     if (!workspace || !sessionId || !this.panel) return;
     this.polling = true;
     try {
+      let batchBusy = false;
       const page = await this.client.aiEvents(workspace, sessionId, this.lastEventId);
       this.lastEventId = page.next;
       for (const event of page.events) this.post({ type: 'event', event });
       this.post({ type: 'session', session: page.session });
-      if (isBusy(page.session.status)) {
+      if (this.parallelBatchId) {
+        const batchPage = await this.client.aiBatchEvents(
+          workspace,
+          this.parallelBatchId,
+          this.parallelBatchCursors,
+        );
+        this.parallelBatchCursors = batchPage.next;
+        batchBusy = ['preparing', 'running', 'paused'].includes(batchPage.batch.lifecycle);
+        for (const event of batchPage.events) {
+          if (event.sessionId !== sessionId) this.post({ type: 'parallel-lane-event', event });
+        }
+        this.post({ type: 'parallel-batch-status', batch: batchPage.batch });
+        if (['completed', 'failed', 'cancelled'].includes(batchPage.batch.lifecycle)) {
+          this.parallelBatchId = undefined;
+        }
+      }
+      if (isBusy(page.session.status) || batchBusy) {
         this.pollTimer = setTimeout(() => void this.poll(), POLL_INTERVAL_MS);
       } else {
         this.pollTimer = undefined;
@@ -510,6 +540,9 @@ export class HawkAgentPanel implements vscode.Disposable {
   private newSession(): void {
     this.stopPolling();
     this.activeSessionId = undefined;
+    this.parallelBatchId = undefined;
+    this.parallelBatchCursors = {};
+    this.parallelBatchSessionIds = [];
     this.lastEventId = 0;
     this.post({ type: 'session-clear' });
     void this.syncHistory();

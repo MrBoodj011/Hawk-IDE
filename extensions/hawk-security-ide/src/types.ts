@@ -887,6 +887,24 @@ export interface AiCheckpointSummary {
   files: number;
 }
 
+export interface AiDockerExecutionSummary {
+  kind: 'docker';
+  /** Scheduler lane/session identity; omitted only on legacy persisted runs. */
+  laneId?: string;
+  batchId: string;
+  image: string;
+  resolvedImage: string;
+  instanceId: string;
+  schedulingScore: number;
+  schedulingReasons: string[];
+  criticalPathSeconds: number;
+  cpu: number;
+  memoryMb: number;
+  networkMode: 'provider-egress' | 'none';
+  strategy?: 'balanced' | 'latency' | 'throughput';
+  dockerVersion?: string;
+}
+
 export interface AiSessionSummary {
   id: string;
   title: string;
@@ -896,6 +914,7 @@ export interface AiSessionSummary {
   updatedAt: string;
   provider?: string;
   model?: string;
+  execution?: AiDockerExecutionSummary;
   background: boolean;
   autoResume: boolean;
   resumeCount: number;
@@ -937,7 +956,43 @@ export interface AiDiffResponse {
 export interface AiParallelBatchResponse {
   batchId: string;
   createdAt: string;
+  scheduler: {
+    runtime: 'docker';
+    strategy: 'balanced' | 'latency' | 'throughput';
+    dockerVersion?: string;
+  };
   sessions: AiSessionSummary[];
+}
+
+export type AiBatchLifecycle =
+  | 'preparing'
+  | 'running'
+  | 'paused'
+  | 'awaiting-review'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface AiBatchStatus {
+  batchId: string;
+  createdAt: string;
+  updatedAt: string;
+  lifecycle: AiBatchLifecycle;
+  scheduler: AiParallelBatchResponse['scheduler'];
+  counts: Partial<Record<AiSessionStatus, number>>;
+  sessions: AiSessionSummary[];
+}
+
+export interface AiBatchEvent extends AiSessionEvent {
+  sessionId: string;
+  batchId: string;
+  laneId?: string;
+}
+
+export interface AiBatchEventPage {
+  events: AiBatchEvent[];
+  next: Record<string, number>;
+  batch: AiBatchStatus;
 }
 
 export interface AiMergeBatchResponse {

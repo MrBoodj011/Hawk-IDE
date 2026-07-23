@@ -64,12 +64,27 @@ file.
   retained SHA-256, and regenerates the review diff.
 - **Open isolated terminal** opens the editor terminal in the review worktree,
   so streamed commands cannot change the operator workspace before Apply.
-- **Run 3 lanes** starts architecture, implementation, and verification agents
-  in independent worktrees. Each lane autonomously verifies its candidate with
-  bounded repair attempts. Every candidate remains a separate review session.
+- **Run 3 Docker lanes** sends architecture, implementation, and verification
+  sessions directly through Hawk's capability-aware Docker scheduler. Before
+  launch, Hawk verifies Docker, resolves the configured image to an immutable
+  ID, assigns each lane to an agent slot, and records the placement score and
+  reasons in durable session state. Every container receives only its own
+  writable detached worktree and agent-memory file, plus a read-only Hawk
+  daemon bundle. It has a read-only root filesystem, dropped capabilities,
+  `no-new-privileges`, PID/CPU/RAM limits, no Docker socket, and no mount of the
+  operator workspace. Each lane autonomously verifies its candidate with
+  bounded repair attempts and remains a separate review session.
+- Parallel AI provider access is approval-gated. `provider-egress` connects
+  the selected model provider and rewrites loopback Ollama/LM Studio URLs to
+  `host.docker.internal`; `none` disables container networking. Image,
+  scheduling strategy, CPU, RAM, and network mode are configurable under
+  `hawk.agent.parallelDocker.*`.
 - **Pause** stops the worker while retaining its worktree and saved agent
   memory. **Resume** continues it without recreating the task.
 - Background lanes recover after daemon restart and auto-resume when enabled.
+  Docker-backed lanes retain their immutable image, placement metadata, limits,
+  and network policy when resumed; Hawk does not silently fall back to a host
+  process.
 - **Semantic Merge v2** scores review-ready lanes, reads their isolated file
   states, and compares TypeScript/JavaScript compiler-AST declarations,
   imports, containers, and members. Python functions, classes, and methods use
@@ -167,6 +182,8 @@ The token-gated daemon exposes:
 ```text
 POST /v1/ai/sessions
 POST /v1/ai/batches
+GET  /v1/ai/batches/:batch-id
+GET  /v1/ai/batches/:batch-id/events?after=<json-cursors>
 POST /v1/ai/batches/merge
 GET  /v1/ai/sessions
 GET  /v1/ai/sessions/:id

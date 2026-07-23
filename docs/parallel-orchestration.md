@@ -18,6 +18,30 @@ Parallelism reduces wall-clock time only when work can be split into
 independent tasks. A sequential ten-hour operation does not become a one-hour
 operation merely by starting ten identical containers.
 
+## Native Hawk AI sessions
+
+The native AI workbench uses the same Docker scheduler directly. An approved
+parallel AI request first creates a batch plan, then persists one immutable
+execution record on every durable AI session. The record contains the batch,
+resolved image digest, assigned scheduler instance, resource limits, network
+policy, and a `laneId` equal to the session ID. When the session starts, Hawk
+passes that execution to the Docker backend; the backend refuses to launch if
+the persisted lane/session binding does not match. This prevents a recovered
+or reordered session from ever starting another lane's container.
+
+Each lane gets its own writable review worktree and saved agent memory. The
+host control plane remains responsible for streaming events, test gates,
+checkpoints, and hash-bound review/apply; the container only runs the AI turn.
+The extension shows the assigned Docker instance beside the provider/model,
+and Smart Synthesis consumes the completed, independently verified lane
+sessions after the scheduler has finished them.
+
+The authenticated daemon exposes `GET /v1/ai/batches/<batch-id>` for the
+aggregate lifecycle/counts and `GET /v1/ai/batches/<batch-id>/events?after=...`
+for merged lane events. The events endpoint accepts a JSON object of per-lane
+cursors, so a fast lane cannot advance the cursor of a slower lane or hide its
+events during polling.
+
 ## Security and resource boundary
 
 Every worker:

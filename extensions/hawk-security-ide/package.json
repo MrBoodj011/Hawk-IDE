@@ -406,6 +406,48 @@
           "maximum": 5,
           "description": "Maximum bounded repair attempts after an autonomous Hawk AI task fails detected project gates. The final patch always requires manual Apply."
         },
+        "hawk.agent.parallelDocker.image": {
+          "type": "string",
+          "default": "hawk-worker:local",
+          "description": "Existing local Docker image used for direct parallel Hawk AI session execution."
+        },
+        "hawk.agent.parallelDocker.strategy": {
+          "type": "string",
+          "enum": [
+            "latency",
+            "balanced",
+            "throughput"
+          ],
+          "default": "latency",
+          "description": "Placement strategy used by Hawk's intelligent Docker scheduler for parallel AI lanes."
+        },
+        "hawk.agent.parallelDocker.cpuPerLane": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.25,
+          "maximum": 4,
+          "description": "Docker CPU quota assigned to each parallel Hawk AI lane."
+        },
+        "hawk.agent.parallelDocker.memoryMbPerLane": {
+          "type": "number",
+          "default": 2048,
+          "minimum": 512,
+          "maximum": 8192,
+          "description": "Docker memory limit in MB assigned to each parallel Hawk AI lane."
+        },
+        "hawk.agent.parallelDocker.networkMode": {
+          "type": "string",
+          "enum": [
+            "provider-egress",
+            "none"
+          ],
+          "default": "provider-egress",
+          "enumDescriptions": [
+            "Allow the isolated worker to reach the configured AI provider. Loopback provider URLs are mapped to host.docker.internal.",
+            "Disable all container networking. Use only when the worker image contains an offline-compatible model endpoint."
+          ],
+          "description": "Network policy for parallel Hawk AI containers. Every launch remains approval-gated."
+        },
         "hawk.agent.terminalCapture.enabled": {
           "type": "boolean",
           "default": true,

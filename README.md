@@ -138,6 +138,8 @@ The MCP App is sandboxed and zero-egress by default. The MCP server exposes loca
 
 Long jobs can fan out across up to 32 bounded local Docker workers. A separate multi-host fleet control plane enrolls HTTPS workers with a pinned SHA-256 mTLS/public-key fingerprint and one-time node token, checks authenticated heartbeats, detects stale/draining/revoked nodes, and creates one-minute dispatch plans bound to exact workspace and container-image digests. Dependency-aware scheduling uses critical-path, capability, health, load, CPU, RAM, and reliability signals.
 
+The native **Run 3 Docker lanes** action is connected to that scheduling model instead of spawning three ordinary host processes. Hawk resolves the local worker image to an immutable ID, places architecture, implementation, and verification sessions on bounded agent slots, then launches each AI session inside its own hardened container and writable review worktree. Placement evidence is persisted with the session, pause/cancel removes the exact container, and restart recovery resumes with the same Docker policy. Provider access, resource limits, and image selection remain approval-gated and configurable.
+
 | Network mode | Guardrail |
 | --- | --- |
 | `none` | Default. No worker network. |

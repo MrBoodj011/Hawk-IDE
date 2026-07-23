@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { AiDockerScheduler } from './aiDockerScheduler.js';
 import { AiSessionManager } from './aiSessionManager.js';
 
 const execFileAsync = promisify(execFile);
@@ -510,6 +511,127 @@ describe('AiSessionManager', () => {
       await manager.reject(merged.mergeSession.id);
       await manager.reject(owner.id);
       await manager.reject(audit.id);
+    } finally {
+      await manager.dispose();
+    }
+  }, 60_000);
+
+  it('routes every approved parallel AI lane through its Docker scheduler placement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ai-docker-batch-'));
+    temporaryRoots.push(root);
+    await git(root, ['init']);
+    await git(root, ['config', 'user.name', 'Hawk Test']);
+    await git(root, ['config', 'user.email', 'hawk-test@localhost']);
+    await writeFile(join(root, 'app.txt'), 'base\n', 'utf8');
+    await git(root, ['add', 'app.txt']);
+    await git(root, ['commit', '-m', 'base']);
+    const worker = join(root, 'docker-lane-worker.cjs');
+    await writeFile(
+      worker,
+      [
+        "const fs = require('node:fs');",
+        'process.stdin.resume();',
+        "process.stdin.once('data', (chunk) => {",
+        '  const request = JSON.parse(chunk.toString());',
+        "  fs.appendFileSync('app.txt', request.sessionId + '\\n');",
+        "  console.log(JSON.stringify({ type: 'worker-result', ok: true }));",
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+    const launched: string[] = [];
+    const dockerScheduler: AiDockerScheduler = {
+      planBatch: async (batchId, lanes, configuration) => ({
+        strategy: configuration?.strategy ?? 'latency',
+        dockerVersion: 'test-docker',
+        executions: new Map(
+          lanes.map((lane, index) => [
+            lane.id,
+            {
+              kind: 'docker' as const,
+              batchId,
+              image: 'hawk-worker:test',
+              resolvedImage: `sha256:${'b'.repeat(64)}`,
+              instanceId: `agent-0${index + 1}`,
+              schedulingScore: 100 - index,
+              schedulingReasons: ['test placement'],
+              criticalPathSeconds: 600,
+              cpu: 1,
+              memoryMb: 1024,
+              networkMode: 'none' as const,
+            },
+          ]),
+        ),
+      }),
+      launch: async (session) => {
+        launched.push(session.id);
+        return {
+          command: process.execPath,
+          args: [worker],
+          cwd: session.workerRoot,
+          env: process.env,
+          requestWorkspaceRoot: session.workerRoot,
+          requestAgentSessionPath: session.agentSessionPath,
+        };
+      },
+    };
+    const manager = new AiSessionManager({
+      workspaceRoot: root,
+      storageRoot: join(root, '.test-storage'),
+      workerLaunch: { command: process.execPath, args: [worker] },
+      dockerScheduler,
+    });
+    await manager.initialize();
+    try {
+      await expect(
+        manager.createParallelBatch({ objective: 'Patch app', approved: true }),
+      ).rejects.toThrow('mount isolated worktrees');
+      const batch = await manager.createParallelBatch({
+        objective: 'Patch app',
+        lanes: 3,
+        approved: true,
+        dockerApproved: true,
+        docker: { strategy: 'throughput', networkMode: 'none' },
+      });
+      expect(batch.scheduler).toEqual({
+        runtime: 'docker',
+        strategy: 'throughput',
+        dockerVersion: 'test-docker',
+      });
+      const initialBatch = await manager.batch(batch.batchId);
+      expect(initialBatch).toMatchObject({
+        batchId: batch.batchId,
+        scheduler: batch.scheduler,
+      });
+      expect(Object.values(initialBatch.counts).reduce((sum, count) => sum + (count ?? 0), 0)).toBe(
+        3,
+      );
+      expect(
+        initialBatch.sessions.every((session) => session.execution?.batchId === batch.batchId),
+      ).toBe(true);
+      expect(launched).toEqual(batch.sessions.map((session) => session.id));
+      const reviews = await Promise.all(
+        batch.sessions.map((session) => waitForStatus(manager, session.id, 'awaiting-review')),
+      );
+      expect(reviews.map((session) => session.execution?.instanceId)).toEqual([
+        'agent-01',
+        'agent-02',
+        'agent-03',
+      ]);
+      for (const session of reviews) await manager.reject(session.id);
+      const finalBatch = await manager.batch(batch.batchId);
+      expect(finalBatch.lifecycle).toBe('completed');
+      expect(finalBatch.counts.rejected).toBe(3);
+      const events = await manager.batchEvents(batch.batchId);
+      expect(events.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sessionId: batch.sessions[0]?.id,
+            batchId: batch.batchId,
+          }),
+        ]),
+      );
+      expect(events.next[batch.sessions[0]?.id ?? '']).toBeGreaterThan(0);
     } finally {
       await manager.dispose();
     }

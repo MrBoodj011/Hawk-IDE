@@ -5,6 +5,8 @@ import * as readline from 'node:readline';
 import * as vscode from 'vscode';
 import { hawkLlmProvider, llmSecretStorageKey } from './llmProviderPolicy';
 import type {
+  AiBatchEventPage,
+  AiBatchStatus,
   AiDiffResponse,
   AiEventPage,
   AiMergeBatchResponse,
@@ -580,10 +582,29 @@ export class DaemonClient implements vscode.Disposable {
     lanes = 3,
   ): Promise<AiParallelBatchResponse> {
     const daemon = await this.start(workspace);
+    const configuration = vscode.workspace.getConfiguration('hawk', workspace);
+    const image = configuration.get<string>('agent.parallelDocker.image', 'hawk-worker:local');
+    const strategy = configuration.get<'balanced' | 'latency' | 'throughput'>(
+      'agent.parallelDocker.strategy',
+      'latency',
+    );
+    const cpuPerLane = configuration.get<number>('agent.parallelDocker.cpuPerLane', 1);
+    const memoryMbPerLane = configuration.get<number>('agent.parallelDocker.memoryMbPerLane', 2048);
+    const networkMode = configuration.get<'provider-egress' | 'none'>(
+      'agent.parallelDocker.networkMode',
+      'provider-egress',
+    );
     return await this.request<AiParallelBatchResponse>(daemon, '/v1/ai/batches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ objective, context, lanes, approved: true }),
+      body: JSON.stringify({
+        objective,
+        context,
+        lanes,
+        approved: true,
+        dockerApproved: true,
+        docker: { image, strategy, cpuPerLane, memoryMbPerLane, networkMode },
+      }),
     });
   }
 
@@ -629,6 +650,27 @@ export class DaemonClient implements vscode.Disposable {
     return await this.request<AiEventPage>(
       daemon,
       `/v1/ai/sessions/${encodeURIComponent(sessionId)}/events?after=${after}`,
+    );
+  }
+
+  async aiBatch(workspace: vscode.Uri, batchId: string): Promise<AiBatchStatus> {
+    const daemon = await this.start(workspace);
+    return await this.request<AiBatchStatus>(
+      daemon,
+      `/v1/ai/batches/${encodeURIComponent(batchId)}`,
+    );
+  }
+
+  async aiBatchEvents(
+    workspace: vscode.Uri,
+    batchId: string,
+    after: Record<string, number> = {},
+  ): Promise<AiBatchEventPage> {
+    const daemon = await this.start(workspace);
+    const cursor = encodeURIComponent(JSON.stringify(after));
+    return await this.request<AiBatchEventPage>(
+      daemon,
+      `/v1/ai/batches/${encodeURIComponent(batchId)}/events?after=${cursor}`,
     );
   }
 
