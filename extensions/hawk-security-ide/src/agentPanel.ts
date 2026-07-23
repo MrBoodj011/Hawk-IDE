@@ -149,6 +149,9 @@ export class HawkAgentPanel implements vscode.Disposable {
         case 'ask':
           await this.ask(record);
           return;
+        case 'autonomous':
+          await this.runAutonomousVerifiedTask(record);
+          return;
         case 'parallel':
           await this.runParallelLanes(record);
           return;
@@ -200,7 +203,7 @@ export class HawkAgentPanel implements vscode.Disposable {
       throw new Error(`Keep each Hawk task below ${MAX_PROMPT_CHARS} characters.`);
     }
     const approval = await vscode.window.showWarningMessage(
-      'Launch three isolated Hawk agents for architecture, implementation, and verification? Each lane can use model tokens independently.',
+      'Launch three isolated Hawk agents for architecture, implementation, and verification? Each lane can use model tokens independently and will run detected test gates with bounded repair attempts.',
       { modal: true },
       'Launch 3 lanes',
     );
@@ -223,6 +226,45 @@ export class HawkAgentPanel implements vscode.Disposable {
     vscode.window.showInformationMessage(
       'Three durable Hawk lanes are running. When they finish, use Smart Synthesis to combine the strongest verified parts.',
     );
+  }
+
+  private async runAutonomousVerifiedTask(record: Record<string, unknown>): Promise<void> {
+    if (typeof record.prompt !== 'string') return;
+    const prompt = record.prompt.trim();
+    if (!prompt) return;
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      throw new Error(`Keep each Hawk task below ${MAX_PROMPT_CHARS} characters.`);
+    }
+    const workspace = this.requireWorkspace();
+    const maxRepairAttempts = vscode.workspace
+      .getConfiguration('hawk', workspace)
+      .get<number>('agent.autonomous.maxRepairAttempts', 2);
+    const approval = await vscode.window.showWarningMessage(
+      `Run this task autonomously inside an isolated worktree? Hawk may run detected project test gates and make up to ${maxRepairAttempts} bounded repair attempts. The final patch will never be applied automatically.`,
+      { modal: true },
+      'Run autonomous task',
+    );
+    if (approval !== 'Run autonomous task') return;
+    const contexts = Array.isArray(record.contexts)
+      ? record.contexts.filter((value): value is string => typeof value === 'string')
+      : [];
+    const context = await this.composeContext(workspace, contexts, prompt);
+    this.post({
+      type: 'busy',
+      text: 'Launching an autonomous verified task in an isolated worktree...',
+    });
+    const session = await this.client.createAiSession(workspace, prompt, context, {
+      background: true,
+      autoResume: true,
+      autoVerify: true,
+      autoVerifyApproved: true,
+      maxAutoFixAttempts: maxRepairAttempts,
+    });
+    this.activeSessionId = session.id;
+    this.lastEventId = 0;
+    this.post({ type: 'session', session });
+    await this.syncHistory();
+    this.startPolling();
   }
 
   private async smartMerge(): Promise<void> {

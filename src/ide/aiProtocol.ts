@@ -56,6 +56,15 @@ export interface AiTestResult {
   output: string;
 }
 
+export interface AiVerificationAttempt {
+  attempt: number;
+  startedAt: string;
+  completedAt: string;
+  patchHash?: string;
+  outcome: 'passed' | 'failed' | 'cancelled';
+  results: AiTestResult[];
+}
+
 export interface AiCheckpointSummary {
   id: string;
   label: string;
@@ -76,6 +85,10 @@ export interface AiSessionSummary {
   background: boolean;
   autoResume: boolean;
   resumeCount: number;
+  autoVerify: boolean;
+  maxAutoFixAttempts: number;
+  autoFixAttempt: number;
+  verificationHistory: AiVerificationAttempt[];
   error?: string;
   diff?: AiDiffSummary;
   checkpoints: AiCheckpointSummary[];
@@ -112,6 +125,9 @@ export interface AiCreateSessionRequest {
   context?: string;
   background?: boolean;
   autoResume?: boolean;
+  autoVerify?: boolean;
+  autoVerifyApproved?: true;
+  maxAutoFixAttempts?: number;
 }
 
 export interface AiContinueSessionRequest {
@@ -143,6 +159,7 @@ export interface AiParallelBatchRequest {
   objective: string;
   context?: string;
   lanes?: number;
+  approved?: true;
 }
 
 export interface AiParallelBatchResponse {
@@ -155,6 +172,7 @@ export interface AiMergeBatchRequest {
   sessionIds: string[];
   objective?: string;
   context?: string;
+  approved?: true;
 }
 
 export interface AiMergeCandidateScore {

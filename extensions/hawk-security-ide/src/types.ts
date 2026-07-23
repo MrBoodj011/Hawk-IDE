@@ -843,6 +843,15 @@ export interface AiTestResult {
   output: string;
 }
 
+export interface AiVerificationAttempt {
+  attempt: number;
+  startedAt: string;
+  completedAt: string;
+  patchHash?: string;
+  outcome: 'passed' | 'failed' | 'cancelled';
+  results: AiTestResult[];
+}
+
 export interface AiCheckpointSummary {
   id: string;
   label: string;
@@ -863,6 +872,10 @@ export interface AiSessionSummary {
   background: boolean;
   autoResume: boolean;
   resumeCount: number;
+  autoVerify: boolean;
+  maxAutoFixAttempts: number;
+  autoFixAttempt: number;
+  verificationHistory: AiVerificationAttempt[];
   error?: string;
   diff?: AiDiffSummary;
   checkpoints: AiCheckpointSummary[];

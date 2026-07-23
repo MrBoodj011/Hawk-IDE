@@ -41,6 +41,7 @@ import type {
   AiSessionSummary,
   AiTestGate,
   AiTestResult,
+  AiVerificationAttempt,
 } from './aiProtocol.js';
 import { buildSemanticMerge } from './semanticMerge.js';
 import { migrateAiSessionDocument } from './stateMigrations.js';
@@ -50,7 +51,9 @@ const MAX_PATCH_BYTES = 2 * 1024 * 1024;
 const MAX_EVENT_TEXT = 100_000;
 const MAX_TEST_OUTPUT = 200_000;
 const TEST_TIMEOUT_MS = 10 * 60 * 1000;
-const SESSION_FILE_VERSION = 1;
+const SESSION_FILE_VERSION = 2;
+const DEFAULT_AUTO_FIX_ATTEMPTS = 2;
+const MAX_AUTO_FIX_ATTEMPTS = 5;
 
 interface WorkerLaunch {
   command: string;
@@ -97,6 +100,10 @@ interface StoredAiSession {
   background?: boolean;
   autoResume?: boolean;
   resumeCount?: number;
+  autoVerify?: boolean;
+  maxAutoFixAttempts?: number;
+  autoFixAttempt?: number;
+  verificationHistory?: AiVerificationAttempt[];
   error?: string;
   diff?: AiDiffSummary;
   checkpoints?: StoredCheckpoint[];
@@ -197,6 +204,9 @@ export class AiSessionManager {
           'status',
           'Hawk recovered the isolated task after restart. Interrupted tests were not assumed to pass.',
         );
+        if (session.autoVerify && session.diff) {
+          await this.runAutoVerification(session);
+        }
       } else if (session.status === 'preparing' || session.status === 'running') {
         session.status = 'paused';
         session.error = undefined;
@@ -263,6 +273,9 @@ export class AiSessionManager {
     input: AiCreateSessionRequest,
     internal: InternalCreateOptions = {},
   ): Promise<AiSessionSummary> {
+    if (input.autoVerify === true && input.autoVerifyApproved !== true) {
+      throw new Error('Operator approval is required for autonomous test and repair execution.');
+    }
     const prompt = validatePrompt(input.prompt);
     const id = randomUUID();
     const createdAt = this.timestamp();
@@ -292,6 +305,10 @@ export class AiSessionManager {
       background: input.background === true,
       autoResume: input.background === true && input.autoResume !== false,
       resumeCount: 0,
+      autoVerify: input.autoVerify === true,
+      maxAutoFixAttempts: boundedAutoFixAttempts(input.maxAutoFixAttempts),
+      autoFixAttempt: 0,
+      verificationHistory: [],
     };
     await this.save(session);
     await this.addEvent(session, 'status', 'Isolated worktree ready. Starting Hawk AI.');
@@ -303,6 +320,9 @@ export class AiSessionManager {
   }
 
   async createParallelBatch(input: AiParallelBatchRequest): Promise<AiParallelBatchResponse> {
+    if (input.approved !== true) {
+      throw new Error('Operator approval is required to launch autonomous parallel lanes.');
+    }
     const objective = validatePrompt(input.objective);
     const laneCount = Math.max(2, Math.min(6, Math.floor(input.lanes ?? 3)));
     const roles = [
@@ -345,6 +365,9 @@ export class AiSessionManager {
           context: input.context,
           background: true,
           autoResume: true,
+          autoVerify: true,
+          autoVerifyApproved: true,
+          maxAutoFixAttempts: DEFAULT_AUTO_FIX_ATTEMPTS,
         }),
       );
     }
@@ -356,6 +379,9 @@ export class AiSessionManager {
   }
 
   async mergeBatch(input: AiMergeBatchRequest): Promise<AiMergeBatchResponse> {
+    if (input.approved !== true) {
+      throw new Error('Operator approval is required to launch autonomous merge verification.');
+    }
     const ids = [...new Set(input.sessionIds ?? [])].slice(0, 6);
     if (ids.length < 2) throw new Error('Select at least two completed Hawk lanes to merge.');
     const candidates = await Promise.all(ids.map((id) => this.load(id)));
@@ -415,6 +441,9 @@ export class AiSessionManager {
           .slice(0, 1_600_000),
         background: true,
         autoResume: true,
+        autoVerify: true,
+        autoVerifyApproved: true,
+        maxAutoFixAttempts: DEFAULT_AUTO_FIX_ATTEMPTS,
       },
       {
         seedFiles: semantic.seedFiles,
@@ -442,6 +471,12 @@ export class AiSessionManager {
     session.diff = undefined;
     session.touchedFiles = [];
     session.testResults = [];
+    session.autoFixAttempt = 0;
+    session.verificationHistory = [];
+    if (input.autoVerify !== undefined) session.autoVerify = input.autoVerify === true;
+    if (input.maxAutoFixAttempts !== undefined) {
+      session.maxAutoFixAttempts = boundedAutoFixAttempts(input.maxAutoFixAttempts);
+    }
     await rm(session.patchPath, { force: true });
     await this.save(session);
     await this.addEvent(session, 'status', 'Continuing the task in the same isolated worktree.');
@@ -505,14 +540,35 @@ export class AiSessionManager {
       return gate;
     });
     if (selected.length === 0) throw new Error('Select at least one test gate.');
+    await this.executeTestGates(session, selected, 'approved');
+    return publicSession(session);
+  }
 
+  async cancelTests(id: string): Promise<AiSessionSummary> {
+    const session = await this.load(id);
+    const controller = this.testControllers.get(id);
+    if (controller && !controller.signal.aborted) controller.abort();
+    return publicSession(session);
+  }
+
+  private async executeTestGates(
+    session: StoredAiSession,
+    selected: AiTestGate[],
+    source: 'approved' | 'autonomous',
+  ): Promise<void> {
     const controller = new AbortController();
-    this.testControllers.set(id, controller);
+    this.testControllers.set(session.id, controller);
     session.status = 'testing';
     session.testResults = [];
     session.updatedAt = this.timestamp();
     await this.save(session);
-    await this.addEvent(session, 'status', `Running ${selected.length} approved test gate(s).`);
+    await this.addEvent(
+      session,
+      'status',
+      source === 'autonomous'
+        ? `Autonomous verification: running ${selected.length} pre-approved test gate(s).`
+        : `Running ${selected.length} approved test gate(s).`,
+    );
     try {
       for (const gate of selected) {
         if (controller.signal.aborted) break;
@@ -544,20 +600,91 @@ export class AiSessionManager {
         if (status !== 'passed') break;
       }
     } finally {
-      this.testControllers.delete(id);
-      session.status = 'awaiting-review';
+      this.testControllers.delete(session.id);
+      session.status = source === 'autonomous' ? 'testing' : 'awaiting-review';
       session.updatedAt = this.timestamp();
       await this.save(session);
       await this.addEvent(session, 'status', testSummary(session.testResults));
     }
-    return publicSession(session);
   }
 
-  async cancelTests(id: string): Promise<AiSessionSummary> {
-    const session = await this.load(id);
-    const controller = this.testControllers.get(id);
-    if (controller && !controller.signal.aborted) controller.abort();
-    return publicSession(session);
+  private async runAutoVerification(session: StoredAiSession): Promise<void> {
+    if (!session.autoVerify || !session.diff) return;
+    if (session.testGates.length === 0) {
+      await this.addEvent(
+        session,
+        'plan',
+        'Autonomous verification found no safe project test gates. The diff remains review-ready and unapplied.',
+      );
+      return;
+    }
+    const startedAt = this.timestamp();
+    await this.executeTestGates(session, session.testGates, 'autonomous');
+    const outcome = verificationOutcome(session.testResults, session.testGates.length);
+    const verification: AiVerificationAttempt = {
+      attempt: (session.autoFixAttempt ?? 0) + 1,
+      startedAt,
+      completedAt: this.timestamp(),
+      patchHash: session.diff.patchHash,
+      outcome,
+      results: structuredClone(session.testResults),
+    };
+    session.verificationHistory = [...(session.verificationHistory ?? []), verification].slice(-12);
+    await this.save(session);
+    if (outcome === 'passed') {
+      session.status = 'awaiting-review';
+      session.updatedAt = this.timestamp();
+      await this.save(session);
+      await this.addEvent(
+        session,
+        'done',
+        `Autonomous verification passed ${session.testGates.length}/${session.testGates.length} gates. The exact patch is ready for manual Apply or Reject.`,
+      );
+      return;
+    }
+    const maxAttempts = session.maxAutoFixAttempts ?? DEFAULT_AUTO_FIX_ATTEMPTS;
+    const currentAttempt = session.autoFixAttempt ?? 0;
+    if (outcome === 'cancelled' || currentAttempt >= maxAttempts) {
+      session.status = 'awaiting-review';
+      session.updatedAt = this.timestamp();
+      await this.save(session);
+      await this.addEvent(
+        session,
+        'error',
+        outcome === 'cancelled'
+          ? 'Autonomous verification was cancelled. The patch remains isolated for manual review.'
+          : `Autonomous verification stopped after ${currentAttempt} repair attempt(s). The failing patch remains isolated for manual review.`,
+      );
+      return;
+    }
+
+    session.autoFixAttempt = currentAttempt + 1;
+    session.updatedAt = this.timestamp();
+    await this.save(session);
+    const failed = session.testResults.find((result) => result.status !== 'passed');
+    const repairPrompt = [
+      `Autonomous repair attempt ${session.autoFixAttempt}/${maxAttempts}.`,
+      `The isolated patch failed the ${failed?.label ?? 'project'} gate.`,
+      'Diagnose the root cause from the bounded failure evidence, modify only this isolated worktree, and make the smallest correct fix.',
+      'Do not apply changes to the operator workspace. Hawk will rerun every detected gate after you finish.',
+      '',
+      `Original objective:\n${session.prompt}`,
+    ].join('\n');
+    const repairContext = [
+      'Autonomous verification failure evidence:',
+      ...(session.testResults ?? []).map(
+        (result) =>
+          `${result.label}: ${result.status} (exit ${result.exitCode ?? 'none'})\n${boundText(result.output, 12_000)}`,
+      ),
+    ]
+      .join('\n\n')
+      .slice(0, 40_000);
+    await this.addEvent(
+      session,
+      'plan',
+      `Verification failed. Starting bounded repair attempt ${session.autoFixAttempt}/${maxAttempts}; Apply remains manual.`,
+    );
+    await this.startWorker(session, repairPrompt, repairContext);
   }
 
   async checkpoint(id: string, request: AiCheckpointRequest = {}): Promise<AiSessionSummary> {
@@ -903,13 +1030,18 @@ export class AiSessionManager {
     }
     try {
       await this.captureDiff(session);
-      session.status = 'awaiting-review';
+      const shouldAutoVerify =
+        session.autoVerify === true && Boolean(session.diff) && session.testGates.length > 0;
+      session.status = shouldAutoVerify ? 'testing' : 'awaiting-review';
       session.updatedAt = this.timestamp();
       await this.save(session);
       const text = session.diff
         ? `Diff ready: ${session.diff.files} file(s), +${session.diff.insertions} -${session.diff.deletions}.`
         : 'Task completed with no file changes.';
       await this.addEvent(session, session.diff ? 'diff-ready' : 'done', text);
+      if (session.autoVerify && session.diff) {
+        await this.runAutoVerification(session);
+      }
     } catch (err) {
       session.status = 'failed';
       session.error = errorMessage(err);
@@ -1180,6 +1312,10 @@ function publicSession(session: StoredAiSession): AiSessionSummary {
     background: session.background === true,
     autoResume: session.autoResume === true,
     resumeCount: session.resumeCount ?? 0,
+    autoVerify: session.autoVerify === true,
+    maxAutoFixAttempts: session.maxAutoFixAttempts ?? DEFAULT_AUTO_FIX_ATTEMPTS,
+    autoFixAttempt: session.autoFixAttempt ?? 0,
+    verificationHistory: structuredClone(session.verificationHistory ?? []),
     error: session.error,
     diff: session.diff,
     checkpoints: (session.checkpoints ?? []).map(
@@ -1669,6 +1805,26 @@ function validatePrompt(prompt: string): string {
   if (!trimmed) throw new Error('Hawk task prompt is required.');
   if (trimmed.length > 12_000) throw new Error('Hawk task prompt is too long.');
   return trimmed;
+}
+
+function boundedAutoFixAttempts(value: unknown): number {
+  if (value === undefined) return DEFAULT_AUTO_FIX_ATTEMPTS;
+  if (!Number.isInteger(value)) throw new Error('Automatic repair attempts must be an integer.');
+  return Math.max(0, Math.min(MAX_AUTO_FIX_ATTEMPTS, Number(value)));
+}
+
+function verificationOutcome(
+  results: AiTestResult[],
+  expectedGateCount: number,
+): AiVerificationAttempt['outcome'] {
+  if (results.some((result) => result.status === 'cancelled')) return 'cancelled';
+  if (
+    results.length === expectedGateCount &&
+    results.every((result) => result.status === 'passed')
+  ) {
+    return 'passed';
+  }
+  return 'failed';
 }
 
 function validateSessionId(id: string): void {

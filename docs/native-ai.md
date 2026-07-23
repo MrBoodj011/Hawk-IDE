@@ -44,6 +44,11 @@ file.
 - **Run gates** executes only detected `package.json` scripts selected from the
   daemon's fixed `typecheck`, `lint`, `test`, and `build` allowlist. The user
   must approve the commands first.
+- **Auto verify** requires one explicit launch approval, runs the same fixed
+  gate allowlist, records each attempt in durable session history, and feeds
+  bounded failure output back to the isolated agent. It retries at most
+  `hawk.agent.autonomous.maxRepairAttempts` times, resumes after daemon
+  restart, and always stops at manual diff review. It never calls Apply.
 - **Apply** requires a modal approval and the exact reviewed patch hash. Hawk
   refuses the operation if any touched workspace file drifted after the
   session snapshot. Applying without passing detected gates requires a second
@@ -60,7 +65,8 @@ file.
 - **Open isolated terminal** opens the editor terminal in the review worktree,
   so streamed commands cannot change the operator workspace before Apply.
 - **Run 3 lanes** starts architecture, implementation, and verification agents
-  in independent worktrees. Each candidate remains a separate review session.
+  in independent worktrees. Each lane autonomously verifies its candidate with
+  bounded repair attempts. Every candidate remains a separate review session.
 - **Pause** stops the worker while retaining its worktree and saved agent
   memory. **Resume** continues it without recreating the task.
 - Background lanes recover after daemon restart and auto-resume when enabled.

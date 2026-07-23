@@ -71,7 +71,7 @@ An operational dashboard for source surface, API exposure, live and imported tra
 
 ### Hawk AI
 
-An in-editor engineering room with streaming responses, plans, tool events, task history, file/tab/git/diagnostics context, exact diff preview, checkpoints, Apply / Reject / Revert, test gates, and pause/resume recovery.
+An in-editor engineering room with streaming responses, plans, tool events, task history, file/tab/git/diagnostics context, exact diff preview, checkpoints, Apply / Reject / Revert, test gates, and pause/resume recovery. Autonomous Verify can run every detected safe project gate, feed bounded failure evidence back into the isolated agent, and retry a configurable number of repairs without ever auto-applying the patch.
 
 ![Hawk AI workspace](docs/assets/readme/hawk-ai.png)
 

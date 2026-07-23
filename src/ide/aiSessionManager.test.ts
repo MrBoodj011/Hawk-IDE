@@ -53,6 +53,10 @@ describe('AiSessionManager', () => {
         background: false,
         autoResume: false,
         resumeCount: 0,
+        autoVerify: false,
+        maxAutoFixAttempts: 2,
+        autoFixAttempt: 0,
+        verificationHistory: [],
         checkpoints: [],
         testGates: [],
         testResults: [],
@@ -61,7 +65,7 @@ describe('AiSessionManager', () => {
         version?: number;
         status?: string;
       };
-      expect(migrated).toMatchObject({ version: 1, status: 'awaiting-review' });
+      expect(migrated).toMatchObject({ version: 2, status: 'awaiting-review' });
     } finally {
       await manager.dispose();
     }
@@ -266,6 +270,106 @@ describe('AiSessionManager', () => {
     }
   }, 15_000);
 
+  it('runs a bounded autonomous test, debug, and fix loop without auto-applying', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-ai-auto-verify-'));
+    temporaryRoots.push(root);
+    await git(root, ['init']);
+    await git(root, ['config', 'user.name', 'Hawk Test']);
+    await git(root, ['config', 'user.email', 'hawk-test@localhost']);
+    await writeFile(join(root, 'app.txt'), 'base\n', 'utf8');
+    await writeFile(
+      join(root, 'package.json'),
+      JSON.stringify({
+        scripts: {
+          test: `node -e "const fs=require('fs');process.exit(fs.readFileSync('app.txt','utf8').includes('fixed')?0:1)"`,
+        },
+      }),
+      'utf8',
+    );
+    await git(root, ['add', 'app.txt', 'package.json']);
+    await git(root, ['commit', '-m', 'base']);
+
+    const worker = join(root, 'auto-verify-worker.cjs');
+    await writeFile(
+      worker,
+      [
+        "const fs = require('node:fs');",
+        'process.stdin.resume();',
+        "process.stdin.once('data', (chunk) => {",
+        '  const request = JSON.parse(chunk.toString());',
+        "  const repair = request.prompt.includes('Autonomous repair attempt');",
+        "  fs.writeFileSync('app.txt', repair ? 'fixed\\n' : 'broken\\n');",
+        "  console.log(JSON.stringify({ type: 'agent-event', event: { type: 'assistant-text', text: repair ? 'repaired' : 'initial patch' } }));",
+        "  console.log(JSON.stringify({ type: 'worker-result', ok: true }));",
+        '});',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const manager = new AiSessionManager({
+      workspaceRoot: root,
+      storageRoot: join(root, '.test-storage'),
+      workerLaunch: { command: process.execPath, args: [worker] },
+    });
+    await manager.initialize();
+    try {
+      await expect(
+        manager.create({
+          prompt: 'Attempt autonomous execution without approval',
+          autoVerify: true,
+        }),
+      ).rejects.toThrow('Operator approval is required');
+      const created = await manager.create({
+        prompt: 'Make app.txt pass the project gate',
+        background: true,
+        autoResume: true,
+        autoVerify: true,
+        autoVerifyApproved: true,
+        maxAutoFixAttempts: 2,
+      });
+      const review = await waitForStatus(manager, created.id, 'awaiting-review');
+      expect(review).toMatchObject({
+        status: 'awaiting-review',
+        autoVerify: true,
+        autoFixAttempt: 1,
+        maxAutoFixAttempts: 2,
+      });
+      expect(review.verificationHistory).toEqual([
+        expect.objectContaining({ attempt: 1, outcome: 'failed' }),
+        expect.objectContaining({ attempt: 2, outcome: 'passed' }),
+      ]);
+      expect(review.testResults).toEqual([
+        expect.objectContaining({ gateId: 'npm:test', status: 'passed' }),
+      ]);
+      expect(
+        normalizeLines(await readFile(join(review.sandboxPath ?? '', 'app.txt'), 'utf8')),
+      ).toBe('fixed\n');
+      expect(normalizeLines(await readFile(join(root, 'app.txt'), 'utf8'))).toBe('base\n');
+      const events = await manager.events(created.id);
+      expect(events.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'plan',
+            text: expect.stringContaining('Starting bounded repair attempt 1/2'),
+          }),
+          expect.objectContaining({
+            type: 'done',
+            text: expect.stringContaining('Autonomous verification passed'),
+          }),
+        ]),
+      );
+      const applied = await manager.apply(created.id, {
+        approved: true,
+        patchHash: review.diff?.patchHash ?? '',
+      });
+      expect(applied.status).toBe('applied');
+      expect(normalizeLines(await readFile(join(root, 'app.txt'), 'utf8'))).toBe('fixed\n');
+      await manager.revert(created.id);
+    } finally {
+      await manager.dispose();
+    }
+  }, 30_000);
+
   it('pauses and resumes an isolated background task without losing its worktree', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-ai-resume-'));
     temporaryRoots.push(root);
@@ -388,6 +492,7 @@ describe('AiSessionManager', () => {
       const merged = await manager.mergeBatch({
         sessionIds: [owner.id, audit.id],
         objective: 'combine policy behavior',
+        approved: true,
       });
       const review = await waitForStatus(manager, merged.mergeSession.id, 'awaiting-review');
       const seeded = normalizeLines(

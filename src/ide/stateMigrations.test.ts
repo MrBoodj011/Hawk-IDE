@@ -17,9 +17,9 @@ describe('Hawk state migrations', () => {
       },
       'session-1',
     );
-    expect(result).toMatchObject({ migrated: true, fromVersion: 0, toVersion: 1 });
+    expect(result).toMatchObject({ migrated: true, fromVersion: 0, toVersion: 2 });
     expect(result.value).toMatchObject({
-      version: 1,
+      version: 2,
       id: 'session-1',
       status: 'awaiting-review',
       background: false,
@@ -29,6 +29,30 @@ describe('Hawk state migrations', () => {
       touchedFiles: [],
       testGates: [],
       testResults: [],
+      autoVerify: false,
+      maxAutoFixAttempts: 2,
+      autoFixAttempt: 0,
+      verificationHistory: [],
+    });
+  });
+
+  it('adds bounded autonomous verification state to v1 sessions', () => {
+    const result = migrateAiSessionDocument(
+      {
+        version: 1,
+        id: 'session-1',
+        status: 'paused',
+        maxAutoFixAttempts: 99,
+      },
+      'session-1',
+    );
+    expect(result).toMatchObject({ migrated: true, fromVersion: 1, toVersion: 2 });
+    expect(result.value).toMatchObject({
+      version: 2,
+      autoVerify: false,
+      maxAutoFixAttempts: 5,
+      autoFixAttempt: 0,
+      verificationHistory: [],
     });
   });
 

@@ -377,6 +377,13 @@
           "maximum": 6,
           "description": "Maximum approved diagnose/edit/test retries in one isolated Hawk Debug Agent loop. Apply always remains manual."
         },
+        "hawk.agent.autonomous.maxRepairAttempts": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Maximum bounded repair attempts after an autonomous Hawk AI task fails detected project gates. The final patch always requires manual Apply."
+        },
         "hawk.reproduction.image": {
           "type": "string",
           "default": "hawk-worker:local",

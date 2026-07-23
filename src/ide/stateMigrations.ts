@@ -5,7 +5,7 @@ export interface MigrationResult<T> {
   toVersion: number;
 }
 
-const AI_SESSION_VERSION = 1;
+const AI_SESSION_VERSION = 2;
 const SEMANTIC_INDEX_VERSION = 5;
 const ORCHESTRATION_VERSION = 3;
 
@@ -35,6 +35,14 @@ export function migrateAiSessionDocument(
     value.touchedFiles = arrayOrEmpty(value.touchedFiles);
     value.testGates = arrayOrEmpty(value.testGates);
     value.testResults = arrayOrEmpty(value.testResults);
+    migrated = true;
+  }
+  if (fromVersion < 2) {
+    value.version = 2;
+    value.autoVerify = value.autoVerify === true;
+    value.maxAutoFixAttempts = boundedInteger(value.maxAutoFixAttempts, 2, 0, 5);
+    value.autoFixAttempt = boundedInteger(value.autoFixAttempt, 0, 0, 5);
+    value.verificationHistory = arrayOrEmpty(value.verificationHistory);
     migrated = true;
   }
   return {
@@ -169,6 +177,16 @@ function integerVersion(value: unknown, fallback: number): number {
 
 function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function boundedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!Number.isInteger(value)) return fallback;
+  return Math.max(minimum, Math.min(maximum, Number(value)));
 }
 
 function arrayOrEmpty(value: unknown): unknown[] {

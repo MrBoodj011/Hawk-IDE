@@ -287,6 +287,19 @@ export function renderAgentPanelHtml(
     }
     .parallel-send:hover { color: var(--text); border-color: rgba(69,217,255,.3); }
     .parallel-send:disabled { opacity: .45; cursor: wait; }
+    .autonomous-send {
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid rgba(76,240,183,.24);
+      border-radius: 8px;
+      color: var(--mint);
+      background: rgba(76,240,183,.045);
+      font-size: 8px;
+      font-weight: 850;
+      cursor: pointer;
+    }
+    .autonomous-send:hover { color: var(--text); border-color: rgba(76,240,183,.42); }
+    .autonomous-send:disabled { opacity: .45; cursor: wait; }
     .hint { max-width: 810px; margin: 7px auto 0; color: var(--faint); font-size: 8px; text-align: center; }
     .context-panel {
       overflow-y: auto;
@@ -340,6 +353,18 @@ export function renderAgentPanelHtml(
     .gate-result { display: flex; justify-content: space-between; gap: 7px; padding: 7px 8px; border: 1px solid var(--stroke); border-radius: 7px; color: var(--muted); font-size: 8px; }
     .gate-result .passed { color: var(--mint); }
     .gate-result .failed { color: var(--danger); }
+    .verification-summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 2px 0;
+      color: var(--faint);
+      font: 750 8px/1.4 var(--vscode-editor-font-family, monospace);
+    }
+    .verification-summary b { color: var(--muted); }
+    .verification-summary .passed { color: var(--mint); }
+    .verification-summary .failed,
+    .verification-summary .cancelled { color: var(--danger); }
     .history { display: grid; gap: 6px; }
     .history-item {
       width: 100%;
@@ -446,6 +471,7 @@ export function renderAgentPanelHtml(
             <div class="composer-foot">
               <div id="selected-context" class="selected-context"></div>
               <div class="send-group">
+                <button id="autonomous-send" class="autonomous-send">Auto verify</button>
                 <button id="parallel-send" class="parallel-send">Run 3 lanes</button>
                 <button id="send" class="send">Run with Hawk <span>↗</span></button>
               </div>
@@ -503,6 +529,7 @@ export function renderAgentPanelHtml(
     const vscode = acquireVsCodeApi();
     const prompt = document.getElementById('prompt');
     const send = document.getElementById('send');
+    const autonomousSend = document.getElementById('autonomous-send');
     const parallelSend = document.getElementById('parallel-send');
     const welcome = document.getElementById('welcome');
     const messages = document.getElementById('messages');
@@ -524,6 +551,7 @@ export function renderAgentPanelHtml(
       });
     });
     send.addEventListener('click', submit);
+    autonomousSend.addEventListener('click', submitAutonomous);
     parallelSend.addEventListener('click', submitParallel);
     prompt.addEventListener('keydown', (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -598,6 +626,9 @@ export function renderAgentPanelHtml(
         stateBadge.className = 'state-badge';
         stateBadge.textContent = 'Ready';
         modelBadge.textContent = 'Local control plane';
+        send.disabled = false;
+        autonomousSend.disabled = false;
+        parallelSend.disabled = false;
         ['show-diff', 'run-tests', 'apply', 'reject', 'revert', 'checkpoint', 'restore-checkpoint', 'open-terminal', 'smart-merge', 'pause', 'resume', 'cancel']
           .forEach((id) => { document.getElementById(id).hidden = true; });
         renderHistory([]);
@@ -663,6 +694,18 @@ export function renderAgentPanelHtml(
       vscode.postMessage({ action: 'parallel', prompt: value, contexts });
     }
 
+    function submitAutonomous() {
+      const value = prompt.value.trim();
+      if (!value || send.disabled) return;
+      const contexts = contextInputs.filter((input) => input.checked).map((input) => input.dataset.context);
+      welcome.style.display = 'none';
+      finalizeStream();
+      addMessage('user', value + '  /  autonomous verification');
+      prompt.value = '';
+      setBusy(true, 'Launching verified task');
+      vscode.postMessage({ action: 'autonomous', prompt: value, contexts });
+    }
+
     function renderEvent(event) {
       if (!event) return;
       if (event.type === 'assistant-delta') {
@@ -722,6 +765,8 @@ export function renderAgentPanelHtml(
       stateBadge.className = 'state-badge' + (busy ? ' busy' : offline ? ' offline' : failed ? ' failed' : '');
       stateBadge.textContent = statusLabel;
       send.disabled = busy;
+      autonomousSend.disabled = busy;
+      parallelSend.disabled = busy;
       prompt.placeholder = session.status === 'awaiting-review'
         ? 'Ask Hawk to refine this patch, explain a change, or add a focused fix...'
         : 'Ask Hawk to investigate, explain, implement, test, or secure...';
@@ -768,6 +813,17 @@ export function renderAgentPanelHtml(
     function renderGateResults(session) {
       const root = document.getElementById('gate-results');
       root.replaceChildren();
+      (session.verificationHistory || []).slice(-4).forEach((attempt) => {
+        const summary = document.createElement('div');
+        summary.className = 'verification-summary';
+        const label = document.createElement('b');
+        label.textContent = 'Auto verify #' + attempt.attempt;
+        const outcome = document.createElement('span');
+        outcome.className = attempt.outcome;
+        outcome.textContent = attempt.outcome;
+        summary.append(label, outcome);
+        root.append(summary);
+      });
       (session.testResults || []).forEach((result) => {
         const row = document.createElement('div');
         row.className = 'gate-result';
@@ -839,6 +895,7 @@ export function renderAgentPanelHtml(
 
     function setBusy(busy, label, failed = false, offline = false) {
       send.disabled = busy;
+      autonomousSend.disabled = busy;
       parallelSend.disabled = busy;
       stateBadge.className = 'state-badge' + (busy ? ' busy' : offline ? ' offline' : failed ? ' failed' : '');
       stateBadge.textContent = label;

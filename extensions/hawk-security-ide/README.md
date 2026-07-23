@@ -14,8 +14,11 @@ Edit, a privacy-safe per-model acceptance/latency scorecard, and
 natural-language code search. Every edit
 runs in an isolated git worktree. The exact diff can be checkpointed,
 previewed, tested, applied, rejected, or safely reverted; an optional task
-terminal streams inside that isolated worktree. Three-lane coding runs keep
-architecture, implementation, and verification candidates separate. It imports the
+terminal streams inside that isolated worktree. Auto Verify runs detected safe
+project gates, sends bounded failure evidence back to the isolated agent, and
+retries a configurable number of repairs while keeping Apply manual.
+Three-lane coding runs keep architecture, implementation, and verification
+candidates separate and independently verified. It imports the
 separate Hawk GitHub App's `health.json` as a sanitized local supply-chain
 summary and can optionally sync a GitHub raw/Contents API URL; an optional
 token stays in Hawk's encrypted local secret storage.

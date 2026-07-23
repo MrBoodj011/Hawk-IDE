@@ -533,12 +533,19 @@ export class DaemonClient implements vscode.Disposable {
     workspace: vscode.Uri,
     prompt: string,
     context: string,
+    options: {
+      background?: boolean;
+      autoResume?: boolean;
+      autoVerify?: boolean;
+      autoVerifyApproved?: true;
+      maxAutoFixAttempts?: number;
+    } = {},
   ): Promise<AiSessionSummary> {
     const daemon = await this.start(workspace);
     return await this.request<AiSessionSummary>(daemon, '/v1/ai/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, context }),
+      body: JSON.stringify({ prompt, context, ...options }),
     });
   }
 
@@ -552,7 +559,7 @@ export class DaemonClient implements vscode.Disposable {
     return await this.request<AiParallelBatchResponse>(daemon, '/v1/ai/batches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ objective, context, lanes }),
+      body: JSON.stringify({ objective, context, lanes, approved: true }),
     });
   }
 
@@ -566,7 +573,7 @@ export class DaemonClient implements vscode.Disposable {
     return await this.request<AiMergeBatchResponse>(daemon, '/v1/ai/batches/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionIds, objective, context }),
+      body: JSON.stringify({ sessionIds, objective, context, approved: true }),
     });
   }
 
