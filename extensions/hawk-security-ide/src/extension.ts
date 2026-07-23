@@ -192,6 +192,21 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`Hawk could not load integrations: ${errorMessage(err)}`);
       }
     }),
+    vscode.commands.registerCommand('hawk.showPrivacyPosture', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        const [posture, profile] = await Promise.all([
+          client.privacyPosture(workspace),
+          client.learningProfile(workspace),
+        ]);
+        vscode.window.showInformationMessage(
+          `Hawk local-first: ${posture.localModel.provider} (${posture.localModel.remoteFallback}); ${profile.localSignals} local learning signals, ${profile.crossProjectSignals} cross-project.`,
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(`Hawk could not load privacy posture: ${errorMessage(err)}`);
+      }
+    }),
     vscode.commands.registerCommand('hawk.syncHawkHealth', async () => {
       await dashboard.syncHawkHealth();
     }),

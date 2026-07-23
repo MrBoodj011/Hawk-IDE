@@ -508,6 +508,19 @@ describe('startIdeDaemon', () => {
       const memory = await fetch(`${daemon.url}/v1/memory/posture`, { headers });
       expect(memory.status).toBe(200);
       await expect(memory.json()).resolves.toMatchObject({ active: 0, stale: 0, revoked: 0 });
+      const privacy = await fetch(`${daemon.url}/v1/privacy/posture`, { headers });
+      expect(privacy.status).toBe(200);
+      await expect(privacy.json()).resolves.toMatchObject({
+        mode: 'local-first',
+        localModel: { provider: 'ollama' },
+        cache: { scope: 'process-local' },
+        index: { persistent: true, incremental: true },
+      });
+      const learning = await fetch(`${daemon.url}/v1/learning/profile`, { headers });
+      expect(learning.status).toBe(200);
+      await expect(learning.json()).resolves.toMatchObject({
+        profile: { projectKey: expect.stringMatching(/^[a-f0-9]{32}$/) },
+      });
       const mission = await fetch(`${daemon.url}/v1/missions/plan`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },

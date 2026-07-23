@@ -83,6 +83,7 @@ export interface AiSessionManagerOptions {
   workerLaunch?: WorkerLaunch;
   dockerScheduler?: AiDockerScheduler;
   governedMemory?: GovernedMemory;
+  learningContext?: (prompt: string) => Promise<string>;
   now?: () => Date;
 }
 
@@ -187,6 +188,7 @@ export class AiSessionManager {
   private readonly workerLaunch: WorkerLaunch;
   private readonly dockerScheduler: AiDockerScheduler;
   private readonly governedMemory?: GovernedMemory;
+  private readonly learningContext?: (prompt: string) => Promise<string>;
   private readonly now: () => Date;
   private readonly workers = new Map<string, ChildProcessWithoutNullStreams>();
   private readonly workerCancels = new Map<string, () => Promise<void>>();
@@ -215,6 +217,7 @@ export class AiSessionManager {
         daemonEnvironment: { ...process.env, ...this.workerLaunch.env },
       });
     this.governedMemory = options.governedMemory;
+    this.learningContext = options.learningContext;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -1264,9 +1267,10 @@ export class AiSessionManager {
   }
 
   private async injectGovernedMemory(prompt: string, context: string): Promise<string> {
-    if (!this.governedMemory) return context;
+    const learning = this.learningContext ? await this.learningContext(prompt).catch(() => '') : '';
+    if (!this.governedMemory) return learning ? `${context}\n\n${learning}` : context;
     const entries = await this.governedMemory.query(prompt, undefined, 16);
-    if (entries.length === 0) return context;
+    if (entries.length === 0) return learning ? `${context}\n\n${learning}` : context;
     // Agent worktrees are detached by design; resolve branch provenance from
     // the operator repository before applying branch-scoped memory.
     const branch = await git(this.workspaceRoot, ['branch', '--show-current']).catch(() => '');
@@ -1275,7 +1279,7 @@ export class AiSessionManager {
         entry.validationStatus === 'active' &&
         (!entry.branch || !branch || entry.branch === branch),
     );
-    if (relevant.length === 0) return context;
+    if (relevant.length === 0) return learning ? `${context}\n\n${learning}` : context;
     const memory = relevant
       .map((entry) => {
         const value = redact(entry.value).replace(/\r?\n/g, ' ').trim();
@@ -1291,6 +1295,7 @@ export class AiSessionManager {
       '<hawk-governed-memory>',
       memory,
       '</hawk-governed-memory>',
+      learning,
     ]
       .filter(Boolean)
       .join('\n')

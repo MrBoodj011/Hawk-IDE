@@ -235,6 +235,25 @@ restart restores interrupted work as paused/recoverable. Background sessions
 with auto-resume enabled continue from saved agent memory; interrupted test
 gates are never assumed to have passed.
 
+## Privacy, speed and durable learning
+
+Hawk runs local-first. Ollama on `127.0.0.1:11434` is the default coding
+provider, remote fallback is disabled unless the operator explicitly opts in,
+and provider keys stay in OS-backed secret storage. Edit predictions use a
+bounded process-local cache; the semantic index is persistent, incremental,
+warm-started and kept under a 320 MiB resident budget. Index embeddings are
+disabled by default and, when enabled, remain local. The daemon reports its
+startup and index-ready timings at `GET /v1/privacy/posture`.
+
+Hawk also keeps a local, redacted learning ledger. Findings, reproductions,
+fix reviews, test outcomes and approved operator decisions are fingerprinted,
+secret/path redacted and stored under `.hawk/brain/learning-signals/`; an
+aggregate copy under `~/.hawk/brain/learning-signals/` enables cross-project
+patterns without uploading source code or transcripts. Learning entries are
+read-only evidence in agent context, never instructions, and can be queried
+with `GET /v1/learning/profile`, `GET /v1/learning/query` or the MCP tools
+`hawk_learning_profile` and `hawk_learning_query`.
+
 ## Local API
 
 The token-gated daemon exposes:
@@ -271,6 +290,10 @@ PUT  /v1/workspace/semantic-index/file
 DELETE /v1/workspace/semantic-index/file
 POST /v1/workspace/search
 POST /v1/diagnostics/coding-core
+GET  /v1/privacy/posture
+GET  /v1/learning/profile
+GET  /v1/learning/query?q=<text>
+POST /v1/learning/decision
 ```
 
 All mutating review endpoints require an explicit approval field. Apply also

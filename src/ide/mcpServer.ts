@@ -16,6 +16,8 @@ import { listMcpToolGovernance } from './mcpGovernance.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
+import { privacySpeedPosture } from './privacySpeed.js';
+import { ProjectLearningLedger } from './projectLearning.js';
 import { IDE_PROTOCOL_VERSION, type WorkspaceInventory } from './protocol.js';
 import { scanProtocolSurfaces } from './protocolIntelligence.js';
 import { scanWorkspaceRoutes } from './routeScanner.js';
@@ -96,6 +98,7 @@ async function main(): Promise<void> {
   const autonomousSecurity = new AutonomousSecurityService(args.workspaceRoot, brain.store);
   const agentFleet = new AgentFleetRegistry(brain.store);
   const mcpTrust = new McpTrustPlatform(brain.store);
+  const learning = new ProjectLearningLedger(brain.store, args.workspaceRoot);
   const reproducer = new SandboxVulnerabilityReproducer(
     args.workspaceRoot,
     brain.store,
@@ -175,6 +178,42 @@ async function main(): Promise<void> {
       inputSchema: {},
     },
     async () => textResult(JSON.stringify({ integrations: listHawkIntegrations() }, null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_privacy_posture',
+    {
+      title: 'Inspect Hawk privacy and speed posture',
+      description:
+        'Show local-first Ollama policy, bounded cache, persistent incremental index, memory budget, and redaction guarantees.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(privacySpeedPosture(), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_learning_profile',
+    {
+      title: 'Inspect Hawk project learning profile',
+      description:
+        'Read the local, redacted learning profile built from findings, reproductions, fixes, tests, and decisions.',
+      inputSchema: {},
+    },
+    async () => textResult(JSON.stringify(await learning.profile(), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_learning_query',
+    {
+      title: 'Query Hawk cross-project learning',
+      description:
+        'Find relevant redacted local evidence from this and previous projects without sending it to a hosted service.',
+      inputSchema: {
+        query: z.string().max(2_000),
+        limit: z.number().int().min(1).max(20).optional(),
+      },
+    },
+    async (input) =>
+      textResult(
+        JSON.stringify({ signals: await learning.query(input.query, input.limit) }, null, 2),
+      ),
   );
   mcp.registerTool(
     'hawk_protocol_inventory',

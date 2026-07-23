@@ -920,6 +920,44 @@ export interface GovernedMemoryPosture {
   checkedAt: string;
 }
 
+export interface HawkPrivacySpeedPosture {
+  protocolVersion: number;
+  mode: 'local-first';
+  localModel: {
+    provider: 'ollama';
+    enabled: boolean;
+    endpoint: string;
+    remoteFallback: 'disabled' | 'explicit-opt-in';
+  };
+  cache: { enabled: boolean; ttlMs: number; maxEntries: number; scope: 'process-local' };
+  index: {
+    persistent: true;
+    incremental: true;
+    warmStart: true;
+    embeddings: 'disabled' | 'local-optional';
+    memoryBudgetBytes: number;
+  };
+  startup: { lazyIndex: true; daemonReadyMs?: number; indexReadyMs?: number };
+  redaction: { prompts: true; terminal: true; findings: true; learningSignals: true };
+}
+
+export interface HawkLearningProfile {
+  projectKey: string;
+  updatedAt: string;
+  localSignals: number;
+  crossProjectSignals: number;
+  counts: Record<'finding' | 'reproduction' | 'fix' | 'test' | 'decision', number>;
+  outcomes: Record<'positive' | 'negative' | 'neutral', number>;
+  topRules: Array<{ ruleId: string; count: number; positive: number }>;
+  recent: Array<{
+    kind: 'finding' | 'reproduction' | 'fix' | 'test' | 'decision';
+    outcome: 'positive' | 'negative' | 'neutral';
+    summary: string;
+    createdAt: string;
+  }>;
+  digest: string;
+}
+
 export type GovernedMissionProfile = 'review' | 'remediate' | 'authorized-validation';
 
 export interface GovernedMissionPlan {

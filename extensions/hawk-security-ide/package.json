@@ -28,6 +28,7 @@
     "onCommand:hawk.importSecuritySarif",
     "onCommand:hawk.runSecurityAdapter",
     "onCommand:hawk.showIntegrations",
+    "onCommand:hawk.showPrivacyPosture",
     "onCommand:hawk.syncHawkHealth",
     "onCommand:hawk.configureHawkHealthSync",
     "onCommand:hawk.github.configure",
@@ -162,6 +163,10 @@
       {
         "command": "hawk.showIntegrations",
         "title": "Hawk: Show Governed Integrations"
+      },
+      {
+        "command": "hawk.showPrivacyPosture",
+        "title": "Hawk: Show Privacy, Speed and Learning Posture"
       },
       {
         "command": "hawk.syncHawkHealth",
@@ -337,6 +342,11 @@
           "type": "string",
           "default": "",
           "description": "Optional local or provider-compatible base URL used by Hawk AI and Hawk Tab."
+        },
+        "hawk.privacy.localOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep Hawk AI local-first and disable remote fallback unless explicitly turned off."
         },
         "hawk.localAI.offerSetupOnFirstRun": {
           "type": "boolean",

@@ -71,6 +71,19 @@ SecretStorage, injected only into the local daemon, and never written to
 settings or workspace files. Remote custom endpoints require HTTPS; local HTTP
 is restricted to loopback.
 
+Hawk is local-first and fast by default: Ollama is the default provider,
+remote fallback is explicit opt-in, edit predictions use a bounded cache, and
+the persistent semantic index updates incrementally with optional local-only
+embeddings. **Hawk: Show Privacy, Speed and Learning Posture** displays the
+active redaction, memory and startup guarantees.
+
+Hawk builds a defensible local advantage through a redacted learning ledger.
+Findings, reproductions, fix reviews, tests and approved decisions are
+fingerprinted and reused as read-only evidence across projects. No source,
+terminal transcript or learning signal is uploaded automatically; cross-project
+patterns stay in `~/.hawk/brain/learning-signals/` and can be inspected with the
+`hawk_learning_profile` and `hawk_learning_query` MCP tools.
+
 The production updater reads the Stable or Beta channel from Hawk's HTTPS
 update service and falls back to the official GitHub Releases API. Installer
 size, SHA-256 manifest, trusted redirect host, Windows Authenticode chain, and

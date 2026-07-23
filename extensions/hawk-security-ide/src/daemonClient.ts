@@ -30,6 +30,8 @@ import type {
   GovernedMissionProfile,
   HawkHealthReport,
   HawkIntegrationsResponse,
+  HawkLearningProfile,
+  HawkPrivacySpeedPosture,
   IdentityReplayPlan,
   IdentityReplayResult,
   InlineCompletionResponse,
@@ -501,6 +503,20 @@ export class DaemonClient implements vscode.Disposable {
     return await this.request<GovernedMemoryPosture>(daemon, '/v1/memory/posture');
   }
 
+  async privacyPosture(workspace: vscode.Uri): Promise<HawkPrivacySpeedPosture> {
+    const daemon = await this.start(workspace);
+    return await this.request<HawkPrivacySpeedPosture>(daemon, '/v1/privacy/posture');
+  }
+
+  async learningProfile(workspace: vscode.Uri): Promise<HawkLearningProfile> {
+    const daemon = await this.start(workspace);
+    const response = await this.request<{ profile: HawkLearningProfile }>(
+      daemon,
+      '/v1/learning/profile',
+    );
+    return response.profile;
+  }
+
   async importHar(workspace: vscode.Uri, har: unknown): Promise<TrafficInventory> {
     const daemon = await this.start(workspace);
     return await this.request<TrafficInventory>(daemon, '/v1/traffic/import/har', {
@@ -924,6 +940,7 @@ export class DaemonClient implements vscode.Disposable {
       ...(preferredProvider ? { HAWK_IDE_BACKEND: preferredProvider } : {}),
       ...(preferredModel ? { HAWK_IDE_MODEL: preferredModel } : {}),
       ...(preferredBaseUrl ? { HAWK_IDE_BASE_URL: preferredBaseUrl } : {}),
+      HAWK_IDE_LOCAL_ONLY: hawkConfiguration.get<boolean>('privacy.localOnly', true) ? '1' : '0',
       ...(preferredApiKey ? { HAWK_IDE_API_KEY: preferredApiKey } : {}),
       HAWK_IDE_EDIT_CACHE_ENABLED: hawkConfiguration.get<boolean>(
         'tab.editPrediction.cacheEnabled',

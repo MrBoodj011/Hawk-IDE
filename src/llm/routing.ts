@@ -118,10 +118,11 @@ class RoutedClient implements StreamingClient {
 }
 
 function applyIdeOverrides(cfg: Config): Config {
+  const localOnly = process.env.HAWK_IDE_LOCAL_ONLY === '1';
   const requestedBackend = process.env.HAWK_IDE_BACKEND;
   const backend =
     requestedBackend && BACKENDS.has(requestedBackend) ? (requestedBackend as Backend) : undefined;
-  return {
+  const overridden: Config = {
     ...cfg,
     ...(backend ? { backend } : {}),
     ...(process.env.HAWK_IDE_MODEL ? { model: process.env.HAWK_IDE_MODEL } : {}),
@@ -130,6 +131,15 @@ function applyIdeOverrides(cfg: Config): Config {
     // only into the local daemon process. It is never written to config.json,
     // workspace settings, logs, prompts, or session state.
     ...(process.env.HAWK_IDE_API_KEY ? { api_key: process.env.HAWK_IDE_API_KEY } : {}),
+  };
+  if (!localOnly) return overridden;
+  return {
+    ...overridden,
+    backend: 'ollama',
+    base_url: process.env.HAWK_IDE_BASE_URL || 'http://127.0.0.1:11434',
+    api_key: '',
+    api_key_env: '',
+    fallback_models: [],
   };
 }
 

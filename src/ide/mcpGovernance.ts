@@ -120,6 +120,30 @@ const TOOLS: readonly McpToolGovernance[] = [
     network: 'none',
     description: 'Inspect active, stale and revoked provenance-bound security memory.',
   },
+  {
+    name: 'hawk_privacy_posture',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'none',
+    description: 'Inspect local-first Ollama, cache, index and redaction guarantees.',
+  },
+  {
+    name: 'hawk_learning_profile',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'none',
+    description: 'Inspect the redacted local and cross-project learning profile.',
+  },
+  {
+    name: 'hawk_learning_query',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'none',
+    description: 'Query redacted local learning evidence for agent context.',
+  },
 ] as const;
 
 export function listMcpToolGovernance(): McpToolGovernance[] {

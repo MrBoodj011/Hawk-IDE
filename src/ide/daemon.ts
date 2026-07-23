@@ -44,6 +44,8 @@ import { McpTrustPlatform } from './mcpTrust.js';
 import { HawkObservability } from './observability.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import { analyzePullRequestDiff, pullRequestReportToSarif } from './prSecurityAgent.js';
+import { privacySpeedPosture } from './privacySpeed.js';
+import { ProjectLearningLedger } from './projectLearning.js';
 import { ProofGraph } from './proofGraph.js';
 import {
   type DaemonHealth,
@@ -71,6 +73,7 @@ import {
   type ReproductionOrchestrator,
   SandboxVulnerabilityReproducer,
 } from './sandboxReproduction.js';
+import { stableHash } from './scopePolicy.js';
 import {
   type SecurityAdapterId,
   adapterFingerprint,
@@ -152,6 +155,13 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
   const evidencePacks: EvidencePackReport[] = [];
   let hawkHealth = await loadStoredHawkHealthReport(workspaceRoot, now);
   const durableStore = new DurableStore(workspaceRoot);
+  const learning = new ProjectLearningLedger(durableStore, workspaceRoot, now);
+  const startupAt = Date.now();
+  const startup = {
+    daemonReadyMs: undefined as number | undefined,
+    indexReadyMs: undefined as number | undefined,
+    startedAt: startupAt,
+  };
   const deliveries: SecurityGraphDelivery[] = await durableStore.listJson<SecurityGraphDelivery>(
     'security-graph-deliveries',
   );
@@ -175,7 +185,12 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
     orchestrator: reproductionOrchestrator,
     now,
   });
-  const aiSessions = new AiSessionManager({ workspaceRoot, now, governedMemory });
+  const aiSessions = new AiSessionManager({
+    workspaceRoot,
+    now,
+    governedMemory,
+    learningContext: (prompt) => learning.context(prompt),
+  });
   await aiSessions.initialize();
   const semanticIndex = new SemanticWorkspaceIndex(workspaceRoot, {
     embeddings: {
@@ -227,6 +242,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       findings: () => findings,
       setFindings: (value) => {
         findings = value;
+        for (const finding of value) void learning.recordFinding(finding).catch(() => undefined);
       },
       traffic: () =>
         mergeTrafficInventories(
@@ -264,6 +280,8 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       autonomousSecurity,
       agentFleet,
       governedMemory,
+      learning,
+      startup,
       securityToolRunner,
       mcpTrust,
       recordCompletionLatency: (latencyMs) => {
@@ -288,6 +306,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       reject(err);
     });
     server.listen(opts.port ?? 0, host, () => {
+      startup.daemonReadyMs = Date.now() - startupAt;
       const address = server.address();
       const port = address && typeof address === 'object' ? address.port : (opts.port ?? 0);
       const url = `http://${host}:${port}`;
@@ -341,6 +360,8 @@ interface RequestContext {
   autonomousSecurity: AutonomousSecurityService;
   agentFleet: AgentFleetRegistry;
   governedMemory: GovernedMemory;
+  learning: ProjectLearningLedger;
+  startup: { daemonReadyMs?: number; indexReadyMs?: number; startedAt: number };
   mcpTrust: McpTrustPlatform;
   completionLatencies(): number[];
   recordCompletionLatency(latencyMs: number): void;
@@ -380,6 +401,7 @@ async function handleRequest(
         scanWorkspaceRoutes(context.workspaceRoot),
         context.semanticIndex.build(),
       ]);
+      context.startup.indexReadyMs = Date.now() - context.startup.startedAt;
       const inventory: WorkspaceInventory = {
         protocolVersion: IDE_PROTOCOL_VERSION,
         root: context.workspaceRoot,
@@ -398,7 +420,9 @@ async function handleRequest(
   if (req.method === 'POST' && pathname === '/v1/workspace/semantic-index') {
     try {
       await consumeBody(req);
-      sendJSON(res, 200, await context.semanticIndex.build());
+      const stats = await context.semanticIndex.build();
+      context.startup.indexReadyMs = Date.now() - context.startup.startedAt;
+      sendJSON(res, 200, stats);
     } catch (err) {
       sendJSON(res, 500, { ok: false, error: errorMessage(err) });
     }
@@ -590,6 +614,32 @@ async function handleRequest(
       protocolVersion: IDE_PROTOCOL_VERSION,
       integrations: listHawkIntegrations(),
     });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/privacy/posture') {
+    const report = context.editPredictions.report();
+    sendJSON(
+      res,
+      200,
+      privacySpeedPosture({
+        cache: {
+          enabled: report.cache.enabled,
+          ttlMs: report.cache.ttlMs,
+          maxEntries: report.cache.maxEntries,
+        },
+        index: {
+          embeddingsEnabled:
+            context.semanticIndex.stats()?.embedding.enabled ??
+            process.env.HAWK_IDE_EMBEDDINGS === '1',
+          memoryBudgetBytes: context.semanticIndex.stats()?.memory.budgetBytes ?? 320 * 1024 * 1024,
+        },
+        startup: {
+          daemonReadyMs: context.startup.daemonReadyMs,
+          indexReadyMs: context.startup.indexReadyMs,
+        },
+      }),
+    );
     return;
   }
 
@@ -930,6 +980,49 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/learning/profile') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      profile: await context.learning.profile(),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/learning/query') {
+    const query = requestURL.searchParams.get('q') ?? '';
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      signals: await context.learning.query(query),
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/learning/decision') {
+    try {
+      const input = parseJSONBody<{
+        decision?: string;
+        outcome?: 'positive' | 'negative' | 'neutral';
+        approved?: boolean;
+      }>(await readBody(req));
+      if (input.approved !== true)
+        throw new Error('Operator approval is required to record a learning decision.');
+      if (!input.decision?.trim()) throw new Error('Decision is required.');
+      sendJSON(
+        res,
+        201,
+        await context.learning.record({
+          kind: 'decision',
+          outcome: input.outcome ?? 'neutral',
+          fingerprint: stableHash({ decision: input.decision }),
+          summary: input.decision,
+        }),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/memory/query') {
     const query = requestURL.searchParams.get('q') ?? '';
     const layerValue = requestURL.searchParams.get('layer');
@@ -1148,11 +1241,9 @@ async function handleRequest(
   if (req.method === 'POST' && aiTestsMatch?.[1]) {
     try {
       const input = parseJSONBody<AiRunTestsRequest>(await readBody(req));
-      sendJSON(
-        res,
-        200,
-        await context.aiSessions.runTests(decodeURIComponent(aiTestsMatch[1]), input),
-      );
+      const result = await context.aiSessions.runTests(decodeURIComponent(aiTestsMatch[1]), input);
+      await context.learning.recordSession(result);
+      sendJSON(res, 200, result);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -1177,11 +1268,12 @@ async function handleRequest(
   if (req.method === 'POST' && aiReproduceMatch?.[1]) {
     try {
       const input = parseJSONBody<AiReproduceRequest>(await readBody(req));
-      sendJSON(
-        res,
-        200,
-        await context.aiSessions.reproduce(decodeURIComponent(aiReproduceMatch[1]), input),
+      const result = await context.aiSessions.reproduce(
+        decodeURIComponent(aiReproduceMatch[1]),
+        input,
       );
+      await context.learning.recordSession(result);
+      sendJSON(res, 200, result);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -1191,11 +1283,11 @@ async function handleRequest(
   const aiSemanticReviewMatch = pathname.match(/^\/v1\/ai\/sessions\/([^/]+)\/semantic-review$/);
   if (req.method === 'POST' && aiSemanticReviewMatch?.[1]) {
     try {
-      sendJSON(
-        res,
-        200,
-        await context.aiSessions.semanticReview(decodeURIComponent(aiSemanticReviewMatch[1])),
+      const result = await context.aiSessions.semanticReview(
+        decodeURIComponent(aiSemanticReviewMatch[1]),
       );
+      await context.learning.recordSession(result);
+      sendJSON(res, 200, result);
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -1206,11 +1298,9 @@ async function handleRequest(
   if (req.method === 'POST' && aiApplyMatch?.[1]) {
     try {
       const input = parseJSONBody<AiApplyRequest>(await readBody(req));
-      sendJSON(
-        res,
-        200,
-        await context.aiSessions.apply(decodeURIComponent(aiApplyMatch[1]), input),
-      );
+      const result = await context.aiSessions.apply(decodeURIComponent(aiApplyMatch[1]), input);
+      await context.learning.recordSession(result);
+      sendJSON(res, 200, result);
     } catch (err) {
       sendJSON(res, 409, { ok: false, error: errorMessage(err) });
     }
