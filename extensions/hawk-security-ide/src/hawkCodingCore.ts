@@ -1,7 +1,14 @@
+import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { DaemonClient } from './daemonClient';
+import type {
+  MultiFileEditPredictionDocument,
+  MultiFileEditPredictionResponse,
+} from './types';
 
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
+const MAX_MULTI_FILE_DOCUMENT_CHARS = 80_000;
+const MAX_MULTI_FILE_TOTAL_CHARS = 240_000;
 const EDIT_HISTORY_LIMIT = 12;
 const EDIT_PREDICTION_WINDOW_MS = 45_000;
 
@@ -139,6 +146,9 @@ export class HawkCodingCore implements vscode.Disposable {
         const workspace = requireWorkspace();
         await this.client.clearEditPredictionCache(workspace);
         vscode.window.showInformationMessage('Hawk Next Edit cache cleared.');
+      }),
+      vscode.commands.registerCommand('hawk.predictMultiFileEdit', async () => {
+        await this.predictMultiFileEdit();
       }),
       vscode.commands.registerCommand(
         'hawk.editPrediction.accepted',
@@ -344,6 +354,233 @@ export class HawkCodingCore implements vscode.Disposable {
     this.schedulePredictionRejection(event.document.uri);
   }
 
+  private async predictMultiFileEdit(): Promise<void> {
+    const workspace = requireWorkspace();
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== 'file') {
+      throw new Error('Open a source file before requesting a multi-file Next Edit.');
+    }
+    const recentEdits = this.recentEdits
+      .filter((edit) => Date.now() - edit.at <= EDIT_PREDICTION_WINDOW_MS)
+      .slice(-8)
+      .map(({ at: _at, ...edit }) => edit);
+    if (recentEdits.length === 0) {
+      vscode.window.showInformationMessage(
+        'Make or accept one edit first so Hawk can infer the coordinated multi-file change.',
+      );
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('hawk');
+    const maxFiles = clamp(
+      configuration.get<number>('tab.editPrediction.multiFile.maxFiles', 6),
+      2,
+      8,
+    );
+    const uris = await this.multiFileCandidateUris(
+      workspace,
+      editor.document.uri,
+      recentEdits,
+      maxFiles,
+    );
+    const documents: MultiFileEditPredictionDocument[] = [];
+    let totalChars = 0;
+    for (const uri of uris) {
+      if (documents.length >= maxFiles) break;
+      let document: vscode.TextDocument | undefined;
+      try {
+        document = await vscode.workspace.openTextDocument(uri);
+      } catch {
+        document = undefined;
+      }
+      if (!document || document.uri.scheme !== 'file') continue;
+      const content = document.getText();
+      if (
+        !content ||
+        content.length > MAX_MULTI_FILE_DOCUMENT_CHARS ||
+        totalChars + content.length > MAX_MULTI_FILE_TOTAL_CHARS
+      ) {
+        continue;
+      }
+      totalChars += content.length;
+      documents.push({
+        file: vscode.workspace.asRelativePath(document.uri).replaceAll('\\', '/'),
+        languageId: document.languageId,
+        content,
+      });
+    }
+    if (documents.length < 2) {
+      vscode.window.showWarningMessage(
+        'Hawk needs at least two related files under 80 KB each for a coordinated prediction.',
+      );
+      return;
+    }
+
+    const candidateFiles = new Set(documents.map((document) => document.file));
+    const diagnostics = vscode.languages
+      .getDiagnostics()
+      .flatMap(([uri, entries]) => {
+        const file = vscode.workspace.asRelativePath(uri).replaceAll('\\', '/');
+        if (!candidateFiles.has(file)) return [];
+        return entries
+          .filter((entry) => entry.severity <= vscode.DiagnosticSeverity.Warning)
+          .slice(0, 8)
+          .map(
+            (entry) =>
+              `${file}:${entry.range.start.line + 1} [${vscode.DiagnosticSeverity[entry.severity]}] ${entry.message}`,
+          );
+      })
+      .slice(0, 40);
+    this.status.text = '$(sync~spin) Hawk Multi-File';
+    try {
+      const prediction = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Hawk is predicting a coordinated edit across ${documents.length} files`,
+          cancellable: false,
+        },
+        async () =>
+          await this.client.multiFileEditPrediction(workspace, {
+            activeFile: vscode.workspace.asRelativePath(editor.document.uri).replaceAll('\\', '/'),
+            documents,
+            recentEdits,
+            diagnostics,
+            minConfidence: clamp(
+              configuration.get<number>('tab.editPrediction.minConfidence', 0.55),
+              0.3,
+              0.95,
+            ),
+          }),
+      );
+      if (prediction.edits.length < 2) {
+        vscode.window.showInformationMessage(
+          'Hawk did not find a high-confidence coordinated multi-file edit.',
+        );
+        return;
+      }
+      const preview = await vscode.workspace.openTextDocument({
+        language: 'diff',
+        content: renderMultiFilePrediction(prediction, documents),
+      });
+      await vscode.window.showTextDocument(preview, {
+        preview: true,
+        preserveFocus: false,
+        viewColumn: vscode.ViewColumn.Beside,
+      });
+      const action = await vscode.window.showInformationMessage(
+        `Hawk predicted ${prediction.edits.length} coordinated file edits at ${Math.round(
+          prediction.confidence * 100,
+        )}% confidence. Review the diff before applying.`,
+        'Apply all',
+        'Reject',
+      );
+      if (action !== 'Apply all') {
+        await this.client
+          .editPredictionFeedback(workspace, prediction.predictionId, 'rejected')
+          .catch(() => undefined);
+        return;
+      }
+      try {
+        await this.applyMultiFilePrediction(workspace, prediction);
+      } catch (error) {
+        await this.client
+          .editPredictionFeedback(workspace, prediction.predictionId, 'rejected')
+          .catch(() => undefined);
+        vscode.window.showErrorMessage(
+          error instanceof Error ? error.message : 'Hawk could not apply the multi-file edit.',
+        );
+        return;
+      }
+      await this.client
+        .editPredictionFeedback(workspace, prediction.predictionId, 'accepted')
+        .catch(() => undefined);
+      vscode.window.showInformationMessage(
+        `Applied one atomic Hawk edit across ${prediction.edits.length} files. Use Undo to revert it.`,
+      );
+    } finally {
+      this.refreshStatus();
+    }
+  }
+
+  private async multiFileCandidateUris(
+    workspace: vscode.Uri,
+    active: vscode.Uri,
+    recentEdits: Array<{ file: string; before: string; after: string; line: number }>,
+    maxFiles: number,
+  ): Promise<vscode.Uri[]> {
+    const output: vscode.Uri[] = [];
+    const seen = new Set<string>();
+    const add = (uri: vscode.Uri | undefined) => {
+      if (!uri || uri.scheme !== 'file') return;
+      const folder = vscode.workspace.getWorkspaceFolder(uri);
+      if (!folder || folder.uri.fsPath !== workspace.fsPath) return;
+      const key = uri.toString();
+      if (seen.has(key)) return;
+      seen.add(key);
+      output.push(uri);
+    };
+    const fromRelative = (file: string): vscode.Uri | undefined => {
+      const normalized = safeRelativeFile(file);
+      return normalized ? vscode.Uri.joinPath(workspace, ...normalized.split('/')) : undefined;
+    };
+    add(active);
+    for (const edit of [...recentEdits].reverse()) add(fromRelative(edit.file));
+    const semanticQuery = recentEdits
+      .slice(-4)
+      .map((edit) => `${edit.file}\n${edit.after}`)
+      .join('\n')
+      .slice(-6_000);
+    const related = await this.client.semanticSearch(workspace, semanticQuery, maxFiles * 2);
+    for (const result of related.results) add(fromRelative(result.file));
+    for (const document of vscode.workspace.textDocuments) add(document.uri);
+    for (const [uri, entries] of vscode.languages.getDiagnostics()) {
+      if (entries.some((entry) => entry.severity <= vscode.DiagnosticSeverity.Warning)) add(uri);
+    }
+    return output.slice(0, Math.max(maxFiles * 2, maxFiles));
+  }
+
+  private async applyMultiFilePrediction(
+    workspace: vscode.Uri,
+    prediction: MultiFileEditPredictionResponse,
+  ): Promise<void> {
+    const edit = new vscode.WorkspaceEdit();
+    const touched: vscode.TextDocument[] = [];
+    for (const proposed of prediction.edits) {
+      const relative = safeRelativeFile(proposed.file);
+      if (!relative) throw new Error(`Hawk rejected an unsafe predicted path: ${proposed.file}`);
+      const uri = vscode.Uri.joinPath(workspace, ...relative.split('/'));
+      const document = await vscode.workspace.openTextDocument(uri);
+      const current = document.getText();
+      if (sha256(current) !== proposed.baseSha256) {
+        throw new Error(
+          `${proposed.file} changed after prediction. Hawk did not apply any multi-file edits.`,
+        );
+      }
+      const offset = current.indexOf(proposed.oldText);
+      if (offset < 0 || current.indexOf(proposed.oldText, offset + 1) >= 0) {
+        throw new Error(
+          `${proposed.file} no longer has one unique exact replacement target. Nothing was applied.`,
+        );
+      }
+      edit.replace(
+        uri,
+        new vscode.Range(
+          document.positionAt(offset),
+          document.positionAt(offset + proposed.oldText.length),
+        ),
+        proposed.newText,
+      );
+      touched.push(document);
+    }
+    const applied = await vscode.workspace.applyEdit(edit, {
+      isRefactoring: true,
+    });
+    if (!applied) throw new Error('VS Code rejected the atomic multi-file WorkspaceEdit.');
+    for (const document of touched) {
+      this.documentSnapshots.set(document.uri.toString(), document.getText());
+    }
+  }
+
   private async updateIndexedFile(uri: vscode.Uri, deleted = false): Promise<void> {
     if (!vscode.workspace.isTrusted || uri.scheme !== 'file') return;
     const workspace = vscode.workspace.getWorkspaceFolder(uri)?.uri;
@@ -514,6 +751,59 @@ function renderEditPredictionEvaluation(
     '> Acceptance rate is an operator-feedback proxy, not a synthetic benchmark claim. Confidence becomes medium after 10 feedback samples and high after 50.',
     '',
   ].join('\n');
+}
+
+function renderMultiFilePrediction(
+  prediction: MultiFileEditPredictionResponse,
+  documents: MultiFileEditPredictionDocument[],
+): string {
+  const byFile = new Map(documents.map((document) => [document.file, document.content]));
+  return [
+    `# Hawk Multi-File Next Edit - ${Math.round(prediction.confidence * 100)}% confidence`,
+    `# ${prediction.summary || 'Coordinated workspace edit'}`,
+    `# Provider: ${prediction.provider ?? 'configured'} / ${prediction.model ?? 'configured'}`,
+    `# Cache: ${prediction.cacheKind}`,
+    '',
+    ...prediction.edits.flatMap((edit) => {
+      const content = byFile.get(edit.file) ?? '';
+      const offset = content.indexOf(edit.oldText);
+      const line = offset < 0 ? 1 : content.slice(0, offset).split(/\r?\n/).length;
+      const oldLines = Math.max(1, edit.oldText.split(/\r?\n/).length);
+      const newLines = Math.max(1, edit.newText.split(/\r?\n/).length);
+      return [
+        `--- a/${edit.file}`,
+        `+++ b/${edit.file}`,
+        `@@ -${line},${oldLines} +${line},${newLines} @@`,
+        ...diffLines(edit.oldText, '-'),
+        ...diffLines(edit.newText, '+'),
+        '',
+      ];
+    }),
+  ].join('\n');
+}
+
+function diffLines(value: string, marker: '-' | '+'): string[] {
+  return value.split(/\r?\n/).map((line) => `${marker}${line}`);
+}
+
+function safeRelativeFile(value: string): string {
+  const file = String(value ?? '')
+    .trim()
+    .replaceAll('\\', '/')
+    .replace(/^\.\/+/, '');
+  if (
+    !file ||
+    file.startsWith('/') ||
+    /^[a-z]:\//i.test(file) ||
+    file.split('/').some((part) => !part || part === '.' || part === '..')
+  ) {
+    return '';
+  }
+  return file;
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function requireWorkspace(): vscode.Uri {

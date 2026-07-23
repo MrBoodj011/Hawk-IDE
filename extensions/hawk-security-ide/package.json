@@ -40,6 +40,7 @@
     "onCommand:hawk.runCodingBenchmark",
     "onCommand:hawk.showEditPredictionEvaluation",
     "onCommand:hawk.clearEditPredictionCache",
+    "onCommand:hawk.predictMultiFileEdit",
     "onCommand:hawk.checkForUpdates",
     "onCommand:hawk.configureReleaseToken",
     "onCommand:hawk.rollbackUpdate",
@@ -203,6 +204,10 @@
         "title": "Hawk: Clear Next Edit Cache"
       },
       {
+        "command": "hawk.predictMultiFileEdit",
+        "title": "Hawk: Predict Coordinated Multi-File Edit"
+      },
+      {
         "command": "hawk.checkForUpdates",
         "title": "Hawk: Check for Production Updates"
       },
@@ -354,6 +359,13 @@
           "minimum": 32,
           "maximum": 512,
           "description": "Maximum in-memory Next Edit entries. Source text is never written to the persistent model scorecard."
+        },
+        "hawk.tab.editPrediction.multiFile.maxFiles": {
+          "type": "number",
+          "default": 6,
+          "minimum": 2,
+          "maximum": 8,
+          "description": "Maximum complete workspace documents included in an approval-gated coordinated Multi-File Next Edit."
         },
         "hawk.index.embeddings.enabled": {
           "type": "boolean",

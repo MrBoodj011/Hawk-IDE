@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EditPredictionEngine, type EditPredictionPredictor } from './editPredictionEngine.js';
-import type { EditPredictionRequest } from './inlineCompletion.js';
+import type { EditPredictionRequest, MultiFileEditPredictionRequest } from './inlineCompletion.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 
 const roots: string[] = [];
@@ -118,6 +118,60 @@ describe('EditPredictionEngine', () => {
     });
     await second.dispose();
   });
+
+  it('caches one coordinated multi-file prediction and records operator feedback', async () => {
+    const fixture = await createFixture();
+    let calls = 0;
+    const engine = new EditPredictionEngine(fixture.root, fixture.index, {
+      storageRoot: fixture.scorecard,
+      routeFingerprint: () => 'test-route',
+      multiFilePredictor: async () => {
+        calls += 1;
+        return {
+          kind: 'multi-file-next-edit',
+          summary: 'Coordinate caller and configuration',
+          confidence: 0.9,
+          edits: [
+            {
+              file: 'auth.ts',
+              oldText: 'validateToken',
+              newText: 'validateAccessToken',
+              baseSha256: 'a'.repeat(64),
+            },
+            {
+              file: 'client.ts',
+              oldText: 'allow',
+              newText: 'authorize',
+              baseSha256: 'b'.repeat(64),
+            },
+          ],
+          provider: 'test-provider',
+          model: 'multi-file-model',
+          latencyMs: 40,
+          contextFiles: ['auth.ts', 'client.ts'],
+        };
+      },
+    });
+    await engine.initialize();
+
+    const first = await engine.predictMultiFile(multiFileRequest());
+    const cached = await engine.predictMultiFile(multiFileRequest());
+
+    expect(calls).toBe(1);
+    expect(first.cacheKind).toBe('miss');
+    expect(cached).toMatchObject({ cacheKind: 'exact', cached: true });
+    expect(
+      engine.recordFeedback({ predictionId: cached.predictionId, outcome: 'accepted' }),
+    ).toEqual({ recorded: true });
+    expect(engine.report().models[0]).toMatchObject({
+      model: 'multi-file-model',
+      generations: 1,
+      validSuggestions: 1,
+      suggestionsServed: 2,
+      accepted: 1,
+    });
+    await engine.dispose();
+  });
 });
 
 function request(): EditPredictionRequest {
@@ -149,6 +203,34 @@ function prediction(text: string, latencyMs: number) {
     model: 'test-model',
     latencyMs,
     contextFiles: ['auth.ts'],
+  };
+}
+
+function multiFileRequest(): MultiFileEditPredictionRequest {
+  return {
+    activeFile: 'auth.ts',
+    documents: [
+      {
+        file: 'auth.ts',
+        languageId: 'typescript',
+        content: 'export function validateToken(value: string) {}\n',
+      },
+      {
+        file: 'client.ts',
+        languageId: 'typescript',
+        content: 'export function allow(value: string) { return validateToken(value); }\n',
+      },
+    ],
+    recentEdits: [
+      {
+        file: 'auth.ts',
+        before: 'validate',
+        after: 'validateToken',
+        line: 1,
+      },
+    ],
+    diagnostics: [],
+    minConfidence: 0.55,
   };
 }
 

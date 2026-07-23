@@ -34,6 +34,7 @@ import {
 import {
   type EditPredictionRequest,
   type InlineCompletionRequest,
+  type MultiFileEditPredictionRequest,
   createInlineCompletion,
 } from './inlineCompletion.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
@@ -428,6 +429,18 @@ async function handleRequest(
     try {
       const input = parseJSONBody<EditPredictionRequest>(await readBody(req));
       const prediction = await context.editPredictions.predict(input);
+      context.recordCompletionLatency(prediction.latencyMs);
+      sendJSON(res, 200, prediction);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/ai/edit-prediction/multi-file') {
+    try {
+      const input = parseJSONBody<MultiFileEditPredictionRequest>(await readBody(req));
+      const prediction = await context.editPredictions.predictMultiFile(input);
       context.recordCompletionLatency(prediction.latencyMs);
       sendJSON(res, 200, prediction);
     } catch (err) {

@@ -10,8 +10,11 @@ Its native Hawk AI room streams model output and tool
 activity inside the editor, carries active-file, selection, open-tab, git-diff,
 diagnostics, and semantic-index context, and keeps durable session history.
 Hawk Tab adds inline completion, cached confidence-filtered multiline Next
-Edit, a privacy-safe per-model acceptance/latency scorecard, and
-natural-language code search. Every edit
+Edit, and an approval-gated coordinated Multi-File Next Edit. The multi-file
+flow selects related bounded documents, requires unique exact replacements,
+previews every hunk, rejects SHA-256 drift, and applies all accepted files in
+one atomic VS Code workspace edit. Hawk also provides a privacy-safe per-model
+acceptance/latency scorecard and natural-language code search. Every agent edit
 runs in an isolated git worktree. The exact diff can be checkpointed,
 previewed, tested, applied, rejected, or safely reverted; an optional task
 terminal streams inside that isolated worktree. Auto Verify runs detected safe

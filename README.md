@@ -77,7 +77,8 @@ An in-editor engineering room with streaming responses, plans, tool events, task
 
 ### Hawk Coding Core
 
-- Hawk Tab and bounded multiline Next Edit prediction.
+- Hawk Tab, bounded multiline Next Edit, and coordinated Multi-File Next Edit
+  with exact preview, SHA-256 drift guards, and one approval-gated atomic apply.
 - Persistent incremental semantic index with TypeScript/JavaScript AST and language-aware symbols for Python, Java, Kotlin, C#, Go, and Rust.
 - Optional loopback-only Ollama embeddings and lexical fallback.
 - Model router with local Ollama, LM Studio, and explicit BYOK providers.
@@ -327,10 +328,12 @@ The CLI also supports `--backend`, `--model`, `--base-url`, `--api-key`, `--resu
 4. Review the plan, tool events, streamed answer, and exact diff.
 5. Run only the approved typecheck, lint, test, or build gates.
 6. Apply the hash-bound patch, reject it, or preserve it as a checkpoint.
-7. Pair Browser/Burp or import a redacted HAR when runtime context is needed.
-8. Reproduce supported deterministic signals in an offline sandbox.
-9. Use the Security Graph and evidence builder to produce a portable report.
-10. Retest the signal after the fix; keep the finding unverified until all gates pass.
+7. After a local edit, run **Hawk: Predict Coordinated Multi-File Edit** to
+   preview and atomically apply an inferred cross-file follow-up when useful.
+8. Pair Browser/Burp or import a redacted HAR when runtime context is needed.
+9. Reproduce supported deterministic signals in an offline sandbox.
+10. Use the Security Graph and evidence builder to produce a portable report.
+11. Retest the signal after the fix; keep the finding unverified until all gates pass.
 
 ## Hawk AI and model routing
 
@@ -389,6 +392,7 @@ The daemon is loopback-only and requires `X-Hawk-Token`. The most important endp
 | `POST` | `/v1/ai/sessions/:id/tests` | Run approved gates. |
 | `POST` | `/v1/ai/sessions/:id/apply` | Apply a hash-bound patch. |
 | `POST` | `/v1/ai/sessions/:id/revert` | Revert only when drift checks pass. |
+| `POST` | `/v1/ai/edit-prediction/multi-file` | Predict 2-8 coordinated exact edits bound to complete-document SHA-256 snapshots. |
 | `GET` | `/v1/security/graph` | Read graph nodes and edges. |
 | `GET` | `/v1/security/protocols` | Discover API, identity, infrastructure, IAM, and mobile surfaces. |
 | `GET` | `/v1/security/attack-twin` | Read prioritized evidence-aware attack paths and what-if scenarios. |

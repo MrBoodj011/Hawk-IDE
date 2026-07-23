@@ -93,6 +93,33 @@ export interface EditPredictionResponse extends InlineCompletionResponse {
   cacheKind: 'miss' | 'exact' | 'continuation' | 'in-flight';
 }
 
+export interface MultiFileEditPredictionDocument {
+  file: string;
+  languageId: string;
+  content: string;
+}
+
+export interface MultiFilePredictedEdit {
+  file: string;
+  oldText: string;
+  newText: string;
+  baseSha256: string;
+}
+
+export interface MultiFileEditPredictionResponse {
+  kind: 'multi-file-next-edit';
+  summary: string;
+  confidence: number;
+  edits: MultiFilePredictedEdit[];
+  provider?: string;
+  model?: string;
+  latencyMs: number;
+  contextFiles: string[];
+  predictionId: string;
+  cached: boolean;
+  cacheKind: 'miss' | 'exact' | 'in-flight';
+}
+
 export interface EditPredictionModelEvaluation {
   provider: string;
   model: string;

@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client } from '../llm/client.js';
-import { createEditPrediction, createInlineCompletion } from './inlineCompletion.js';
+import {
+  createEditPrediction,
+  createInlineCompletion,
+  createMultiFileEditPrediction,
+} from './inlineCompletion.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
 
 describe('createInlineCompletion', () => {
@@ -137,5 +141,126 @@ describe('createInlineCompletion', () => {
     );
 
     expect(result).toMatchObject({ text: '', replaceText: '', confidence: 0.31 });
+  });
+
+  it('returns hash-bound coordinated edits only for distinct exact workspace files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-multi-file-edit-'));
+    roots.push(root);
+    await writeFile(join(root, 'config.ts'), 'export const timeoutMs = 5000;\n');
+    await writeFile(
+      join(root, 'client.ts'),
+      'export function request(url: string) { return fetch(url); }\n',
+    );
+    const documents = [
+      {
+        file: 'config.ts',
+        languageId: 'typescript',
+        content: 'export const timeoutMs = 5000;\n',
+      },
+      {
+        file: 'client.ts',
+        languageId: 'typescript',
+        content: 'export function request(url: string) { return fetch(url); }\n',
+      },
+    ];
+    const client: Client = {
+      name: () => 'test',
+      model: () => 'multi-file-test',
+      chat: async () => ({
+        message: {
+          role: 'assistant',
+          content: JSON.stringify({
+            summary: 'Coordinate the timeout constant and its caller',
+            confidence: 0.93,
+            edits: [
+              {
+                file: 'config.ts',
+                old_text: 'export const timeoutMs = 5000;',
+                new_text: 'export const timeoutMs = 8000;',
+              },
+              {
+                file: 'client.ts',
+                old_text: 'return fetch(url);',
+                new_text: 'return fetch(url, { signal: AbortSignal.timeout(timeoutMs) });',
+              },
+            ],
+          }),
+        },
+        finishReason: 'stop',
+      }),
+    };
+
+    const result = await createMultiFileEditPrediction(
+      {
+        activeFile: 'config.ts',
+        documents,
+        recentEdits: [
+          {
+            file: 'config.ts',
+            line: 1,
+            before: 'export const timeout = 5000;',
+            after: 'export const timeoutMs = 5000;',
+          },
+        ],
+      },
+      new SemanticWorkspaceIndex(root),
+      { client },
+    );
+
+    expect(result).toMatchObject({
+      kind: 'multi-file-next-edit',
+      confidence: 0.93,
+      summary: 'Coordinate the timeout constant and its caller',
+    });
+    expect(result.edits).toHaveLength(2);
+    expect(result.edits.every((edit) => /^[a-f0-9]{64}$/.test(edit.baseSha256))).toBe(true);
+    expect(new Set(result.edits.map((edit) => edit.file))).toEqual(
+      new Set(['config.ts', 'client.ts']),
+    );
+  });
+
+  it('rejects the entire multi-file prediction when one target is ambiguous', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-multi-file-ambiguous-'));
+    roots.push(root);
+    await writeFile(join(root, 'a.ts'), 'const enabled = true;\n');
+    await writeFile(join(root, 'b.ts'), 'return value;\nreturn value;\n');
+    const client: Client = {
+      name: () => 'test',
+      model: () => 'multi-file-test',
+      chat: async () => ({
+        message: {
+          role: 'assistant',
+          content: JSON.stringify({
+            summary: 'ambiguous edit',
+            confidence: 0.99,
+            edits: [
+              { file: 'a.ts', old_text: 'true', new_text: 'false' },
+              { file: 'b.ts', old_text: 'return value;', new_text: 'return safeValue;' },
+            ],
+          }),
+        },
+        finishReason: 'stop',
+      }),
+    };
+
+    const result = await createMultiFileEditPrediction(
+      {
+        activeFile: 'a.ts',
+        documents: [
+          { file: 'a.ts', languageId: 'typescript', content: 'const enabled = true;\n' },
+          {
+            file: 'b.ts',
+            languageId: 'typescript',
+            content: 'return value;\nreturn value;\n',
+          },
+        ],
+        recentEdits: [{ file: 'a.ts', before: 'false', after: 'true', line: 1 }],
+      },
+      new SemanticWorkspaceIndex(root),
+      { client },
+    );
+
+    expect(result.edits).toEqual([]);
+    expect(result.confidence).toBe(0.99);
   });
 });

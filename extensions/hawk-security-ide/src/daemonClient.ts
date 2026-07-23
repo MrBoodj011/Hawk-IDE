@@ -31,6 +31,8 @@ import type {
   IdentityReplayResult,
   InlineCompletionResponse,
   McpTrustPosture,
+  MultiFileEditPredictionDocument,
+  MultiFileEditPredictionResponse,
   ObservabilitySnapshot,
   ProtocolSurfaceInventory,
   RetestResult,
@@ -181,6 +183,28 @@ export class DaemonClient implements vscode.Disposable {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
+  }
+
+  async multiFileEditPrediction(
+    workspace: vscode.Uri,
+    input: {
+      activeFile: string;
+      documents: MultiFileEditPredictionDocument[];
+      recentEdits: Array<{ file: string; before: string; after: string; line: number }>;
+      diagnostics: string[];
+      minConfidence: number;
+    },
+  ): Promise<MultiFileEditPredictionResponse> {
+    const daemon = await this.start(workspace);
+    return await this.request<MultiFileEditPredictionResponse>(
+      daemon,
+      '/v1/ai/edit-prediction/multi-file',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    );
   }
 
   async editPredictionFeedback(

@@ -104,6 +104,24 @@ prompts, source, diagnostics, file names, or generated edits. The acceptance
 rate is explicitly an operator-feedback proxy rather than a synthetic accuracy
 claim. **Hawk: Clear Next Edit Cache** removes the in-memory source cache.
 
+## Coordinated Multi-File Next Edit
+
+**Hawk: Predict Coordinated Multi-File Edit** infers one follow-up spanning
+two to eight existing files from recent operator edits, current diagnostics,
+open documents, and semantic-index neighbors. It is deliberately separate
+from inline Tab because an editor ghost-text item cannot safely represent
+changes to several files.
+
+Hawk sends complete bounded candidate documents to the loopback daemon. The
+model must return one unique exact replacement per distinct provided file.
+The daemon rejects low-confidence, ambiguous, duplicate-path, traversal, file
+creation, and single-file answers. Each accepted edit carries the SHA-256 of
+its complete base document. The extension opens an exact diff preview and
+waits for **Apply all** or **Reject**. Before applying, it reopens every target,
+rechecks every digest and unique old-text preimage, then submits one atomic
+VS Code `WorkspaceEdit`. Any drift cancels the entire operation; files are
+never partially applied. One Undo reverts the accepted workspace edit.
+
 ## Persistence
 
 Session metadata, event logs, agent conversation memory, and retained patches
@@ -144,6 +162,7 @@ POST /v1/ai/sessions/:id/pause
 POST /v1/ai/sessions/:id/resume
 POST /v1/ai/inline-completion
 POST /v1/ai/edit-prediction
+POST /v1/ai/edit-prediction/multi-file
 POST /v1/ai/edit-prediction/feedback
 GET  /v1/ai/edit-prediction/evaluation
 DELETE /v1/ai/edit-prediction/cache

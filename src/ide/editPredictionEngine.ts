@@ -6,7 +6,10 @@ import * as config from '../config/config.js';
 import {
   type EditPredictionRequest,
   type EditPredictionResponse,
+  type MultiFileEditPredictionRequest,
+  type MultiFileEditPredictionResponse,
   createEditPrediction,
+  createMultiFileEditPrediction,
 } from './inlineCompletion.js';
 import type { SemanticWorkspaceIndex } from './semanticIndex.js';
 
@@ -26,6 +29,12 @@ export interface ManagedEditPredictionResponse extends EditPredictionResponse {
   predictionId: string;
   cached: boolean;
   cacheKind: EditPredictionCacheKind;
+}
+
+export interface ManagedMultiFileEditPredictionResponse extends MultiFileEditPredictionResponse {
+  predictionId: string;
+  cached: boolean;
+  cacheKind: 'miss' | 'exact' | 'in-flight';
 }
 
 export interface EditPredictionFeedback {
@@ -126,6 +135,12 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+interface MultiFileCacheEntry {
+  key: string;
+  response: MultiFileEditPredictionResponse;
+  expiresAt: number;
+}
+
 interface PendingFeedback {
   modelKey: string;
   createdAt: number;
@@ -136,12 +151,18 @@ export type EditPredictionPredictor = (
   index: SemanticWorkspaceIndex,
 ) => Promise<EditPredictionResponse>;
 
+export type MultiFileEditPredictionPredictor = (
+  request: MultiFileEditPredictionRequest,
+  index: SemanticWorkspaceIndex,
+) => Promise<MultiFileEditPredictionResponse>;
+
 export interface EditPredictionEngineOptions {
   storageRoot?: string;
   cacheEnabled?: boolean;
   maxCacheEntries?: number;
   cacheTtlMs?: number;
   predictor?: EditPredictionPredictor;
+  multiFilePredictor?: MultiFileEditPredictionPredictor;
   now?: () => Date;
   routeFingerprint?: () => string;
 }
@@ -157,6 +178,7 @@ export class EditPredictionEngine {
   private readonly index: SemanticWorkspaceIndex;
   private readonly now: () => Date;
   private readonly predictor: EditPredictionPredictor;
+  private readonly multiFilePredictor: MultiFileEditPredictionPredictor;
   private readonly routeFingerprint: () => string;
   private readonly cacheEnabled: boolean;
   private readonly maxCacheEntries: number;
@@ -164,6 +186,8 @@ export class EditPredictionEngine {
   private readonly scorecardPath: string;
   private readonly cache = new Map<string, CacheEntry>();
   private readonly inFlight = new Map<string, Promise<EditPredictionResponse>>();
+  private readonly multiFileCache = new Map<string, MultiFileCacheEntry>();
+  private readonly multiFileInFlight = new Map<string, Promise<MultiFileEditPredictionResponse>>();
   private readonly pendingFeedback = new Map<string, PendingFeedback>();
   private readonly recordedFeedback = new Map<string, number>();
   private readonly models = new Map<string, ModelState>();
@@ -185,6 +209,10 @@ export class EditPredictionEngine {
     this.predictor =
       options.predictor ??
       (async (request, semanticIndex) => await createEditPrediction(request, semanticIndex));
+    this.multiFilePredictor =
+      options.multiFilePredictor ??
+      (async (request, semanticIndex) =>
+        await createMultiFileEditPrediction(request, semanticIndex));
     this.routeFingerprint = options.routeFingerprint ?? configuredRouteFingerprint;
     this.cacheEnabled = options.cacheEnabled ?? process.env.HAWK_IDE_EDIT_CACHE_ENABLED !== '0';
     this.maxCacheEntries = clampInteger(
@@ -292,6 +320,66 @@ export class EditPredictionEngine {
     }
   }
 
+  async predictMultiFile(
+    request: MultiFileEditPredictionRequest,
+  ): Promise<ManagedMultiFileEditPredictionResponse> {
+    const startedAt = Date.now();
+    this.cacheRequests += 1;
+    this.cleanup();
+    await this.index.ensureBuilt();
+    const normalized = normalizeMultiFileRequest(request);
+    const routeFingerprint = this.routeFingerprint();
+    const indexVersion = this.index.stats()?.indexedAt ?? 'unbuilt';
+    const key = createHash('sha256')
+      .update(JSON.stringify({ request: normalized, routeFingerprint, indexVersion }))
+      .digest('hex');
+
+    if (this.cacheEnabled) {
+      const exact = this.multiFileCache.get(key);
+      if (exact && exact.expiresAt > Date.now()) {
+        this.exactHits += 1;
+        this.multiFileCache.delete(key);
+        this.multiFileCache.set(key, exact);
+        return this.serveMultiFile(exact.response, 'exact', Date.now() - startedAt);
+      }
+    }
+
+    const running = this.multiFileInFlight.get(key);
+    if (running) {
+      this.inFlightJoins += 1;
+      const response = await running;
+      return this.serveMultiFile(response, 'in-flight', Date.now() - startedAt);
+    }
+
+    this.misses += 1;
+    const generated = this.multiFilePredictor(normalized, this.index);
+    this.multiFileInFlight.set(key, generated);
+    try {
+      const response = await generated;
+      this.recordGeneration(response);
+      if (this.cacheEnabled) {
+        const ttl = response.edits.length > 0 ? this.cacheTtlMs : NEGATIVE_CACHE_TTL_MS;
+        this.multiFileCache.set(key, {
+          key,
+          response,
+          expiresAt: Date.now() + ttl,
+        });
+        while (this.cache.size + this.multiFileCache.size > this.maxCacheEntries) {
+          const oldestMulti = this.multiFileCache.keys().next().value;
+          if (oldestMulti) this.multiFileCache.delete(oldestMulti);
+          else {
+            const oldest = this.cache.keys().next().value;
+            if (!oldest) break;
+            this.cache.delete(oldest);
+          }
+        }
+      }
+      return this.serveMultiFile(response, 'miss', Date.now() - startedAt);
+    } finally {
+      this.multiFileInFlight.delete(key);
+    }
+  }
+
   recordFeedback(feedback: EditPredictionFeedback): EditPredictionFeedbackResult {
     this.cleanup();
     const predictionId = String(feedback.predictionId ?? '').trim();
@@ -336,7 +424,7 @@ export class EditPredictionEngine {
         'Aggregate counters and latency only. Hawk never persists prompts, source, diagnostics, file names, or generated edits in this scorecard.',
       cache: {
         enabled: this.cacheEnabled,
-        entries: this.cache.size,
+        entries: this.cache.size + this.multiFileCache.size,
         maxEntries: this.maxCacheEntries,
         ttlMs: this.cacheTtlMs,
         requests: this.cacheRequests,
@@ -364,6 +452,8 @@ export class EditPredictionEngine {
   clearCache(): void {
     this.cache.clear();
     this.inFlight.clear();
+    this.multiFileCache.clear();
+    this.multiFileInFlight.clear();
   }
 
   async dispose(): Promise<void> {
@@ -441,7 +531,41 @@ export class EditPredictionEngine {
     };
   }
 
-  private recordGeneration(response: EditPredictionResponse): void {
+  private serveMultiFile(
+    response: MultiFileEditPredictionResponse,
+    cacheKind: 'miss' | 'exact' | 'in-flight',
+    latencyMs: number,
+  ): ManagedMultiFileEditPredictionResponse {
+    const predictionId = randomUUID();
+    const key =
+      response.provider && response.model ? modelKey(response.provider, response.model) : undefined;
+    if (key && response.edits.length > 0) {
+      const state = this.models.get(key);
+      if (state) {
+        state.suggestionsServed += 1;
+        if (cacheKind === 'exact') state.cacheServed += 1;
+        if (cacheKind === 'in-flight') state.inFlightServed += 1;
+        this.pendingFeedback.set(predictionId, { modelKey: key, createdAt: Date.now() });
+        while (this.pendingFeedback.size > MAX_PENDING_FEEDBACK) {
+          const oldest = this.pendingFeedback.keys().next().value;
+          if (!oldest) break;
+          this.pendingFeedback.delete(oldest);
+        }
+        this.schedulePersist();
+      }
+    }
+    return {
+      ...response,
+      predictionId,
+      cached: cacheKind === 'exact',
+      cacheKind,
+      latencyMs,
+    };
+  }
+
+  private recordGeneration(
+    response: EditPredictionResponse | MultiFileEditPredictionResponse,
+  ): void {
     if (!response.provider || !response.model) return;
     const key = modelKey(response.provider, response.model);
     const state =
@@ -459,7 +583,9 @@ export class EditPredictionEngine {
         latencies: [],
       } satisfies ModelState);
     state.generations += 1;
-    if (response.text) state.validSuggestions += 1;
+    if ('edits' in response ? response.edits.length > 0 : Boolean(response.text)) {
+      state.validSuggestions += 1;
+    }
     state.latencies.push(Math.max(0, response.latencyMs));
     if (state.latencies.length > MAX_LATENCY_SAMPLES) {
       state.latencies.splice(0, state.latencies.length - MAX_LATENCY_SAMPLES);
@@ -487,6 +613,9 @@ export class EditPredictionEngine {
     const now = Date.now();
     for (const [key, entry] of this.cache) {
       if (entry.expiresAt <= now) this.cache.delete(key);
+    }
+    for (const [key, entry] of this.multiFileCache) {
+      if (entry.expiresAt <= now) this.multiFileCache.delete(key);
     }
     for (const [id, pending] of this.pendingFeedback) {
       if (now - pending.createdAt > PENDING_FEEDBACK_TTL_MS) this.pendingFeedback.delete(id);
@@ -542,6 +671,29 @@ function normalizeRequest(request: EditPredictionRequest): NormalizedRequest {
     })),
     diagnostics: (request.diagnostics ?? [])
       .slice(0, 20)
+      .map((diagnostic) => String(diagnostic).slice(0, 600)),
+    minConfidence: clamp(Number(request.minConfidence), 0.3, 0.95, 0.55),
+  };
+}
+
+function normalizeMultiFileRequest(
+  request: MultiFileEditPredictionRequest,
+): MultiFileEditPredictionRequest {
+  return {
+    activeFile: String(request.activeFile ?? '').slice(0, 1_000),
+    documents: (request.documents ?? []).slice(0, 8).map((document) => ({
+      file: String(document.file ?? '').slice(0, 1_000),
+      languageId: String(document.languageId ?? 'plaintext').slice(0, 80),
+      content: String(document.content ?? '').slice(0, 80_000),
+    })),
+    recentEdits: (request.recentEdits ?? []).slice(-8).map((edit) => ({
+      file: String(edit.file ?? '').slice(0, 1_000),
+      before: String(edit.before ?? '').slice(0, 1_500),
+      after: String(edit.after ?? '').slice(0, 1_500),
+      line: Number.isFinite(edit.line) ? Math.max(1, Math.floor(edit.line)) : 1,
+    })),
+    diagnostics: (request.diagnostics ?? [])
+      .slice(0, 40)
       .map((diagnostic) => String(diagnostic).slice(0, 600)),
     minConfidence: clamp(Number(request.minConfidence), 0.3, 0.95, 0.55),
   };

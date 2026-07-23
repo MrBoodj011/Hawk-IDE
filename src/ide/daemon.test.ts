@@ -86,6 +86,39 @@ describe('startIdeDaemon', () => {
         models: [],
       });
 
+      const emptyMultiFilePrediction = await fetch(
+        `${daemon.url}/v1/ai/edit-prediction/multi-file`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activeFile: 'server.ts',
+            documents: [
+              {
+                file: 'server.ts',
+                languageId: 'typescript',
+                content: 'app.get("/api/profile", handler);\n',
+              },
+            ],
+            recentEdits: [
+              {
+                file: 'server.ts',
+                line: 1,
+                before: 'handler',
+                after: 'authenticatedHandler',
+              },
+            ],
+          }),
+        },
+      );
+      expect(emptyMultiFilePrediction.status).toBe(200);
+      await expect(emptyMultiFilePrediction.json()).resolves.toMatchObject({
+        kind: 'multi-file-next-edit',
+        edits: [],
+        predictionId: expect.any(String),
+        cacheKind: 'miss',
+      });
+
       const indexed = await fetch(`${daemon.url}/v1/workspace/index`, { method: 'POST', headers });
       expect(indexed.status).toBe(200);
       await expect(indexed.json()).resolves.toMatchObject({

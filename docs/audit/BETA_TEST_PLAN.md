@@ -14,7 +14,9 @@ billing, or cloud sync is required.
 
 1. Cold index, restart, warm persistent index, one-file incremental update.
 2. Symbol/type/import/call search and optional local Ollama hybrid search.
-3. Multiline Next Edit acceptance, rejection, cancellation, and stale-edit guard.
+3. Multiline Next Edit acceptance, rejection, cancellation, and stale-edit
+   guard; coordinated Multi-File Next Edit preview, rejection, atomic Apply,
+   one-step Undo, ambiguous-preimage refusal, and all-files drift refusal.
 4. Debug snapshot on breakpoint and exception; isolated fix; test; Apply; rerun.
 5. Three long parallel lanes; pause; Hawk restart; resume; candidate synthesis.
 6. Apply conflict after an operator edit and exact safe Revert after Apply.
