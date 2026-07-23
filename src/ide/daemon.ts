@@ -69,6 +69,12 @@ import {
   type ReproductionOrchestrator,
   SandboxVulnerabilityReproducer,
 } from './sandboxReproduction.js';
+import {
+  type SecurityAdapterId,
+  adapterFingerprint,
+  importSarifFindings,
+  listSecurityAdapters,
+} from './securityAdapters.js';
 import { buildUnifiedSecurityGraph, securityGraphResponse } from './securityGraph.js';
 import {
   type SecurityTestTemplateId,
@@ -534,6 +540,35 @@ async function handleRequest(
 
   if (req.method === 'GET' && pathname === '/v1/findings') {
     sendJSON(res, 200, { findings: context.findings() });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/security/adapters') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      fingerprint: adapterFingerprint(),
+      adapters: listSecurityAdapters(),
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/import') {
+    try {
+      const input = parseSecurityImportRequest(await readBody(req));
+      const imported = importSarifFindings(
+        input.adapter,
+        input.document,
+        input.source,
+        context.now(),
+      );
+      const existing = context
+        .findings()
+        .filter((finding) => !finding.id.startsWith(`external-${input.adapter}-`));
+      context.setFindings([...existing, ...imported.findings]);
+      sendJSON(res, 201, imported);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
     return;
   }
 
@@ -1576,6 +1611,35 @@ function parseEvidencePackRequest(body: Buffer): { approved: true } {
     throw new Error('operator approval is required to build an evidence pack');
   }
   return { approved: true };
+}
+
+function parseSecurityImportRequest(body: Buffer): {
+  adapter: SecurityAdapterId;
+  source: string;
+  document: unknown;
+} {
+  const request = parseJSONBody<Record<string, unknown>>(body);
+  const adapters: SecurityAdapterId[] = ['codeql', 'semgrep', 'zap', 'nuclei', 'trivy', 'oss-fuzz'];
+  if (
+    typeof request.adapter !== 'string' ||
+    !adapters.includes(request.adapter as SecurityAdapterId)
+  ) {
+    throw new Error('A supported security adapter is required');
+  }
+  if (
+    request.source !== undefined &&
+    (typeof request.source !== 'string' || request.source.length > 500)
+  ) {
+    throw new Error('Security import source must be a bounded string');
+  }
+  return {
+    adapter: request.adapter as SecurityAdapterId,
+    source:
+      typeof request.source === 'string' && request.source.trim()
+        ? request.source
+        : `${request.adapter}.sarif`,
+    document: request.document,
+  };
 }
 
 function parseReproductionPlanRequest(body: Buffer): {

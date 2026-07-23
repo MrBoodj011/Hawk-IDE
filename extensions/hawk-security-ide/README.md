@@ -21,6 +21,8 @@ Generic security reproduction is also available for findings without a static
 rule adapter: provide direct-argv control and reproduction commands, and Hawk
 executes them in the same read-only, dropped-capability, zero-network sandbox
 with hash-bound expected exit codes and no-shell validation.
+Hawk also normalizes SARIF from CodeQL, Semgrep, OWASP ZAP, Nuclei, Trivy, and
+OSS-Fuzz so external signals enter the same reproduction and evidence graph.
 Hawk Tab adds inline completion, cached confidence-filtered multiline Next
 Edit, and an approval-gated coordinated Multi-File Next Edit. The multi-file
 flow selects related bounded documents, requires unique exact replacements,

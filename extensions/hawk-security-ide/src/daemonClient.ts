@@ -32,6 +32,7 @@ import type {
   IdentityReplayPlan,
   IdentityReplayResult,
   InlineCompletionResponse,
+  ImportedSecurityFindings,
   McpTrustPosture,
   MultiFileEditPredictionDocument,
   MultiFileEditPredictionResponse,
@@ -42,6 +43,8 @@ import type {
   SandboxReproductionResult,
   SandboxReproductionsResponse,
   SecurityGraphResponse,
+  SecurityAdaptersResponse,
+  SecurityAdapterId,
   SecurityTestPlan,
   SecurityTestResult,
   SecurityTestTemplateId,
@@ -266,6 +269,25 @@ export class DaemonClient implements vscode.Disposable {
   async findings(workspace: vscode.Uri): Promise<FindingsResponse> {
     const daemon = await this.start(workspace);
     return await this.request<FindingsResponse>(daemon, '/v1/findings');
+  }
+
+  async securityAdapters(workspace: vscode.Uri): Promise<SecurityAdaptersResponse> {
+    const daemon = await this.start(workspace);
+    return await this.request<SecurityAdaptersResponse>(daemon, '/v1/security/adapters');
+  }
+
+  async importSecuritySarif(
+    workspace: vscode.Uri,
+    adapter: SecurityAdapterId,
+    document: unknown,
+    source?: string,
+  ): Promise<ImportedSecurityFindings> {
+    const daemon = await this.start(workspace);
+    return await this.request<ImportedSecurityFindings>(daemon, '/v1/security/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adapter, document, ...(source ? { source } : {}) }),
+    });
   }
 
   async staticAudit(workspace: vscode.Uri): Promise<StaticAuditReport> {

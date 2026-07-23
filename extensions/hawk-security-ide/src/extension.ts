@@ -71,6 +71,45 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hawk.runWorkspaceScan', async () => {
       await dashboard.runApprovedWorkspaceScan();
     }),
+    vscode.commands.registerCommand('hawk.importSecuritySarif', async () => {
+      const workspace = workspaceUri();
+      if (!workspace) return;
+      try {
+        const adapters = await client.securityAdapters(workspace);
+        const adapter = await vscode.window.showQuickPick(
+          adapters.adapters.map((candidate) => ({
+            label: candidate.title,
+            description: candidate.id,
+            detail: candidate.capabilities.join(' · '),
+            id: candidate.id,
+          })),
+          { title: 'Import external security findings', placeHolder: 'Choose the SARIF producer' },
+        );
+        if (!adapter) return;
+        const files = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Import SARIF',
+          filters: { SARIF: ['sarif', 'json'] },
+        });
+        const file = files?.[0];
+        if (!file) return;
+        const bytes = await vscode.workspace.fs.readFile(file);
+        if (bytes.byteLength > 5 * 1024 * 1024)
+          throw new Error("SARIF file exceeds Hawk's 5 MB limit.");
+        const imported = await client.importSecuritySarif(
+          workspace,
+          adapter.id,
+          JSON.parse(new TextDecoder().decode(bytes)),
+          file.toString(),
+        );
+        vscode.window.showInformationMessage(
+          `Hawk imported ${imported.findings.length} ${adapter.label} finding(s)${imported.truncated ? ' (truncated)' : ''}.`,
+        );
+        await dashboard.refresh();
+      } catch (err) {
+        vscode.window.showErrorMessage(`Hawk could not import SARIF: ${errorMessage(err)}`);
+      }
+    }),
     vscode.commands.registerCommand('hawk.syncHawkHealth', async () => {
       await dashboard.syncHawkHealth();
     }),

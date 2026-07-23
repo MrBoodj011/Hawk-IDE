@@ -119,6 +119,11 @@ file.
   capabilities and no network, and expected exit codes are bound into the
   approval hash. The negative control must not match while the reproduction
   command must match; both remain observations, never an automatic verdict.
+- **External security adapters** expose one normalized Hawk finding stream for
+  CodeQL, Semgrep, OWASP ZAP, Nuclei, Trivy, and OSS-Fuzz SARIF. **Hawk: Import
+  External Security SARIF** preserves producer identity, redacts messages,
+  bounds imports to 500 findings/5 MB, and sends imported signals through the
+  same governed reproduction, evidence, AI-fix, and GitHub workflow.
 - **Hawk: Issue → Branch → PR Automation** creates a GitHub issue, derives and
   creates a local feature branch, commits only after a modal approval, rejects
   secret-like paths, runs `git diff --check`, pushes the branch, opens a PR

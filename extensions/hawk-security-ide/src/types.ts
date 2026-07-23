@@ -218,6 +218,31 @@ export interface FindingsResponse {
   findings: SecurityFinding[];
 }
 
+export type SecurityAdapterId = 'codeql' | 'semgrep' | 'zap' | 'nuclei' | 'trivy' | 'oss-fuzz';
+
+export interface SecurityAdapterDescriptor {
+  id: SecurityAdapterId;
+  title: string;
+  category: 'sast' | 'dast' | 'dependency' | 'fuzzing';
+  acceptedFormats: Array<'sarif'>;
+  capabilities: string[];
+  provenance: 'external-tool';
+}
+
+export interface SecurityAdaptersResponse {
+  protocolVersion: number;
+  fingerprint: string;
+  adapters: SecurityAdapterDescriptor[];
+}
+
+export interface ImportedSecurityFindings {
+  adapter: SecurityAdapterId;
+  source: string;
+  importedAt: string;
+  findings: SecurityFinding[];
+  truncated: boolean;
+}
+
 export interface StaticAuditReport {
   protocolVersion: number;
   scannedAt: string;

@@ -25,6 +25,7 @@
     "onCommand:hawk.indexWorkspace",
     "onCommand:hawk.openAgent",
     "onCommand:hawk.runWorkspaceScan",
+    "onCommand:hawk.importSecuritySarif",
     "onCommand:hawk.syncHawkHealth",
     "onCommand:hawk.configureHawkHealthSync",
     "onCommand:hawk.github.configure",
@@ -147,6 +148,10 @@
       {
         "command": "hawk.runWorkspaceScan",
         "title": "Hawk: Run Approved Passive Workspace Scan"
+      },
+      {
+        "command": "hawk.importSecuritySarif",
+        "title": "Hawk: Import External Security SARIF"
       },
       {
         "command": "hawk.syncHawkHealth",
