@@ -8,10 +8,12 @@ import { HawkLlmProviderSetup } from './llmProviderSetup';
 import { HawkLocalAiSetup } from './localAiSetup';
 import { HawkReleaseUpdater } from './releaseUpdater';
 import { SecurityDashboardProvider } from './securityDashboard';
+import { HawkTerminalCapture } from './terminalCapture';
 
 export function activate(context: vscode.ExtensionContext): void {
   const client = new DaemonClient(context.extensionUri, context.secrets);
-  const agentPanel = new HawkAgentPanel(context.extensionUri, client);
+  const terminalCapture = new HawkTerminalCapture();
+  const agentPanel = new HawkAgentPanel(context.extensionUri, client, terminalCapture);
   const debugAgent = new HawkDebugAgent(agentPanel, client);
   const codingCore = new HawkCodingCore(client);
   const localAiSetup = new HawkLocalAiSetup(context, client);
@@ -25,6 +27,7 @@ export function activate(context: vscode.ExtensionContext): void {
     agentPanel,
   );
   context.subscriptions.push(client);
+  context.subscriptions.push(terminalCapture);
   context.subscriptions.push(agentPanel);
   context.subscriptions.push(debugAgent);
   context.subscriptions.push(codingCore);

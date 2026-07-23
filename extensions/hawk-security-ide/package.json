@@ -41,6 +41,8 @@
     "onCommand:hawk.showEditPredictionEvaluation",
     "onCommand:hawk.clearEditPredictionCache",
     "onCommand:hawk.predictMultiFileEdit",
+    "onCommand:hawk.showTerminalCapture",
+    "onCommand:hawk.clearTerminalCapture",
     "onCommand:hawk.checkForUpdates",
     "onCommand:hawk.configureReleaseToken",
     "onCommand:hawk.rollbackUpdate",
@@ -206,6 +208,14 @@
       {
         "command": "hawk.predictMultiFileEdit",
         "title": "Hawk: Predict Coordinated Multi-File Edit"
+      },
+      {
+        "command": "hawk.showTerminalCapture",
+        "title": "Hawk: Show Captured Terminal Context"
+      },
+      {
+        "command": "hawk.clearTerminalCapture",
+        "title": "Hawk: Clear Captured Terminal Context"
       },
       {
         "command": "hawk.checkForUpdates",
@@ -395,6 +405,37 @@
           "minimum": 0,
           "maximum": 5,
           "description": "Maximum bounded repair attempts after an autonomous Hawk AI task fails detected project gates. The final patch always requires manual Apply."
+        },
+        "hawk.agent.terminalCapture.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically capture workspace terminal command output through VS Code shell integration for optional Hawk AI context. Capture is memory-only, bounded, and secret-redacted."
+        },
+        "hawk.agent.terminalCapture.includeSuccessful": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include successful commands as well as failures in recent Hawk AI terminal context."
+        },
+        "hawk.agent.terminalCapture.maxCommands": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum recent shell-integrated commands attached to one Hawk AI task."
+        },
+        "hawk.agent.terminalCapture.maxContextChars": {
+          "type": "number",
+          "default": 12000,
+          "minimum": 2000,
+          "maximum": 30000,
+          "description": "Maximum redacted terminal-context characters considered before the overall Hawk AI context bound."
+        },
+        "hawk.agent.terminalCapture.retentionMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Memory-only lifetime of captured workspace terminal executions."
         },
         "hawk.reproduction.image": {
           "type": "string",

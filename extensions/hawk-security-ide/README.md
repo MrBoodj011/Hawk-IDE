@@ -8,7 +8,12 @@ offline sandbox reproduction, governed scan templates, portable evidence
 packs, Smart MCP mission planning, and MCP setup.
 Its native Hawk AI room streams model output and tool
 activity inside the editor, carries active-file, selection, open-tab, git-diff,
-diagnostics, and semantic-index context, and keeps durable session history.
+diagnostics, automatic redacted terminal output, and semantic-index context,
+and keeps durable session history. Terminal capture uses VS Code shell
+integration from command start, accepts only trusted-workspace working
+directories, strips control sequences, redacts secret-shaped values, and keeps
+only a bounded memory-only tail. The operator can inspect or clear the exact
+captured context from the Command Palette.
 Hawk Tab adds inline completion, cached confidence-filtered multiline Next
 Edit, and an approval-gated coordinated Multi-File Next Edit. The multi-file
 flow selects related bounded documents, requires unique exact replacements,

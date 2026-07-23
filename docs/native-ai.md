@@ -122,6 +122,29 @@ rechecks every digest and unique old-text preimage, then submits one atomic
 VS Code `WorkspaceEdit`. Any drift cancels the entire operation; files are
 never partially applied. One Undo reverts the accepted workspace edit.
 
+## Automatic terminal-output context
+
+Hawk listens to VS Code's shell-integrated terminal execution lifecycle and
+starts reading the output stream as soon as a command begins. Only executions
+whose reported working directory is inside a trusted open workspace qualify.
+Hawk strips ANSI/OSC/control sequences, applies backspaces, redacts common
+authorization headers, tokens, passwords, credential URLs, JWTs, provider
+keys, and AWS access-key shapes, then retains only a bounded output tail in
+memory.
+
+The **Terminal output** context chip is enabled by default in Hawk AI. It adds
+the latest bounded command records, exit codes, relative working directories,
+and redacted output to the next task. The context explicitly treats terminal
+text as untrusted diagnostic evidence rather than agent instructions.
+Retention, successful-command inclusion, command count, and character limits
+are configurable under `hawk.agent.terminalCapture.*`.
+
+No terminal transcript is written to disk. Commands outside the workspace are
+ignored, and terminals without VS Code shell integration are not scraped
+through unstable or proposed APIs. **Hawk: Show Captured Terminal Context**
+shows exactly what can be attached; **Hawk: Clear Captured Terminal Context**
+removes it immediately.
+
 ## Persistence
 
 Session metadata, event logs, agent conversation memory, and retained patches

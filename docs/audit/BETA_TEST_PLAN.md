@@ -17,13 +17,16 @@ billing, or cloud sync is required.
 3. Multiline Next Edit acceptance, rejection, cancellation, and stale-edit
    guard; coordinated Multi-File Next Edit preview, rejection, atomic Apply,
    one-step Undo, ambiguous-preimage refusal, and all-files drift refusal.
-4. Debug snapshot on breakpoint and exception; isolated fix; test; Apply; rerun.
-5. Three long parallel lanes; pause; Hawk restart; resume; candidate synthesis.
-6. Apply conflict after an operator edit and exact safe Revert after Apply.
-7. Browser/Burp capture with narrow scope, redaction, rate limit, and evidence export.
-8. Signed v0.7.x to v0.7.x+1 updater detection, verified download, silent
+4. Shell-integrated terminal success, failure, cancellation, ANSI output,
+   secret redaction, bounded-tail truncation, outside-workspace refusal,
+   context inspection, and immediate clear.
+5. Debug snapshot on breakpoint and exception; isolated fix; test; Apply; rerun.
+6. Three long parallel lanes; pause; Hawk restart; resume; candidate synthesis.
+7. Apply conflict after an operator edit and exact safe Revert after Apply.
+8. Browser/Burp capture with narrow scope, redaction, rate limit, and evidence export.
+9. Signed v0.7.x to v0.7.x+1 updater detection, verified download, silent
    installation inside an ephemeral Windows runner, version check, and cleanup.
-9. Offline Ollama, unavailable model, corrupt index, corrupt session, and lost
+10. Offline Ollama, unavailable model, corrupt index, corrupt session, and lost
    network recovery.
 
 ## Exit criteria

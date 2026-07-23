@@ -510,6 +510,7 @@ export function renderAgentPanelHtml(
           ${contextOption('openTabs', 'Open tabs', 'paths', true)}
           ${contextOption('gitDiff', 'Git diff', 'local', true)}
           ${contextOption('diagnostics', 'Diagnostics', 'errors', true)}
+          ${contextOption('terminal', 'Terminal output', 'auto + redacted', true)}
           ${contextOption('semantic', 'Semantic index', 'related code', true)}
         </div>
         <div class="panel-label">Session history</div>

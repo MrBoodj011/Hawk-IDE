@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import { renderAgentPanelHtml } from './agentPanelHtml';
 import type { DaemonClient } from './daemonClient';
+import type { HawkTerminalCapture } from './terminalCapture';
 import type { AiSessionSummary } from './types';
 
 const MAX_PROMPT_CHARS = 12_000;
@@ -24,6 +25,7 @@ export class HawkAgentPanel implements vscode.Disposable {
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly client: DaemonClient,
+    private readonly terminalCapture: HawkTerminalCapture,
   ) {}
 
   open(workspace: vscode.Uri, initialPrompt = ''): void {
@@ -640,6 +642,10 @@ export class HawkAgentPanel implements vscode.Disposable {
         )
         .slice(0, 40);
       if (diagnostics.length) pieces.push('', 'Workspace diagnostics:', ...diagnostics);
+    }
+    if (contexts.includes('terminal')) {
+      const terminal = this.terminalCapture.renderContext(workspace);
+      if (terminal) pieces.push('', terminal);
     }
     if (contexts.includes('gitDiff')) {
       const diff = await readGitDiff(workspace.fsPath);

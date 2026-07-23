@@ -71,7 +71,7 @@ An operational dashboard for source surface, API exposure, live and imported tra
 
 ### Hawk AI
 
-An in-editor engineering room with streaming responses, plans, tool events, task history, file/tab/git/diagnostics context, exact diff preview, checkpoints, Apply / Reject / Revert, test gates, and pause/resume recovery. Autonomous Verify can run every detected safe project gate, feed bounded failure evidence back into the isolated agent, and retry a configurable number of repairs without ever auto-applying the patch.
+An in-editor engineering room with streaming responses, plans, tool events, task history, file/tab/git/diagnostics context, automatic redacted terminal-output context, exact diff preview, checkpoints, Apply / Reject / Revert, test gates, and pause/resume recovery. Autonomous Verify can run every detected safe project gate, feed bounded failure evidence back into the isolated agent, and retry a configurable number of repairs without ever auto-applying the patch.
 
 ![Hawk AI workspace](docs/assets/readme/hawk-ai.png)
 
@@ -324,7 +324,8 @@ The CLI also supports `--backend`, `--model`, `--base-url`, `--api-key`, `--resu
 
 1. Open a trusted workspace and index the source surface.
 2. Ask Hawk AI to investigate a route, failure, or security hypothesis.
-3. Select file, tab, git diff, diagnostics, traffic, and semantic-index context.
+3. Select file, tab, git diff, diagnostics, recent shell-integrated terminal
+   output, traffic, and semantic-index context.
 4. Review the plan, tool events, streamed answer, and exact diff.
 5. Run only the approved typecheck, lint, test, or build gates.
 6. Apply the hash-bound patch, reject it, or preserve it as a checkpoint.
@@ -374,6 +375,14 @@ code, sessions, or engagement data to a Hawk cloud.
 | `~/.hawk/ide/prediction-evaluation/` | Aggregated Next Edit scorecards without retaining source code. |
 
 Persistence uses atomic writes, path validation, bounded artifacts, SHA-256 identities, and drift checks. Versioned migrations upgrade AI sessions, semantic-index metadata, and orchestration snapshots conservatively; unknown future versions are rejected, and legacy Docker bridge authority is removed rather than inherited. Symlinks, junctions, special files, and paths that escape the selected workspace are rejected.
+
+Integrated-terminal capture is intentionally not part of persistence. When
+VS Code shell integration is available, Hawk reads each workspace command
+stream from command start, strips terminal control sequences, redacts
+secret-shaped values, keeps a bounded tail in memory for a short configurable
+window, and attaches only the selected recent records to the next AI task.
+Commands outside the trusted workspace are ignored. Use **Hawk: Show Captured
+Terminal Context** or **Hawk: Clear Captured Terminal Context** at any time.
 
 ## Local daemon API
 
