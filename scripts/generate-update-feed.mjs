@@ -1,15 +1,17 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
-const repository = argument('--repository') || process.env.GITHUB_REPOSITORY || 'MrBoodj011/hawk';
+const CANONICAL_REPOSITORY = 'MrBoodj011/Hawk-IDE';
+const repository = argument('--repository') || process.env.GITHUB_REPOSITORY || CANONICAL_REPOSITORY;
 const output = resolve(argument('--output') || 'artifacts/update-feed.json');
+const allowEmpty = process.argv.includes('--allow-empty');
 const token = process.env.GITHUB_TOKEN || process.env.HAWK_GITHUB_TOKEN || '';
 const stableRollout = rollout('HAWK_STABLE_ROLLOUT_PERCENT', 100, 'hawk-stable');
 const betaRollout = rollout('HAWK_BETA_ROLLOUT_PERCENT', 100, 'hawk-beta');
 const canaryRollout = rollout('HAWK_CANARY_ROLLOUT_PERCENT', 10, 'hawk-canary');
 
-if (repository !== 'MrBoodj011/hawk') {
-  throw new Error('The production feed generator is pinned to MrBoodj011/hawk.');
+if (repository !== CANONICAL_REPOSITORY) {
+  throw new Error(`The production feed generator is pinned to ${CANONICAL_REPOSITORY}.`);
 }
 
 const response = await fetch(`https://api.github.com/repos/${repository}/releases?per_page=50`, {
@@ -26,7 +28,7 @@ const releases = (await response.json())
   .filter((release) => !release.draft && validVersion(release.tag_name))
   .map(normalizeRelease)
   .filter(releaseReadyForUpdater);
-if (!releases.length) {
+if (!releases.length && !allowEmpty) {
   throw new Error('No published Hawk release contains SHA256SUMS and a desktop installer.');
 }
 

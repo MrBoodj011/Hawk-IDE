@@ -12,9 +12,9 @@ The internal engineering gates pass.
 | --- | --- |
 | Branding audit | PASS across 595 working files |
 | TypeScript and Biome | PASS |
-| Test suite | 117 files, 825 passed, 16 skipped |
+| Test suite | 120 files, 839 passed, 16 skipped |
 | Chaos recovery | 4/4 scenarios pass |
-| Coverage | 67.30% statements, 59.67% branches, 69.04% functions, 70.02% lines |
+| Coverage | 68.01% statements, 60.51% branches, 70.05% functions, 70.78% lines |
 | Root and extension builds | PASS |
 | Browser and Burp contracts | PASS |
 | Packaged daemon and MCP runtime E2E | PASS |
@@ -32,11 +32,11 @@ The Windows x64 benchmark used Node.js 24.18.0:
 
 | Metric | Measured result | Gate |
 | --- | ---: | ---: |
-| Indexed source | 643 files / 2,095 chunks | bounded |
-| Cold build | 1.89 s | under 5 s |
-| Search p95 | 8.9 ms | under 50 ms |
-| Estimated resident index | 45.5 MiB | under 320 MiB |
-| Process peak RSS | 454 MiB | under 500 MiB |
+| Indexed source | 646 files / 2,100 chunks | bounded |
+| Cold build | 1.96 s | under 5 s |
+| Search p95 | 10.1 ms | under 50 ms |
+| Estimated resident index | 45.6 MiB | under 320 MiB |
+| Process peak RSS | 450 MiB | under 500 MiB |
 
 `npm run benchmark:index-memory` now runs in Hawk CI so the 500 MiB product
 contract is enforced continuously.
@@ -86,7 +86,8 @@ code cannot create honestly:
 - owner-verified Chrome Web Store, Visual Studio Marketplace, and PortSwigger
   BApp Store listings;
 - an official signed v0.7.0 GitHub Release;
-- a live production update feed and staged update rehearsal.
+- a signed v0.7.0 entry in the live production feed and a staged update
+  rehearsal.
 
 The repository contains workflows, runbooks, evidence schemas, and validation
 logic for these gates. They must be completed with the owner's accounts,

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Hawk online installer (macOS / Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/MrBoodj011/hawk/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MrBoodj011/Hawk-IDE/main/install.sh | sh
 #
 # Downloads the standalone binary for your OS/arch from the latest GitHub
 # release, verifies its SHA-256, and installs it to ~/.local/bin.
@@ -14,7 +14,7 @@
 #   HAWK_SKIP_CHECKSUM=1     install without SHA-256 verification (unsafe)
 set -eu
 
-REPO="${HAWK_REPO:-MrBoodj011/hawk}"
+REPO="${HAWK_REPO:-MrBoodj011/Hawk-IDE}"
 BIN="hawk"
 
 info() { printf '%s\n' "$*" >&2; }

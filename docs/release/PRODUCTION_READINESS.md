@@ -92,7 +92,7 @@ official GitHub Releases API. This keeps updates real and
 unattended-download capable without silently executing a remote binary.
 
 The `Hawk Production Update Feed` workflow deploys
-`https://mrboodj011.github.io/hawk/updates/feed.json` after a published desktop
+`https://mrboodj011.github.io/Hawk-IDE/updates/feed.json` after a published desktop
 release. The owner must enable GitHub Pages with **GitHub Actions** as its source
 once; `npm run release:readiness:enforce` then checks that the current stable
 version is present in the live feed.

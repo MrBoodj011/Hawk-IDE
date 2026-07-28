@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_REPO = 'MrBoodj011/hawk';
+const DEFAULT_REPO = 'MrBoodj011/Hawk-IDE';
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_BUFFER = 1024 * 1024;
 
@@ -17,7 +17,12 @@ export interface UpdateResult {
 }
 
 export async function runSelfUpdate(version = 'latest'): Promise<UpdateResult> {
-  const repo = process.env.HAWK_REPO || DEFAULT_REPO;
+  const repo = process.env.HAWK_REPO?.trim() || DEFAULT_REPO;
+  if (repo !== DEFAULT_REPO && process.env.HAWK_ALLOW_CUSTOM_UPDATE_REPO !== 'true') {
+    throw new Error(
+      `refusing non-canonical update repository ${repo}; set HAWK_ALLOW_CUSTOM_UPDATE_REPO=true only for an explicitly trusted development fork`,
+    );
+  }
   const normalizedVersion = normalizeVersion(version);
   const installDir = detectInstallDir();
   const env = {
@@ -66,7 +71,7 @@ async function runUnixInstaller(
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
   const scriptURL = `https://raw.githubusercontent.com/${repo}/${ref}/install.sh`;
-  const script = await fetchText(scriptURL);
+  const script = await fetchText(scriptURL, repo);
   const dir = await mkdtemp(join(tmpdir(), 'hawk-update-'));
   const file = join(dir, 'install.sh');
   try {
@@ -89,6 +94,7 @@ async function runWindowsInstaller(
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
   const scriptURL = `https://raw.githubusercontent.com/${repo}/${ref}/install.ps1`;
+  assertInstallerURL(scriptURL, repo);
   const command = [
     '$ErrorActionPreference = "Stop"',
     '$ProgressPreference = "SilentlyContinue"',
@@ -115,7 +121,7 @@ async function runWindowsInstaller(
  * must not be able to redirect the fetch to an attacker scheme/host (L10). TLS
  * guards the bytes in flight; this guards the destination.
  */
-export function assertInstallerURL(url: string): void {
+export function assertInstallerURL(url: string, repository = DEFAULT_REPO): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -125,13 +131,19 @@ export function assertInstallerURL(url: string): void {
   if (parsed.protocol !== 'https:') {
     throw new Error(`refusing to fetch installer over non-https URL: ${url}`);
   }
+  if (parsed.username || parsed.password) {
+    throw new Error('refusing installer URL with embedded credentials');
+  }
   if (parsed.hostname !== 'raw.githubusercontent.com') {
     throw new Error(`refusing to fetch installer from unexpected host: ${parsed.hostname}`);
   }
+  if (!parsed.pathname.startsWith(`/${repository}/`)) {
+    throw new Error(`refusing installer outside trusted repository ${repository}`);
+  }
 }
 
-async function fetchText(url: string): Promise<string> {
-  assertInstallerURL(url);
+async function fetchText(url: string, repository: string): Promise<string> {
+  assertInstallerURL(url, repository);
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`download failed: ${url} (${resp.status})`);
   return await resp.text();

@@ -546,7 +546,7 @@
         },
         "hawk.updates.feedUrl": {
           "type": "string",
-          "default": "https://mrboodj011.github.io/hawk/updates/feed.json",
+          "default": "https://mrboodj011.github.io/Hawk-IDE/updates/feed.json",
           "description": "HTTPS Hawk update feed. A validated GitHub Releases API fallback remains active if this service is unavailable."
         },
         "hawk.updates.expectedPublisher": {

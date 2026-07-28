@@ -27,8 +27,8 @@
   "linuxIconName": "hawk",
   "urlProtocol": "hawk",
   "quality": "stable",
-  "reportIssueUrl": "https://github.com/MrBoodj011/hawk/issues/new",
+  "reportIssueUrl": "https://github.com/MrBoodj011/Hawk-IDE/issues/new",
   "licenseName": "Apache-2.0",
-  "licenseUrl": "https://github.com/MrBoodj011/hawk/blob/main/LICENSE",
-  "serverLicenseUrl": "https://github.com/MrBoodj011/hawk/blob/main/LICENSE"
+  "licenseUrl": "https://github.com/MrBoodj011/Hawk-IDE/blob/main/LICENSE",
+  "serverLicenseUrl": "https://github.com/MrBoodj011/Hawk-IDE/blob/main/LICENSE"
 }

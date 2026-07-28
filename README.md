@@ -8,10 +8,10 @@
 The local-first security IDE for code, runtime evidence, governed AI, and reviewable change.</p>
 
 <p align="center">
-  <a href="https://github.com/MrBoodj011/hawk/actions"><img src="https://img.shields.io/github/actions/workflow/status/MrBoodj011/hawk/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI" /></a>
-  <a href="https://github.com/MrBoodj011/hawk/releases"><img src="https://img.shields.io/badge/version-0.7.0-ffb84d?style=for-the-badge" alt="Version 0.7.0" /></a>
+  <a href="https://github.com/MrBoodj011/Hawk-IDE/actions"><img src="https://img.shields.io/github/actions/workflow/status/MrBoodj011/Hawk-IDE/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI" /></a>
+  <a href="https://github.com/MrBoodj011/Hawk-IDE/releases"><img src="https://img.shields.io/badge/version-0.7.0-ffb84d?style=for-the-badge" alt="Version 0.7.0" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-16b8a6?style=for-the-badge" alt="Apache-2.0 license" /></a>
-  <a href="https://github.com/MrBoodj011/hawk"><img src="https://img.shields.io/github/repo-size/MrBoodj011/hawk?style=for-the-badge" alt="Repository size" /></a>
+  <a href="https://github.com/MrBoodj011/Hawk-IDE"><img src="https://img.shields.io/github/repo-size/MrBoodj011/Hawk-IDE?style=for-the-badge" alt="Repository size" /></a>
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@ The local-first security IDE for code, runtime evidence, governed AI, and review
 | --- | --- |
 | Product | **Hawk Security IDE** |
 | Author and maintainer | **[MrBoodj011](https://github.com/MrBoodj011)** |
-| Repository | [github.com/MrBoodj011/hawk](https://github.com/MrBoodj011/hawk) |
+| Repository | [github.com/MrBoodj011/Hawk-IDE](https://github.com/MrBoodj011/Hawk-IDE) |
 | Current version | `0.7.0` |
 | Package name | `@hawk/ide` |
 | License | [Apache-2.0](LICENSE) |
@@ -483,14 +483,14 @@ The latest local validation snapshot for the current source tree:
 
 | Check | Result |
 | --- | --- |
-| Test files | 117 |
-| Tests passed | 825 |
+| Test files | 120 |
+| Tests passed | 839 |
 | Tests skipped | 16 |
 | Chaos scenarios | 4/4 |
 | TypeScript / Biome / tsup build | PASS |
 | Packaged daemon + MCP runtime E2E | PASS |
-| Index benchmark | PASS, 1.89 s cold build, 8.9 ms search p95, 454 MiB peak RSS |
-| Coverage gate | PASS, 67.30% statements / 59.67% branches / 69.04% functions / 70.02% lines |
+| Index benchmark | PASS, 1.96 s cold build, 10.1 ms search p95, 450 MiB peak RSS |
+| Coverage gate | PASS, 68.01% statements / 60.51% branches / 70.05% functions / 70.78% lines |
 | Desktop extension-host E2E | PASS locally on VS Code 1.129.1 |
 | Full and production dependency audits | 0 vulnerabilities |
 | Branding guard | PASS across the working tree |
@@ -515,7 +515,7 @@ The code and local release workflow are present. These owner-controlled producti
 - Independent external security assessment.
 - Chrome Web Store, Visual Studio Marketplace, and PortSwigger BApp Store
   owner accounts/review.
-- Signed installer publication, a production HTTPS update feed, and a real staged update rehearsal across Canary, Beta, and Stable cohorts. The feed publishing workflow and rollout controls are implemented, but the production endpoint is not live yet.
+- A signed v0.7.0 installer and a real staged update rehearsal across Canary, Beta, and Stable cohorts. The production HTTPS feed and rollout controls are live at the canonical Hawk-IDE Pages endpoint, but the feed cannot advertise v0.7.0 until that signed release exists.
 
 Hawk is intentionally a personal, local-first product: no Hawk account, team/RBAC system, Stripe billing, cloud synchronization, telemetry collector, Apple build, or hosted Hawk backend is required.
 

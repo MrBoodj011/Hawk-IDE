@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { isValidReleaseVersion } from './releaseSemver';
 
-export const HAWK_RELEASE_REPOSITORY = 'MrBoodj011/hawk';
-export const DEFAULT_HAWK_UPDATE_FEED = 'https://mrboodj011.github.io/hawk/updates/feed.json';
+export const HAWK_RELEASE_REPOSITORY = 'MrBoodj011/Hawk-IDE';
+export const DEFAULT_HAWK_UPDATE_FEED =
+  'https://mrboodj011.github.io/Hawk-IDE/updates/feed.json';
 
 export interface HawkFeedAsset {
   name: string;
@@ -107,7 +108,11 @@ function parseRelease(value: unknown, allowPrerelease: boolean): HawkFeedRelease
   if (typeof input.name !== 'string' || input.name.length > 300) {
     throw new Error('Update feed release name is invalid.');
   }
-  const releaseUrl = trustedUrl(input.html_url, ['github.com'], '/MrBoodj011/hawk/releases/');
+  const releaseUrl = trustedUrl(
+    input.html_url,
+    ['github.com'],
+    '/MrBoodj011/Hawk-IDE/releases/',
+  );
   if (!Array.isArray(input.assets) || input.assets.length > 100) {
     throw new Error('Update feed release assets are invalid.');
   }
@@ -160,11 +165,15 @@ function parseAsset(value: unknown): HawkFeedAsset {
   }
   return {
     name: input.name,
-    url: trustedUrl(input.url, ['api.github.com'], '/repos/MrBoodj011/hawk/releases/assets/'),
+    url: trustedUrl(
+      input.url,
+      ['api.github.com'],
+      '/repos/MrBoodj011/Hawk-IDE/releases/assets/',
+    ),
     browser_download_url: trustedUrl(
       input.browser_download_url,
       ['github.com'],
-      '/MrBoodj011/hawk/releases/download/',
+      '/MrBoodj011/Hawk-IDE/releases/download/',
     ),
     size: Number(input.size),
   };

@@ -4,7 +4,7 @@ import { basename, dirname, resolve } from 'node:path';
 
 const jar = resolve(argument('--file') || '');
 const output = resolve(argument('--output') || 'artifacts/bapp-submission.json');
-const sourceUrl = argument('--source-url') || 'https://github.com/MrBoodj011/hawk';
+const sourceUrl = argument('--source-url') || 'https://github.com/MrBoodj011/Hawk-IDE';
 const expectedVersion = JSON.parse(await readFile('package.json', 'utf8')).version;
 if (!argument('--file')) throw new Error('Pass --file with the Hawk Burp Companion JAR.');
 const info = await stat(jar);

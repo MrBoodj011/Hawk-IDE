@@ -157,7 +157,7 @@ export function pullRequestReportToSarif(
         tool: {
           driver: {
             name: 'Hawk PR Security Agent',
-            informationUri: 'https://github.com/MrBoodj011/hawk',
+            informationUri: 'https://github.com/MrBoodj011/Hawk-IDE',
             rules: [
               ...new Map(report.findings.map((finding) => [finding.ruleId, finding])).values(),
             ].map((finding) => ({

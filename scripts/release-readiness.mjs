@@ -163,7 +163,7 @@ function validateStores(value) {
 
 async function productionUpdateFeedCheck(version) {
   const url = process.env.HAWK_PRODUCTION_UPDATE_FEED ||
-    'https://mrboodj011.github.io/hawk/updates/feed.json';
+    'https://mrboodj011.github.io/Hawk-IDE/updates/feed.json';
   try {
     const response = await fetch(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'Hawk-Release-Readiness' },
@@ -177,7 +177,7 @@ async function productionUpdateFeedCheck(version) {
     );
     return check(
       'production-update-feed',
-      feed?.schemaVersion === 1 && feed?.repository === 'MrBoodj011/hawk' && current,
+      feed?.schemaVersion === 1 && feed?.repository === 'MrBoodj011/Hawk-IDE' && current,
       current ? `stable feed contains v${version}` : `stable feed does not contain v${version}`,
     );
   } catch (error) {

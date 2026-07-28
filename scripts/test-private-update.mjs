@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const repository = 'MrBoodj011/hawk';
+const repository = 'MrBoodj011/Hawk-IDE';
 const fromVersion = argument('--from') || '0.7.0';
 const requestedTag = argument('--to');
 const resultPath = argument('--result');

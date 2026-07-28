@@ -6,6 +6,7 @@ const root = resolve(import.meta.dirname, '..');
 const legalAttributionFiles = new Set(['NOTICE', 'extensions/hawk-security-ide/NOTICE']);
 const generatedRoots = ['.tmp/', '.vscode-test/', 'artifacts/', 'output/', 'tmp/'];
 const forbiddenBrand = new RegExp(['pente', 'sterflow'].join(''), 'i');
+const legacyRepository = /MrBoodj011\/hawk(?!-IDE)|mrboodj011\.github\.io\/hawk(?:\/|$)/i;
 const failures = [];
 
 const tracked = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
@@ -28,9 +29,12 @@ for (const relativePath of tracked) {
   const bytes = readFileSync(absolute);
   if (bytes.includes(0)) continue;
   const text = bytes.toString('utf8');
-  if (!forbiddenBrand.test(text)) continue;
-  if (legalAttributionFiles.has(normalized)) continue;
-  failures.push(`${normalized}: legacy brand appears outside the legal NOTICE boundary`);
+  if (legacyRepository.test(text)) {
+    failures.push(`${normalized}: legacy repository identity must use MrBoodj011/Hawk-IDE`);
+  }
+  if (forbiddenBrand.test(text) && !legalAttributionFiles.has(normalized)) {
+    failures.push(`${normalized}: legacy brand appears outside the legal NOTICE boundary`);
+  }
 }
 
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));

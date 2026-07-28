@@ -3,16 +3,16 @@ import { eligibleForRollout, parseHawkUpdateFeed, validateUpdateFeedUrl } from '
 
 const release = {
   tag_name: 'v0.7.1',
-  html_url: 'https://github.com/MrBoodj011/hawk/releases/tag/v0.7.1',
+  html_url: 'https://github.com/MrBoodj011/Hawk-IDE/releases/tag/v0.7.1',
   name: 'Hawk Security IDE v0.7.1',
   draft: false as const,
   prerelease: false,
   assets: [
     {
       name: 'SHA256SUMS',
-      url: 'https://api.github.com/repos/MrBoodj011/hawk/releases/assets/123',
+      url: 'https://api.github.com/repos/MrBoodj011/Hawk-IDE/releases/assets/123',
       browser_download_url:
-        'https://github.com/MrBoodj011/hawk/releases/download/v0.7.1/SHA256SUMS',
+        'https://github.com/MrBoodj011/Hawk-IDE/releases/download/v0.7.1/SHA256SUMS',
       size: 96,
     },
   ],
@@ -23,7 +23,7 @@ describe('Hawk production update feed', () => {
     const result = parseHawkUpdateFeed({
       schemaVersion: 1,
       product: 'Hawk Security IDE',
-      repository: 'MrBoodj011/hawk',
+      repository: 'MrBoodj011/Hawk-IDE',
       generatedAt: '2026-07-21T00:00:00.000Z',
       channels: {
         stable: [
@@ -50,7 +50,7 @@ describe('Hawk production update feed', () => {
       parseHawkUpdateFeed({
         schemaVersion: 1,
         product: 'Hawk Security IDE',
-        repository: 'MrBoodj011/hawk',
+        repository: 'MrBoodj011/Hawk-IDE',
         generatedAt: '2026-07-21T00:00:00.000Z',
         channels: {
           stable: [

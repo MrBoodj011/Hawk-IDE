@@ -294,7 +294,7 @@ function renderSarif(evidence: PortableEvidence): string {
         tool: {
           driver: {
             name: 'Hawk Security IDE',
-            informationUri: 'https://github.com/MrBoodj011/hawk',
+            informationUri: 'https://github.com/MrBoodj011/Hawk-IDE',
             semanticVersion: '0.1.0',
             rules: rules.map((finding) => ({
               id: finding.ruleId,

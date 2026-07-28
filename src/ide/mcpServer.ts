@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -13,6 +13,13 @@ import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.j
 import { importHawkHealthReport } from './hawkReport.js';
 import { listHawkIntegrations } from './integrationHub.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
+import {
+  errorMessage,
+  mcpHelp,
+  parseMcpServerArgs,
+  textResult,
+  toolError,
+} from './mcpServerSupport.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { estimateParallelExecution } from './orchestrationEstimate.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
@@ -38,48 +45,12 @@ import { scanWorkspaceSecurity } from './staticAudit.js';
 const SERVER_NAME = 'hawk-ide';
 const SERVER_VERSION = '0.7.0';
 
-interface ParsedArgs {
-  workspaceRoot: string;
-  showHelp: boolean;
-}
-
-function parseArgs(argv: string[]): ParsedArgs {
-  const args: ParsedArgs = { workspaceRoot: process.cwd(), showHelp: false };
-  for (let index = 0; index < argv.length; index += 1) {
-    const flag = argv[index];
-    const next = () => argv[++index] ?? '';
-    if (flag === '--workspace') args.workspaceRoot = resolve(next());
-    if (flag === '--help' || flag === '-h') args.showHelp = true;
-  }
-  return args;
-}
-
 function printHelp(): void {
-  process.stderr.write(`hawk-ide-mcp ${SERVER_VERSION}
-
-Local Hawk Security IDE analysis and isolated worker orchestration.
-Passive tools only parse source files. Parallel worker tools require an
-explicit call, use an existing local Docker image, mount the workspace
-read-only, and disable container network unless external access is explicitly
-approved.
-
-Usage:
-  hawk-ide-mcp --workspace <path>
-
-MCP configuration:
-  {
-    "mcpServers": {
-      "hawk": {
-        "command": "hawk-ide-mcp",
-        "args": ["--workspace", "\${workspaceFolder}"]
-      }
-    }
-  }
-`);
+  process.stderr.write(mcpHelp(SERVER_VERSION));
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseMcpServerArgs(process.argv.slice(2));
   if (args.showHelp) {
     printHelp();
     return;
@@ -1148,22 +1119,7 @@ async function main(): Promise<void> {
   await new Promise<void>(() => undefined);
 }
 
-function textResult(text: string) {
-  return { content: [{ type: 'text' as const, text }] };
-}
-
-function toolError(err: unknown) {
-  return {
-    isError: true,
-    content: [{ type: 'text' as const, text: errorMessage(err) }],
-  };
-}
-
 main().catch((err: unknown) => {
   process.stderr.write(`[hawk-ide-mcp] ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}

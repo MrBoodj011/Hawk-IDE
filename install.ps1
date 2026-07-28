@@ -8,7 +8,7 @@
   and adds that directory to your user PATH.
 
   Run:
-    irm https://raw.githubusercontent.com/MrBoodj011/hawk/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/MrBoodj011/Hawk-IDE/main/install.ps1 | iex
 
 .NOTES
   Environment overrides:
@@ -23,7 +23,7 @@
 #Requires -Version 5
 $ErrorActionPreference = 'Stop'
 
-$Repo = if ($env:HAWK_REPO) { $env:HAWK_REPO } else { 'MrBoodj011/hawk' }
+$Repo = if ($env:HAWK_REPO) { $env:HAWK_REPO } else { 'MrBoodj011/Hawk-IDE' }
 $Bin  = 'hawk'
 
 # --- detect arch (only windows-x64 is published) -------------------------

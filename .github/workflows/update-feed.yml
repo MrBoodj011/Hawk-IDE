@@ -37,7 +37,15 @@ jobs:
           HAWK_STABLE_ROLLOUT_PERCENT: ${{ vars.HAWK_STABLE_ROLLOUT_PERCENT || '100' }}
           HAWK_BETA_ROLLOUT_PERCENT: ${{ vars.HAWK_BETA_ROLLOUT_PERCENT || '100' }}
           HAWK_CANARY_ROLLOUT_PERCENT: ${{ vars.HAWK_CANARY_ROLLOUT_PERCENT || '10' }}
-        run: node scripts/generate-update-feed.mjs --output public/updates/feed.json
+        shell: bash
+        run: |
+          args=()
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            args+=(--allow-empty)
+          fi
+          node scripts/generate-update-feed.mjs \
+            --output public/updates/feed.json \
+            "${args[@]}"
       - name: Add immutable service metadata
         shell: bash
         run: |

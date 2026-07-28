@@ -86,10 +86,10 @@
     "security-review"
   ],
   "license": "Apache-2.0",
-  "homepage": "https://github.com/MrBoodj011/hawk",
+  "homepage": "https://github.com/MrBoodj011/Hawk-IDE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MrBoodj011/hawk.git"
+    "url": "https://github.com/MrBoodj011/Hawk-IDE.git"
   },
   "engines": {
     "node": ">=20.0.0"

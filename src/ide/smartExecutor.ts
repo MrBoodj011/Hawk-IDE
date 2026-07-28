@@ -328,7 +328,7 @@ function correlate(routes: WorkspaceRoute[], traffic: TrafficInventory | undefin
 function routePattern(route: string): RegExp {
   const escaped = route
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/\\:([a-zA-Z0-9_]+)/g, '[^/]+')
+    .replace(/:([a-zA-Z0-9_]+)/g, '[^/]+')
     .replace(/\\\[[.]{3}[^\]]+\\\]/g, '.+')
     .replace(/\\\[[^\]]+\\\]/g, '[^/]+');
   return new RegExp(`^${escaped}/?$`);

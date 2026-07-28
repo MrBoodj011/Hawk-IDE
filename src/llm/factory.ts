@@ -94,7 +94,7 @@ export function newFromConfig(cfg: Config): Client {
         cfg.model || OPENROUTER_DEFAULT_MODEL,
         'openrouter',
         {
-          'HTTP-Referer': 'https://github.com/MrBoodj011/hawk',
+          'HTTP-Referer': 'https://github.com/MrBoodj011/Hawk-IDE',
           'X-OpenRouter-Title': 'Hawk Security IDE',
         },
         gen,
