@@ -123,8 +123,8 @@ export class WorkspaceBoundTool implements Tool {
       throw new Error(`path is outside the isolated Hawk worktree: ${rawPath}`);
     }
     const existing = await closestExistingPath(lexical);
-    const canonical = await realpath(existing);
-    if (!isInsideWorkspace(this.root, canonical)) {
+    const [canonicalRoot, canonical] = await Promise.all([realpath(this.root), realpath(existing)]);
+    if (!isInsideWorkspace(canonicalRoot, canonical)) {
       throw new Error(`path resolves outside the isolated Hawk worktree: ${rawPath}`);
     }
     const globPattern =
