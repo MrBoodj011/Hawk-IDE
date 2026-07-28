@@ -483,16 +483,16 @@ The latest local validation snapshot for the current source tree:
 
 | Check | Result |
 | --- | --- |
-| Test files | 108 |
-| Tests passed | 796 |
+| Test files | 117 |
+| Tests passed | 825 |
 | Tests skipped | 16 |
 | Chaos scenarios | 4/4 |
 | TypeScript / Biome / tsup build | PASS |
 | Packaged daemon + MCP runtime E2E | PASS |
-| Index benchmark | PASS, 1.55 s cold build and peak RSS under the 500 MiB limit |
-| Coverage gate | PASS, 66.91% statements / 59.23% branches / 67.82% functions / 69.63% lines |
+| Index benchmark | PASS, 1.89 s cold build, 8.9 ms search p95, 454 MiB peak RSS |
+| Coverage gate | PASS, 67.30% statements / 59.67% branches / 69.04% functions / 70.02% lines |
 | Desktop extension-host E2E | PASS locally on VS Code 1.129.1 |
-| Production dependency audit | 0 vulnerabilities |
+| Full and production dependency audits | 0 vulnerabilities |
 | Branding guard | PASS across the working tree |
 
 Run the full local gate with:
@@ -501,6 +501,7 @@ Run the full local gate with:
 npm run ci
 npm run test:chaos
 npm run benchmark:index-memory
+npm audit --audit-level=high
 npm audit --omit=dev
 ```
 
@@ -514,7 +515,7 @@ The code and local release workflow are present. These owner-controlled producti
 - Independent external security assessment.
 - Chrome Web Store, Visual Studio Marketplace, and PortSwigger BApp Store
   owner accounts/review.
-- Signed installer publication and a real staged update rehearsal across Canary, Beta, and Stable cohorts. The HTTPS feed service is already live; rollout percentages are controlled by repository variables.
+- Signed installer publication, a production HTTPS update feed, and a real staged update rehearsal across Canary, Beta, and Stable cohorts. The feed publishing workflow and rollout controls are implemented, but the production endpoint is not live yet.
 
 Hawk is intentionally a personal, local-first product: no Hawk account, team/RBAC system, Stripe billing, cloud synchronization, telemetry collector, Apple build, or hosted Hawk backend is required.
 
@@ -533,6 +534,7 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 - [Official store publication](docs/release/OFFICIAL_STORE_PUBLICATION.md)
 - [Real-user beta program](docs/audit/BETA_PROGRAM.md)
 - [External pentest runbook](docs/audit/EXTERNAL_PENTEST_RUNBOOK.md)
+- [Latest internal validation](docs/audit/INTERNAL_VALIDATION_2026-07-28.md)
 - [Threat model](docs/security/THREAT_MODEL.md)
 
 ## Repository map

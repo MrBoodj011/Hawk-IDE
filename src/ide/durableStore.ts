@@ -1,4 +1,4 @@
-import { appendFile, chmod, mkdir, readFile, readdir } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import writeFileAtomic from 'write-file-atomic';
 
@@ -49,6 +49,15 @@ export class DurableStore {
       if (isMissing(error)) return [];
       throw error;
     }
+  }
+
+  async deleteJson(collection: string, id: string): Promise<void> {
+    const file = this.file(collection, id, 'json');
+    await this.serialize(async () => {
+      await unlink(file).catch((error: unknown) => {
+        if (!isMissing(error)) throw error;
+      });
+    });
   }
 
   async appendJsonLine(collection: string, id: string, value: unknown): Promise<void> {

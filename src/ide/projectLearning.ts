@@ -23,6 +23,7 @@ export interface ProjectLearningSignal {
   provenance: 'hawk-local';
   redacted: true;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ProjectLearningProfile {
@@ -51,12 +52,16 @@ export class ProjectLearningLedger {
     private readonly store: DurableStore,
     workspaceRoot: string,
     now: () => Date = () => new Date(),
+    private readonly options: {
+      globalStore?: DurableStore;
+      maxSignals?: number;
+    } = {},
   ) {
     this.projectKey = createHash('sha256')
       .update(resolve(workspaceRoot).toLowerCase())
       .digest('hex')
       .slice(0, 32);
-    this.globalStore = new DurableStore(homedir());
+    this.globalStore = options.globalStore ?? new DurableStore(homedir());
     this.now = now;
   }
 
@@ -69,7 +74,7 @@ export class ProjectLearningLedger {
     const summary = redact(input.summary).slice(0, MAX_SUMMARY).trim();
     if (!summary) throw new Error('Learning signal summary is required');
     const createdAt = this.now().toISOString();
-    const signal: ProjectLearningSignal = {
+    const candidate: ProjectLearningSignal = {
       ...input,
       id: `learning-${this.projectKey}-${createHash('sha256').update(`${createdAt}\0${input.kind}\0${input.fingerprint}`).digest('hex').slice(0, 24)}`,
       projectKey: this.projectKey,
@@ -78,17 +83,36 @@ export class ProjectLearningLedger {
       provenance: 'hawk-local',
       redacted: true,
       createdAt,
+      updatedAt: createdAt,
     };
     const existing = await this.store.listJson<ProjectLearningSignal>('learning-signals');
     const duplicate = existing.find(
-      (entry) => entry.fingerprint === signal.fingerprint && entry.kind === signal.kind,
+      (entry) => entry.fingerprint === candidate.fingerprint && entry.kind === candidate.kind,
     );
-    if (!duplicate) {
-      await this.store.writeJson('learning-signals', signal.id, signal);
-      await this.trim(this.store, [...existing, signal]);
-      await this.globalStore.writeJson('learning-signals', signal.id, signal);
-    }
-    return duplicate ?? signal;
+    const signal: ProjectLearningSignal = duplicate
+      ? {
+          ...duplicate,
+          ...candidate,
+          id: duplicate.id,
+          createdAt: duplicate.createdAt,
+          outcome: strongerOutcome(duplicate.outcome, candidate.outcome),
+          updatedAt: createdAt,
+        }
+      : candidate;
+    await this.store.writeJson('learning-signals', signal.id, signal);
+    await this.trim(this.store, duplicate ? existing : [...existing, signal]);
+
+    const global = await this.globalStore.listJson<ProjectLearningSignal>('learning-signals');
+    const globalDuplicate = global.find(
+      (entry) => entry.projectKey === signal.projectKey && entry.id === signal.id,
+    );
+    await this.globalStore.writeJson('learning-signals', signal.id, {
+      ...globalDuplicate,
+      ...signal,
+      outcome: strongerOutcome(globalDuplicate?.outcome ?? 'neutral', signal.outcome),
+    });
+    await this.trim(this.globalStore, globalDuplicate ? global : [...global, signal]);
+    return signal;
   }
 
   async recordFinding(finding: SecurityFinding): Promise<ProjectLearningSignal> {
@@ -216,15 +240,18 @@ export class ProjectLearningLedger {
   }
 
   private async trim(target: DurableStore, entries: ProjectLearningSignal[]): Promise<void> {
-    if (entries.length <= MAX_SIGNALS) return;
+    const maxSignals = Math.max(10, Math.min(this.options.maxSignals ?? MAX_SIGNALS, MAX_SIGNALS));
+    if (entries.length <= maxSignals) return;
     for (const entry of entries
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .slice(0, entries.length - MAX_SIGNALS))
-      await target.writeJson('learning-signals', entry.id, {
-        ...entry,
-        summary: '[retained digest only]',
-      });
+      .slice(0, entries.length - maxSignals))
+      await target.deleteJson('learning-signals', entry.id);
   }
+}
+
+function strongerOutcome(current: LearningOutcome, next: LearningOutcome): LearningOutcome {
+  if (next !== 'neutral') return next;
+  return current;
 }
 
 function redact(value: string): string {

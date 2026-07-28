@@ -15,8 +15,8 @@ import ts from 'typescript';
 import { migrateSemanticIndexDocument } from './stateMigrations.js';
 
 // Bump this whenever the on-disk representation changes. Version 5 stores
-// embeddings in compact Float32/base64 form and derives `normalized` text on
-// load, and records per-file representative-chunk truncation.
+// embeddings in compact Float32/base64 form and records per-file
+// representative-chunk truncation.
 const INDEX_VERSION = 5;
 const MAX_FILES = 8_000;
 const MAX_FILE_BYTES = 2_500_000;
@@ -29,7 +29,10 @@ const MAX_CHUNKS_PER_FILE = 24;
 // request buffers while a rebuild is in progress.
 const MAX_RESIDENT_INDEX_BYTES = 320 * 1024 * 1024;
 const INDEX_METADATA_CONCURRENCY = 16;
-const INDEX_BUILD_CONCURRENCY = 4;
+const INDEX_BUILD_CONCURRENCY = 2;
+// Integrate parsed files in small waves. Keeping every cold-build result alive
+// until the last file was parsed pushed the daemon above its 500 MiB RSS gate.
+const INDEX_BUILD_BATCH_SIZE = INDEX_BUILD_CONCURRENCY;
 const MAX_INDEX_CONTENT_BYTES = 64 * 1024 * 1024;
 const MAX_TERMS_PER_CHUNK = 128;
 const MAX_FACTS_PER_FILE = 4_000;
@@ -161,7 +164,6 @@ interface IndexedChunk {
   startLine: number;
   endLine: number;
   content: string;
-  normalized: string;
   terms: Map<string, number>;
   symbols: string[];
   types: string[];
@@ -181,7 +183,7 @@ interface IndexedFile {
   chunks: IndexedChunk[];
 }
 
-interface StoredChunk extends Omit<IndexedChunk, 'terms' | 'normalized' | 'embedding'> {
+interface StoredChunk extends Omit<IndexedChunk, 'terms' | 'embedding'> {
   terms: Array<[string, number]>;
   /** Float32 embedding bytes encoded as base64 to avoid JSON number bloat. */
   embedding?: string;
@@ -397,57 +399,70 @@ export class SemanticWorkspaceIndex {
       plannedBytes += plannedSize;
       if (unchanged && item.previous) plannedChunks += item.previous.chunks.length;
     }
-    const changed = accepted.filter(
-      (item) =>
-        !(
-          item.previous &&
-          item.previous.size === item.info.size &&
-          item.previous.mtimeMs === item.info.mtimeMs
-        ),
-    );
-    const indexedChanged = await mapWithConcurrency(changed, INDEX_BUILD_CONCURRENCY, (item) =>
-      this.indexOneFile(item.absolutePath, item.file, item.info.size, item.info.mtimeMs),
-    );
-    const changedByPath = new Map(changed.map((item, index) => [item.file, indexedChanged[index]]));
     chunkCount = 0;
-    for (const item of accepted) {
-      const { file, previous } = item;
-      const unchanged =
-        previous && previous.size === item.info.size && previous.mtimeMs === item.info.mtimeMs;
-      if (unchanged && previous) {
-        if (previous.truncated) truncated = true;
-        const previousResidentBytes = estimateIndexedFileBytes(previous);
-        if (residentBytes + previousResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
+    let capacityReached = false;
+    for (
+      let offset = 0;
+      offset < accepted.length && !capacityReached;
+      offset += INDEX_BUILD_BATCH_SIZE
+    ) {
+      const batch = accepted.slice(offset, offset + INDEX_BUILD_BATCH_SIZE);
+      const changed = batch.filter(
+        (item) =>
+          !(
+            item.previous &&
+            item.previous.size === item.info.size &&
+            item.previous.mtimeMs === item.info.mtimeMs
+          ),
+      );
+      const indexedChanged = await mapWithConcurrency(changed, INDEX_BUILD_CONCURRENCY, (item) =>
+        this.indexOneFile(item.absolutePath, item.file, item.info.size, item.info.mtimeMs),
+      );
+      const changedByPath = new Map(
+        changed.map((item, index) => [item.file, indexedChanged[index]]),
+      );
+      for (const item of batch) {
+        const { file, previous } = item;
+        const unchanged =
+          previous && previous.size === item.info.size && previous.mtimeMs === item.info.mtimeMs;
+        if (unchanged && previous) {
+          if (previous.truncated) truncated = true;
+          const previousResidentBytes = estimateIndexedFileBytes(previous);
+          if (residentBytes + previousResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
+            truncated = true;
+            capacityReached = true;
+            break;
+          }
+          nextFiles.set(file, previous);
+          previousFiles.delete(file);
+          bytes += previous.bytes;
+          chunkCount += previous.chunks.length;
+          residentBytes += previousResidentBytes;
+          reusedFiles += 1;
+          continue;
+        }
+        const indexed = changedByPath.get(file);
+        previousFiles.delete(file);
+        if (!indexed) continue;
+        if (indexed.truncated) truncated = true;
+        if (chunkCount + indexed.chunks.length > MAX_CHUNKS) {
           truncated = true;
+          capacityReached = true;
           break;
         }
-        nextFiles.set(file, previous);
-        previousFiles.delete(file);
-        bytes += previous.bytes;
-        chunkCount += previous.chunks.length;
-        residentBytes += previousResidentBytes;
-        reusedFiles += 1;
-        continue;
+        const indexedResidentBytes = estimateIndexedFileBytes(indexed);
+        if (residentBytes + indexedResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
+          truncated = true;
+          capacityReached = true;
+          break;
+        }
+        nextFiles.set(file, indexed);
+        changedChunks.push(...indexed.chunks);
+        bytes += indexed.bytes;
+        chunkCount += indexed.chunks.length;
+        residentBytes += indexedResidentBytes;
+        changedFiles += 1;
       }
-      const indexed = changedByPath.get(file);
-      previousFiles.delete(file);
-      if (!indexed) continue;
-      if (indexed.truncated) truncated = true;
-      if (chunkCount + indexed.chunks.length > MAX_CHUNKS) {
-        truncated = true;
-        break;
-      }
-      const indexedResidentBytes = estimateIndexedFileBytes(indexed);
-      if (residentBytes + indexedResidentBytes > MAX_RESIDENT_INDEX_BYTES) {
-        truncated = true;
-        break;
-      }
-      nextFiles.set(file, indexed);
-      changedChunks.push(...indexed.chunks);
-      bytes += indexed.bytes;
-      chunkCount += indexed.chunks.length;
-      residentBytes += indexedResidentBytes;
-      changedFiles += 1;
     }
     changedFiles += previousFiles.size;
     previousFiles.clear();
@@ -566,17 +581,10 @@ export class SemanticWorkspaceIndex {
     if (!cleanQuery || this.chunks.length === 0) return [];
     const queryTerms = tokenize(cleanQuery);
     if (queryTerms.length === 0 && !queryEmbedding) return [];
-    const phrase = normalizeText(cleanQuery);
     const cappedLimit = Math.max(1, Math.min(MAX_RESULT_LIMIT, limit));
     return this.chunks
       .map((chunk) => {
-        const lexical = scoreChunk(
-          chunk,
-          queryTerms,
-          phrase,
-          this.documentFrequency,
-          this.chunks.length,
-        );
+        const lexical = scoreChunk(chunk, queryTerms, this.documentFrequency, this.chunks.length);
         const vector =
           queryEmbedding && chunk.embedding?.length === queryEmbedding.length
             ? Math.max(0, cosineSimilarity(queryEmbedding, chunk.embedding))
@@ -689,7 +697,6 @@ export class SemanticWorkspaceIndex {
             startLine: chunk.startLine,
             endLine: chunk.endLine,
             content: chunk.content,
-            normalized: normalizeText(chunk.content),
             terms: new Map(chunk.terms),
             symbols: chunk.symbols,
             types: chunk.types,
@@ -720,8 +727,8 @@ export class SemanticWorkspaceIndex {
 
   private async persist(): Promise<boolean> {
     if (!this.currentStats) return false;
-    // Keep the durable format compact. `normalized` is derived from content on
-    // load and embeddings are quantized to Float32 before base64 encoding.
+    // Keep the durable format compact. Embeddings are quantized to Float32
+    // before base64 encoding.
     const files: StoredFile[] = [...this.files.values()].map((file) => ({
       path: file.path,
       size: file.size,
@@ -862,7 +869,6 @@ function chunkFile(file: string, content: string): { chunks: IndexedChunk[]; tru
       startLine,
       endLine,
       content: chunkContent,
-      normalized: normalizeText(chunkContent),
       terms,
       symbols,
       types,
@@ -1186,7 +1192,6 @@ function uniqueFacts(facts: StructuralFact[], kind: StructuralFact['kind']): str
 function scoreChunk(
   chunk: IndexedChunk,
   queryTerms: string[],
-  phrase: string,
   documentFrequency: Map<string, number>,
   chunkCount: number,
 ): number {
@@ -1210,7 +1215,6 @@ function scoreChunk(
     if (importText.includes(term)) score += 2;
     if (callText.includes(term)) score += 1.6;
   }
-  if (phrase.length >= 4 && chunk.normalized.includes(phrase)) score += 5;
   return score;
 }
 
@@ -1236,7 +1240,6 @@ function estimateIndexMemoryBytes(
     hash?: string;
     chunks: ReadonlyArray<{
       content?: unknown;
-      normalized?: unknown;
       structural?: unknown;
       terms?: unknown;
       symbols?: unknown;
@@ -1253,7 +1256,6 @@ function estimateIndexMemoryBytes(
     for (const chunk of file.chunks) {
       total += 768;
       total += byteLength(chunk.content) * 2;
-      total += byteLength(chunk.normalized) * 2;
       total += byteLength(chunk.structural) * 2;
       total += estimateCollectionBytes(chunk.terms, 72);
       total += estimateCollectionBytes(chunk.symbols, 40);
