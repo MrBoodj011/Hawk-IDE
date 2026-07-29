@@ -5,6 +5,7 @@ const fields = {
   scope: document.querySelector("#scope"),
   requestsPerSecond: document.querySelector("#rate"),
   enabled: document.querySelector("#enabled"),
+  captureInteractions: document.querySelector("#interactions"),
   captureRequestBodies: document.querySelector("#bodies"),
   captureSessionStorage: document.querySelector("#session"),
 };
@@ -14,6 +15,7 @@ const defaults = {
   scope: "^https?://",
   requestsPerSecond: 50,
   enabled: false,
+  captureInteractions: false,
   captureRequestBodies: false,
   captureSessionStorage: false,
 };
@@ -54,7 +56,7 @@ function readConfig() {
 function showResult(result) {
   if (result?.ok) {
     setResult(
-      `Connected to Hawk · ${result.bridge.requestCount || 0} requests · ${result.bridge.endpointCount || 0} endpoints`,
+      `Connected to Hawk · ${result.bridge.requestCount || 0} requests · ${result.bridge.interactionCount || 0} interactions · ${result.bridge.endpointCount || 0} endpoints`,
       "online",
     );
     return;

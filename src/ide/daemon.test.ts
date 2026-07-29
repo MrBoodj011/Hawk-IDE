@@ -265,6 +265,71 @@ describe('startIdeDaemon', () => {
           }),
         ]),
       });
+      const interactionStartedAt = Date.now();
+      for (let index = 0; index < 3; index += 1) {
+        const interaction = await fetch(`${daemon.captureUrl}/interaction`, {
+          method: 'POST',
+          headers: {
+            'X-Hawk-Token': daemon.captureToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            kind: 'click',
+            url: 'https://app.example.test/orders?session=private',
+            tabId: 7,
+            occurredAt: interactionStartedAt + index * 80,
+            trusted: true,
+            detail: 1,
+            target: {
+              fingerprint: 'html > body > button:nth-of-type(2)',
+              tag: 'button',
+              inputType: 'submit',
+              disabled: false,
+            },
+          }),
+        });
+        expect(interaction.status).toBe(202);
+      }
+      for (let index = 0; index < 2; index += 1) {
+        const mutation = await fetch(`${daemon.captureUrl}/ingest`, {
+          method: 'POST',
+          headers: {
+            'X-Hawk-Token': daemon.captureToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            kind: 'fetch',
+            id: `duplicate-${index}`,
+            method: 'POST',
+            url: 'https://app.example.test/api/orders',
+            initiator: 'https://app.example.test/orders',
+            tabId: 7,
+            status: index === 0 ? 201 : 500,
+            timeStart: interactionStartedAt + 100 + index * 80,
+          }),
+        });
+        expect(mutation.status).toBe(202);
+      }
+      const interactionChaos = await fetch(`${daemon.url}/v1/interaction-chaos`, { headers });
+      expect(interactionChaos.status).toBe(200);
+      await expect(interactionChaos.json()).resolves.toMatchObject({
+        mode: 'captured-only',
+        summary: {
+          interactions: 3,
+          rapidInteractionBursts: 1,
+          highSignals: 1,
+        },
+        signals: [
+          expect.objectContaining({
+            ruleId: 'hawk.ui.rapid-submit',
+            severity: 'high',
+            requestIds: [
+              expect.stringMatching(/^live-[a-f0-9]{16}$/),
+              expect.stringMatching(/^live-[a-f0-9]{16}$/),
+            ],
+          }),
+        ],
+      });
       const capturedRequestId = liveTrafficBody.requests.find(
         (request) => request.source === 'burp',
       )?.id;
@@ -436,6 +501,7 @@ describe('startIdeDaemon', () => {
       expect(evidence.status).toBe(200);
       await expect(evidence.json()).resolves.toMatchObject({
         status: 'completed',
+        interactionSignals: 1,
         primaryReportPath: expect.stringMatching(/^\.hawk\/reports\/evidence-.+\/report\.md$/),
         artifacts: expect.arrayContaining([
           expect.objectContaining({
@@ -458,6 +524,13 @@ describe('startIdeDaemon', () => {
           expect.objectContaining({ kind: 'route' }),
           expect.objectContaining({ kind: 'request' }),
           expect.objectContaining({ kind: 'evidence' }),
+          expect.objectContaining({
+            kind: 'finding',
+            attributes: expect.objectContaining({ provenance: 'hawk-interaction-chaos' }),
+          }),
+        ]),
+        edges: expect.arrayContaining([
+          expect.objectContaining({ relation: 'supports-race-signal' }),
         ]),
       });
       const protocols = await fetch(`${daemon.url}/v1/security/protocols`, { headers });

@@ -50,6 +50,26 @@ export interface SessionSnapshot {
   sessionStorage?: Record<string, string>;
 }
 
+export interface CapturedInteractionTarget {
+  fingerprint: string;
+  tag: string;
+  role?: string;
+  inputType?: string;
+  disabled: boolean;
+}
+
+export interface CapturedInteraction {
+  id: string;
+  kind: 'click' | 'submit';
+  url: string;
+  tabId?: number;
+  occurredAt: number;
+  receivedAt: number;
+  trusted: boolean;
+  detail: number;
+  target: CapturedInteractionTarget;
+}
+
 export interface BurpTask {
   id: string;
   action: 'scan' | 'plan' | 'scope';
@@ -101,6 +121,7 @@ const MAX_PARAMS_PER_ENDPOINT = 256;
 export class CaptureStore {
   private readonly requests: Map<string, CapturedRequest> = new Map();
   private readonly endpoints: Map<string, EndpointRecord> = new Map();
+  private readonly interactions: CapturedInteraction[] = [];
   private readonly snapshots: SessionSnapshot[] = [];
   private readonly burpTasks: BurpTask[] = [];
   // Keyed by issue id (insertion-ordered) so upsert is O(1) instead of an O(n)
@@ -194,15 +215,69 @@ export class CaptureStore {
     return { ok: true };
   }
 
+  ingestInteraction(raw: unknown): { ok: boolean; reason?: string } {
+    if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not an object' };
+    const obj = raw as Record<string, unknown>;
+    const kind = obj.kind;
+    if (kind !== 'click' && kind !== 'submit') {
+      return { ok: false, reason: 'interaction kind must be click or submit' };
+    }
+    if (typeof obj.url !== 'string' || !isHttpUrl(obj.url)) {
+      return { ok: false, reason: 'interaction requires an HTTP(S) URL' };
+    }
+    if (!obj.target || typeof obj.target !== 'object' || Array.isArray(obj.target)) {
+      return { ok: false, reason: 'interaction target is required' };
+    }
+    const target = obj.target as Record<string, unknown>;
+    const fingerprint = boundedInteractionToken(target.fingerprint, 240);
+    const tag = boundedInteractionToken(target.tag, 32).toLowerCase();
+    if (!fingerprint || !tag) {
+      return { ok: false, reason: 'interaction target fingerprint and tag are required' };
+    }
+    const receivedAt = Date.now();
+    const occurredAt =
+      typeof obj.occurredAt === 'number' && Number.isFinite(obj.occurredAt)
+        ? Math.max(0, Math.min(obj.occurredAt, receivedAt + 60_000))
+        : receivedAt;
+    const entry: CapturedInteraction = {
+      id: `interaction:${this.nextSeq++}`,
+      kind,
+      url: sanitizeInteractionUrl(obj.url),
+      tabId: typeof obj.tabId === 'number' && Number.isInteger(obj.tabId) ? obj.tabId : undefined,
+      occurredAt,
+      receivedAt,
+      trusted: obj.trusted === true,
+      detail:
+        typeof obj.detail === 'number' && Number.isFinite(obj.detail)
+          ? Math.max(0, Math.min(10, Math.floor(obj.detail)))
+          : 0,
+      target: {
+        fingerprint,
+        tag,
+        role: boundedInteractionToken(target.role, 64) || undefined,
+        inputType: boundedInteractionToken(target.inputType, 32).toLowerCase() || undefined,
+        disabled: target.disabled === true,
+      },
+    };
+    this.interactions.push(entry);
+    if (this.interactions.length > this.maxEntries) {
+      this.interactions.splice(0, this.interactions.length - this.maxEntries);
+    }
+    this.lastActivityAt = receivedAt;
+    return { ok: true };
+  }
+
   status(): {
     requestCount: number;
     endpointCount: number;
+    interactionCount: number;
     snapshotCount: number;
     lastActivityAt: number;
   } {
     return {
       requestCount: this.requests.size,
       endpointCount: this.endpoints.size,
+      interactionCount: this.interactions.length,
       snapshotCount: this.snapshots.length,
       lastActivityAt: this.lastActivityAt,
     };
@@ -270,9 +345,14 @@ export class CaptureStore {
     return [...this.snapshots];
   }
 
+  listInteractions(limit = 2_000): CapturedInteraction[] {
+    return this.interactions.slice(-Math.max(1, Math.min(5_000, Math.floor(limit))));
+  }
+
   clear(): void {
     this.requests.clear();
     this.endpoints.clear();
+    this.interactions.length = 0;
     this.snapshots.length = 0;
     this.burpTasks.length = 0;
     this.burpIssues.clear();
@@ -542,4 +622,34 @@ function capBody(value: unknown): unknown {
 function capString(value: string): string {
   if (value.length <= BODY_STRING_CAP) return value;
   return `${value.slice(0, BODY_STRING_CAP)}...<truncated ${value.length - BODY_STRING_CAP} chars>`;
+}
+
+function boundedInteractionToken(value: unknown, max: number): string {
+  if (typeof value !== 'string') return '';
+  return (
+    value
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: strips all C0/C1 controls from untrusted extension metadata
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max)
+  );
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeInteractionUrl(value: string): string {
+  const parsed = new URL(value);
+  parsed.username = '';
+  parsed.password = '';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().slice(0, 4_096);
 }

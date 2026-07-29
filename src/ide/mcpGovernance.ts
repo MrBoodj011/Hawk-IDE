@@ -9,6 +9,14 @@ export interface McpToolGovernance {
 
 const TOOLS: readonly McpToolGovernance[] = [
   {
+    name: 'hawk_interaction_chaos_analyze',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'captured-only',
+    description: 'Correlate sanitized rapid UI interactions with duplicate mutation requests.',
+  },
+  {
     name: 'hawk_security_test_templates',
     risk: 'low',
     requiresApproval: false,

@@ -49,6 +49,7 @@ describe('Hawk Smart MCP server', () => {
       expect(names).toContain('hawk_reproduction_plan');
       expect(names).toContain('hawk_reproduction_execute');
       expect(names).toContain('hawk_reproductions_list');
+      expect(names).toContain('hawk_interaction_chaos_analyze');
       expect(
         tools.tools.find((tool) => tool.name === 'hawk_capabilities_search')?.outputSchema,
       ).toBeDefined();
@@ -67,6 +68,34 @@ describe('Hawk Smart MCP server', () => {
       });
       expect(search.isError).not.toBe(true);
       expect(search.structuredContent).toBeDefined();
+
+      const interactionChaos = await client.callTool({
+        name: 'hawk_interaction_chaos_analyze',
+        arguments: {
+          interactions: [0, 80, 160].map((offset, index) => ({
+            id: `click-${index}`,
+            kind: 'click',
+            url: 'https://app.example.test/orders',
+            tab_id: 5,
+            occurred_at: 1_800_000_000_000 + offset,
+            target: {
+              fingerprint: 'html > body > button:nth-of-type(2)',
+              tag: 'button',
+              input_type: 'submit',
+            },
+          })),
+          mutation_requests: [100, 180].map((offset, index) => ({
+            id: `request-${index}`,
+            method: 'POST',
+            url: 'https://app.example.test/api/orders',
+            tab_id: 5,
+            occurred_at: 1_800_000_000_000 + offset,
+            status: index === 0 ? 201 : 500,
+          })),
+        },
+      });
+      expect(interactionChaos.isError).not.toBe(true);
+      expect(JSON.stringify(interactionChaos.content)).toContain('hawk.ui.rapid-submit');
 
       const planned = await client.callTool({
         name: 'hawk_plan_create',

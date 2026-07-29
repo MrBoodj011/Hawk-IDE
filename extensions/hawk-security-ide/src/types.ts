@@ -453,6 +453,45 @@ export interface TrafficInventory {
   live: boolean;
 }
 
+export interface InteractionChaosSignal {
+  id: string;
+  ruleId:
+    | 'hawk.ui.rapid-interaction'
+    | 'hawk.ui.rapid-submit'
+    | 'hawk.ui.duplicate-mutation';
+  severity: 'high' | 'medium' | 'low';
+  confidence: 'signal';
+  title: string;
+  description: string;
+  remediation: string;
+  pageUrl: string;
+  targetFingerprint?: string;
+  interactionIds: string[];
+  requestIds: string[];
+  statuses: number[];
+  startedAt: string;
+  completedAt: string;
+  evidence: string[];
+}
+
+export interface InteractionChaosReport {
+  protocolVersion: number;
+  generatedAt: string;
+  mode: 'captured-only';
+  summary: {
+    interactions: number;
+    mutationRequests: number;
+    rapidInteractionBursts: number;
+    duplicateMutationBursts: number;
+    highSignals: number;
+    mediumSignals: number;
+    lowSignals: number;
+    signals: number;
+  };
+  signals: InteractionChaosSignal[];
+  statement: string;
+}
+
 export interface IdentityReplayPlan {
   protocolVersion: number;
   id: string;
@@ -687,6 +726,7 @@ export interface EvidencePackReport {
   observedRoutes: number;
   trafficRequests: number;
   findings: number;
+  interactionSignals: number;
   artifacts: EvidencePackArtifact[];
   chainVersion?: 1;
   chainRootSha256?: string;

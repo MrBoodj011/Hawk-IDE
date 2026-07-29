@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildEvidencePack } from './evidenceReport.js';
+import { analyzeInteractionChaos } from './interactionChaos.js';
 import type { TrafficInventory } from './protocol.js';
 
 const roots: string[] = [];
@@ -39,10 +40,42 @@ describe('evidence report builder', () => {
     await expect(buildEvidencePack({ workspaceRoot: root, approved: false })).rejects.toThrow(
       'approval',
     );
+    const interactionChaos = analyzeInteractionChaos(
+      [0, 100, 180].map((offset, index) => ({
+        id: `interaction-${index}`,
+        kind: 'submit' as const,
+        url: 'https://example.test/users/42',
+        occurredAt: 1_768_734_000_000 + offset,
+        receivedAt: 1_768_734_000_000 + offset,
+        trusted: true,
+        tabId: 5,
+        target: {
+          fingerprint: 'form > button[type="submit"]',
+          tag: 'button',
+          inputType: 'submit',
+        },
+      })),
+      [0, 120].map((offset, index) => ({
+        id: `mutation-${index}`,
+        kind: 'fetch' as const,
+        source: 'webRequest' as const,
+        method: 'POST',
+        url: 'https://example.test/users/42',
+        receivedAt: 1_768_734_000_200 + offset,
+        timeStart: 1_768_734_000_200 + offset,
+        tabId: 5,
+        status: 201,
+        initiator: 'https://example.test/users/42',
+        requestHeaders: {},
+        responseHeaders: {},
+      })),
+      { now: new Date('2026-01-18T10:00:01.000Z') },
+    );
     const report = await buildEvidencePack({
       workspaceRoot: root,
       approved: true,
       traffic,
+      interactionChaos,
       now: new Date('2026-07-18T10:01:00.000Z'),
     });
     expect(report).toMatchObject({
@@ -50,6 +83,7 @@ describe('evidence report builder', () => {
       observedRoutes: 1,
       trafficRequests: 1,
       findings: 1,
+      interactionSignals: 1,
       chainVersion: 1,
       chainRootSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       artifacts: expect.arrayContaining([
@@ -68,13 +102,21 @@ describe('evidence report builder', () => {
     const markdown = await readFile(join(root, ...report.primaryReportPath.split('/')), 'utf8');
     expect(markdown).toContain('GET /users/:id');
     expect(markdown).toContain('%5BREDACTED%5D');
+    expect(markdown).toContain('hawk.ui.rapid-submit');
     expect(markdown).not.toContain(root);
     const sarifPath = report.artifacts.find((artifact) => artifact.format === 'sarif')?.path;
     expect(sarifPath).toBeTruthy();
     const sarif = JSON.parse(await readFile(join(root, ...(sarifPath ?? '').split('/')), 'utf8'));
     expect(sarif).toMatchObject({
       version: '2.1.0',
-      runs: [{ results: [expect.objectContaining({ ruleId: 'dynamic-code-execution' })] }],
+      runs: [
+        {
+          results: expect.arrayContaining([
+            expect.objectContaining({ ruleId: 'dynamic-code-execution' }),
+            expect.objectContaining({ ruleId: 'hawk.ui.rapid-submit' }),
+          ]),
+        },
+      ],
     });
   });
 });

@@ -12,6 +12,7 @@ import type {
   GovernedMemoryPosture,
   GovernedMissionProfile,
   HawkHealthReport,
+  InteractionChaosReport,
   McpTrustPosture,
   ProtocolSurfaceInventory,
   SandboxReproductionResult,
@@ -28,6 +29,7 @@ interface DashboardState {
   inventory?: WorkspaceInventory;
   findings: SecurityFinding[];
   traffic?: TrafficInventory;
+  interactionChaos?: InteractionChaosReport;
   hawkHealth?: HawkHealthReport;
   securityGraph?: SecurityGraphResponse;
   protocols?: ProtocolSurfaceInventory;
@@ -122,6 +124,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         inventory,
         findings,
         traffic,
+        interactionChaos,
         hawkHealth,
         securityGraph,
         reproductions,
@@ -135,6 +138,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         this.client.inventory(workspace),
         this.client.findings(workspace),
         this.client.traffic(workspace),
+        this.client.interactionChaos(workspace),
         this.client.hawkHealth(workspace),
         this.client.securityGraph(workspace),
         this.client.reproductions(workspace),
@@ -153,6 +157,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         inventory,
         findings: findings.findings,
         traffic,
+        interactionChaos,
         hawkHealth,
         securityGraph,
         protocols,
@@ -201,6 +206,25 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     } catch (err) {
       vscode.window.showErrorMessage(`Hawk could not audit this workspace: ${errorMessage(err)}`);
       await this.refresh();
+    }
+  }
+
+  async analyzeInteractionChaos(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    try {
+      const report = await this.client.interactionChaos(workspace);
+      const message =
+        `Hawk analyzed ${report.summary.interactions} captured interaction` +
+        `${report.summary.interactions === 1 ? '' : 's'} and found ` +
+        `${report.summary.signals} race signal${report.summary.signals === 1 ? '' : 's'}.`;
+      if (report.summary.highSignals > 0) vscode.window.showWarningMessage(message);
+      else vscode.window.showInformationMessage(message);
+      await this.refresh();
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Hawk could not analyze captured interactions: ${errorMessage(err)}`,
+      );
     }
   }
 
@@ -765,6 +789,10 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
       await this.runStaticAudit();
       return;
     }
+    if (action === 'interaction-chaos') {
+      await this.analyzeInteractionChaos();
+      return;
+    }
     if (action === 'autopilot') {
       await this.runAutonomousSecurity();
       return;
@@ -961,9 +989,17 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     const workspace = firstWorkspace();
     if (!workspace) return;
     try {
-      const traffic = await this.client.traffic(workspace);
-      if (JSON.stringify(traffic) === JSON.stringify(this.lastState.traffic)) return;
-      this.post({ ...this.lastState, traffic });
+      const [traffic, interactionChaos] = await Promise.all([
+        this.client.traffic(workspace),
+        this.client.interactionChaos(workspace),
+      ]);
+      if (
+        JSON.stringify(traffic) === JSON.stringify(this.lastState.traffic) &&
+        JSON.stringify(interactionChaos) === JSON.stringify(this.lastState.interactionChaos)
+      ) {
+        return;
+      }
+      this.post({ ...this.lastState, traffic, interactionChaos });
     } catch {
       // A full refresh reports daemon failures. The fast live poll remains
       // silent so a transient restart cannot spam the operator.

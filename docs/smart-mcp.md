@@ -167,10 +167,16 @@ for:
 - `hawk_reproductions_list`
 - `hawk_memory`
 - `hawk_mcp_security_audit`
+- `hawk_interaction_chaos_analyze`
 - `hawk_patch_tournament`
 - `hawk_eval_lab`
 - `hawk_a2a_bridge`
 - `hawk_mission_control`
+
+`hawk_interaction_chaos_analyze` is a low-risk pure analyzer. It accepts
+explicit sanitized interaction and request records, correlates rapid UI bursts
+with duplicate mutation traffic, and never drives a browser or sends network
+traffic.
 
 Resources:
 

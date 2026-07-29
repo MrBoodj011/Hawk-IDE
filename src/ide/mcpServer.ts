@@ -12,6 +12,7 @@ import { DurableMcpTaskStore } from './durableMcpTaskStore.js';
 import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import { listHawkIntegrations } from './integrationHub.js';
+import { analyzeInteractionChaos } from './interactionChaos.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
 import {
   errorMessage,
@@ -410,6 +411,94 @@ async function main(): Promise<void> {
       inputSchema: {},
     },
     async () => textResult(JSON.stringify(await brain.memory.posture(), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_interaction_chaos_analyze',
+    {
+      title: 'Analyze rapid UI interactions and duplicate mutations',
+      description:
+        'Correlate sanitized captured click/submit metadata with already-observed mutation requests. This is captured-only analysis: it never clicks a page or sends target traffic.',
+      inputSchema: {
+        interactions: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(160),
+              kind: z.enum(['click', 'submit']),
+              url: z.string().url().max(4_096),
+              tab_id: z.number().int().optional(),
+              occurred_at: z.number().int().nonnegative(),
+              trusted: z.boolean().optional().default(true),
+              detail: z.number().int().min(0).max(10).optional(),
+              target: z.object({
+                fingerprint: z.string().min(1).max(240),
+                tag: z.string().min(1).max(32),
+                role: z.string().max(64).optional(),
+                input_type: z.string().max(32).optional(),
+                disabled: z.boolean().optional(),
+              }),
+            }),
+          )
+          .max(5_000),
+        mutation_requests: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(160),
+              method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']),
+              url: z.string().url().max(4_096),
+              tab_id: z.number().int().optional(),
+              initiator: z.string().url().max(4_096).optional(),
+              status: z.number().int().min(100).max(599).optional(),
+              occurred_at: z.number().int().nonnegative(),
+            }),
+          )
+          .max(5_000),
+        rapid_window_ms: z.number().int().min(100).max(5_000).optional(),
+        request_window_ms: z.number().int().min(250).max(10_000).optional(),
+        minimum_burst: z.number().int().min(2).max(20).optional(),
+      },
+    },
+    async (input) =>
+      textResult(
+        JSON.stringify(
+          analyzeInteractionChaos(
+            input.interactions.map((event) => ({
+              id: event.id,
+              kind: event.kind,
+              url: event.url,
+              tabId: event.tab_id,
+              occurredAt: event.occurred_at,
+              receivedAt: event.occurred_at,
+              trusted: event.trusted,
+              detail: event.detail ?? 0,
+              target: {
+                fingerprint: event.target.fingerprint,
+                tag: event.target.tag,
+                role: event.target.role,
+                inputType: event.target.input_type,
+                disabled: event.target.disabled === true,
+              },
+            })),
+            input.mutation_requests.map((request) => ({
+              id: request.id,
+              source: 'webRequest',
+              method: request.method,
+              url: request.url,
+              tabId: request.tab_id,
+              initiator: request.initiator,
+              status: request.status,
+              timeStart: request.occurred_at,
+              receivedAt: request.occurred_at,
+            })),
+            {
+              rapidWindowMs: input.rapid_window_ms,
+              requestWindowMs: input.request_window_ms,
+              minimumBurst: input.minimum_burst,
+            },
+          ),
+          null,
+          2,
+        ),
+      ),
   );
   mcp.registerTool(
     'hawk_security_test_templates',

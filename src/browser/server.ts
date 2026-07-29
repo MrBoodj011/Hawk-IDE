@@ -114,6 +114,11 @@ function handle(
     return;
   }
 
+  if (req.method === 'GET' && url === '/interactions') {
+    sendJSON(res, 200, store.listInteractions());
+    return;
+  }
+
   if (req.method === 'GET' && url === '/burp/tasks') {
     sendJSON(res, 200, store.listBurpTasks());
     return;
@@ -136,7 +141,13 @@ function handle(
     return;
   }
 
-  if (url !== '/ingest' && url !== '/snapshot' && url !== '/burp/task' && url !== '/burp/issues') {
+  if (
+    url !== '/ingest' &&
+    url !== '/interaction' &&
+    url !== '/snapshot' &&
+    url !== '/burp/task' &&
+    url !== '/burp/issues'
+  ) {
     res.statusCode = 404;
     res.end('not found');
     return;
@@ -152,13 +163,15 @@ function handle(
         return;
       }
       const result =
-        url === '/snapshot'
-          ? store.ingestSnapshot(parsed)
-          : url === '/burp/task'
-            ? store.ingestBurpTask(parsed)
-            : url === '/burp/issues'
-              ? store.ingestBurpIssue(parsed)
-              : store.ingest(parsed);
+        url === '/interaction'
+          ? store.ingestInteraction(parsed)
+          : url === '/snapshot'
+            ? store.ingestSnapshot(parsed)
+            : url === '/burp/task'
+              ? store.ingestBurpTask(parsed)
+              : url === '/burp/issues'
+                ? store.ingestBurpIssue(parsed)
+                : store.ingest(parsed);
       if (!result.ok) {
         sendJSON(res, 400, { ok: false, error: result.reason });
         return;
@@ -196,6 +209,7 @@ function eventText(url: string, parsed: unknown): string {
     return `Burp bridge: queued ${action}${target ? ` for ${method ? `${method} ` : ''}${target}` : ''}`;
   }
   if (url === '/burp/issues') return 'Burp bridge: received issue for import';
+  if (url === '/interaction') return 'Browser bridge: received sanitized UI interaction';
   if (url === '/snapshot') return 'Burp bridge: received session snapshot';
   return `Burp bridge: captured request${target ? ` ${method ? `${method} ` : ''}${target}` : ''}`;
 }

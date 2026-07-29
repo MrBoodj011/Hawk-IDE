@@ -39,6 +39,7 @@ import {
   createInlineCompletion,
 } from './inlineCompletion.js';
 import { listHawkIntegrations } from './integrationHub.js';
+import { type InteractionChaosReport, analyzeInteractionChaos } from './interactionChaos.js';
 import { listMcpToolGovernance } from './mcpGovernance.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { HawkObservability } from './observability.js';
@@ -250,6 +251,22 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
           importLiveTraffic(captureStore.listRequests({ limit: 1_500 }), now()),
           now(),
         ),
+      interactionChaos: () => {
+        const capturedRequests = captureStore.listRequests({ limit: 5_000 });
+        const liveIds = new Map(
+          capturedRequests.map((entry) => [entry.id, liveTrafficRequestId(entry)]),
+        );
+        const report = analyzeInteractionChaos(captureStore.listInteractions(), capturedRequests, {
+          now: now(),
+        });
+        return {
+          ...report,
+          signals: report.signals.map((signal) => ({
+            ...signal,
+            requestIds: signal.requestIds.map((id) => liveIds.get(id) ?? id),
+          })),
+        };
+      },
       setTraffic: (value) => {
         importedTraffic = value;
       },
@@ -342,6 +359,7 @@ interface RequestContext {
   findings(): SecurityFinding[];
   setFindings(value: SecurityFinding[]): void;
   traffic(): TrafficInventory | null;
+  interactionChaos(): InteractionChaosReport;
   setTraffic(value: TrafficInventory): void;
   evidencePacks(): EvidencePackReport[];
   addEvidencePack(value: EvidencePackReport): void;
@@ -725,6 +743,11 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/interaction-chaos') {
+    sendJSON(res, 200, context.interactionChaos());
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/security/graph') {
     try {
       let inventory = context.inventory();
@@ -748,6 +771,7 @@ async function handleRequest(
         reproductions: await context.reproducer.list(100),
         protocols: context.protocols() ?? undefined,
         deliveries: context.deliveries(),
+        interactionChaos: context.interactionChaos(),
       });
       const nodeId = requestURL.searchParams.get('nodeId')?.trim();
       if (!nodeId) {
@@ -805,6 +829,7 @@ async function handleRequest(
         reproductions: await context.reproducer.list(100),
         protocols,
         deliveries: context.deliveries(),
+        interactionChaos: context.interactionChaos(),
       });
       sendJSON(
         res,
@@ -882,6 +907,7 @@ async function handleRequest(
             reproductions: await context.reproducer.list(100),
             protocols,
             deliveries: context.deliveries(),
+            interactionChaos: context.interactionChaos(),
           });
           return buildAttackTwin({
             inventory,
@@ -1593,6 +1619,7 @@ async function handleRequest(
         approved: input.approved,
         traffic: context.traffic(),
         hawkHealth: context.hawkHealth(),
+        interactionChaos: context.interactionChaos(),
         now: context.now(),
       });
       context.addEvidencePack(report);

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import type { InteractionChaosReport } from './interactionChaos.js';
 import type {
   EvidencePackArtifact,
   EvidencePackFormat,
@@ -34,6 +35,7 @@ interface PortableEvidence {
     observedRoutes: number;
     trafficRequests: number;
     findings: number;
+    interactionSignals: number;
   };
   routes: EvidenceRoute[];
   findings: SecurityFinding[];
@@ -44,6 +46,7 @@ interface PortableEvidence {
     truncated: boolean;
   };
   organizationHealth?: HawkHealthReport;
+  interactionChaos?: InteractionChaosReport;
 }
 
 export interface BuildEvidencePackOptions {
@@ -51,6 +54,7 @@ export interface BuildEvidencePackOptions {
   approved: boolean;
   traffic?: TrafficInventory | null;
   hawkHealth?: HawkHealthReport | null;
+  interactionChaos?: InteractionChaosReport | null;
   now?: Date;
 }
 
@@ -83,6 +87,7 @@ export async function buildEvidencePack(
       observedRoutes: routes.filter((route) => route.observed).length,
       trafficRequests: requests.length,
       findings: audit.findings.length,
+      interactionSignals: options.interactionChaos?.summary.signals ?? 0,
     },
     routes,
     findings: audit.findings,
@@ -93,6 +98,7 @@ export async function buildEvidencePack(
       truncated: options.traffic?.truncated ?? false,
     },
     ...(options.hawkHealth ? { organizationHealth: options.hawkHealth } : {}),
+    ...(options.interactionChaos ? { interactionChaos: options.interactionChaos } : {}),
   };
   const outputs: Array<{ format: EvidencePackFormat; name: string; content: string }> = [
     { format: 'markdown', name: 'report.md', content: renderMarkdown(evidence) },
@@ -190,6 +196,7 @@ function renderMarkdown(evidence: PortableEvidence): string {
     `- Routes observed in captured traffic: ${evidence.summary.observedRoutes}`,
     `- Sanitized traffic records: ${evidence.summary.trafficRequests}`,
     `- Static signals requiring validation: ${evidence.summary.findings}`,
+    `- Interaction race signals requiring validation: ${evidence.summary.interactionSignals}`,
     '',
     '## Route evidence',
     '',
@@ -215,6 +222,28 @@ function renderMarkdown(evidence: PortableEvidence): string {
         `- Source: ${finding.source ? `\`${line(finding.source.file)}:${finding.source.line}\`` : 'not mapped'}`,
         `- Evidence: ${finding.evidence.map((item) => line(item.summary)).join('; ')}`,
         `- Remediation: ${line(finding.remediation)}`,
+        '',
+      );
+    }
+  }
+  lines.push('', '## Interaction chaos evidence', '');
+  if (!evidence.interactionChaos || evidence.interactionChaos.signals.length === 0) {
+    lines.push('No captured rapid-interaction or duplicate-mutation signal was available.');
+  } else {
+    lines.push(
+      `Mode: ${evidence.interactionChaos.mode}. ${evidence.interactionChaos.statement}`,
+      '',
+    );
+    for (const signal of evidence.interactionChaos.signals.slice(0, 100)) {
+      lines.push(
+        `### ${signal.severity.toUpperCase()} Â· ${line(signal.title)}`,
+        '',
+        `- Rule: \`${signal.ruleId}\`; confidence: ${signal.confidence}`,
+        `- Page: \`${line(signal.pageUrl)}\``,
+        `- Structural target: ${signal.targetFingerprint ? `\`${line(signal.targetFingerprint)}\`` : 'not captured'}`,
+        `- Captured evidence: ${signal.interactionIds.length} interactions; ${signal.requestIds.length} mutation requests`,
+        `- Evidence: ${signal.evidence.map(line).join('; ')}`,
+        `- Remediation: ${line(signal.remediation)}`,
         '',
       );
     }
@@ -269,22 +298,37 @@ function renderHtml(evidence: PortableEvidence): string {
         `<tr><td>${html(request.startedAt)}</td><td>${html(request.source ?? evidence.traffic.source)}</td><td><code>${html(`${request.method} ${request.url}`)}</code></td><td>${request.status ?? '—'}</td></tr>`,
     )
     .join('');
+  const interactionSignals =
+    !evidence.interactionChaos || evidence.interactionChaos.signals.length === 0
+      ? '<p class="empty">No captured rapid-interaction or duplicate-mutation signal was available.</p>'
+      : evidence.interactionChaos.signals
+          .slice(0, 100)
+          .map(
+            (signal) =>
+              `<article class="finding ${html(signal.severity)}"><div class="finding-title">${html(signal.severity.toUpperCase())} Â· ${html(signal.title)}</div><div class="meta">${html(signal.ruleId)} Â· ${signal.interactionIds.length} interactions Â· ${signal.requestIds.length} mutation requests</div><p>${html(signal.description)}</p><p><b>Evidence</b> ${html(signal.evidence.join('; '))}</p><p><b>Remediation</b> ${html(signal.remediation)}</p></article>`,
+          )
+          .join('');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hawk evidence pack ${html(evidence.id)}</title>
 <style>
 :root{color-scheme:dark;--bg:#08101c;--panel:#111c2b;--line:#26354b;--text:#edf5ff;--muted:#9fb1c7;--amber:#ffb454;--cyan:#63ddf6;--red:#ff6b6b}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 90% 0,#233149 0,transparent 35%),var(--bg);color:var(--text);font:14px/1.55 Inter,Segoe UI,sans-serif}.shell{max-width:1180px;margin:auto;padding:42px 24px}.brand{color:var(--amber);font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}h1{font-size:40px;margin:8px 0}h2{margin-top:34px}.safety,.card,.finding{border:1px solid var(--line);border-radius:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);padding:18px}.safety{border-left:4px solid var(--cyan);color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:24px 0}.metric{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--panel)}.metric b{display:block;color:var(--amber);font-size:28px}.metric span,.meta,.empty{color:var(--muted)}table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}code{color:var(--cyan);overflow-wrap:anywhere}.finding{margin:12px 0}.finding.high,.finding.critical{border-left:4px solid var(--red)}.finding-title{font-weight:800}.footer{margin-top:36px;color:var(--muted);font-size:12px}
 </style></head><body><main class="shell"><div class="brand">Hawk / Evidence Intelligence</div><h1>Evidence pack</h1><p>${html(evidence.id)} · ${html(evidence.generatedAt)}</p><div class="safety">${html(evidence.statement)}</div>
-<section class="metrics">${metricHtml(evidence.summary.sourceFiles, 'Source files')}${metricHtml(evidence.summary.routes, 'Mapped routes')}${metricHtml(evidence.summary.observedRoutes, 'Observed routes')}${metricHtml(evidence.summary.trafficRequests, 'Traffic records')}${metricHtml(evidence.summary.findings, 'Signals')}</section>
+<section class="metrics">${metricHtml(evidence.summary.sourceFiles, 'Source files')}${metricHtml(evidence.summary.routes, 'Mapped routes')}${metricHtml(evidence.summary.observedRoutes, 'Observed routes')}${metricHtml(evidence.summary.trafficRequests, 'Traffic records')}${metricHtml(evidence.summary.findings, 'Static signals')}${metricHtml(evidence.summary.interactionSignals, 'Interaction signals')}</section>
 <h2>Route evidence</h2><table><thead><tr><th>Route</th><th>Source</th><th>Observed</th></tr></thead><tbody>${routes}</tbody></table>
 <h2>Signals requiring manual validation</h2>${findings}
+<h2>Interaction chaos evidence</h2>${interactionSignals}
 <h2>Runtime evidence</h2>${traffic ? `<table><thead><tr><th>Time</th><th>Source</th><th>Request</th><th>Status</th></tr></thead><tbody>${traffic}</tbody></table>` : '<p class="empty">No captured request metadata was available.</p>'}
 <p class="footer">Static signals are not vulnerability verdicts. Validate authorization, identity, impact, scope, and safe reproduction.</p></main></body></html>`;
 }
 
 function renderSarif(evidence: PortableEvidence): string {
+  const interactionSignals = evidence.interactionChaos?.signals ?? [];
   const rules = [
     ...new Map(evidence.findings.map((finding) => [finding.ruleId, finding])).values(),
+  ];
+  const interactionRules = [
+    ...new Map(interactionSignals.map((signal) => [signal.ruleId, signal])).values(),
   ];
   const sarif = {
     $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
@@ -296,41 +340,73 @@ function renderSarif(evidence: PortableEvidence): string {
             name: 'Hawk Security IDE',
             informationUri: 'https://github.com/MrBoodj011/Hawk-IDE',
             semanticVersion: '0.1.0',
-            rules: rules.map((finding) => ({
-              id: finding.ruleId,
-              name: finding.title,
-              shortDescription: { text: finding.description },
-              help: { text: finding.remediation },
-            })),
+            rules: [
+              ...rules.map((finding) => ({
+                id: finding.ruleId,
+                name: finding.title,
+                shortDescription: { text: finding.description },
+                help: { text: finding.remediation },
+              })),
+              ...interactionRules.map((signal) => ({
+                id: signal.ruleId,
+                name: signal.title,
+                shortDescription: { text: signal.description },
+                help: { text: signal.remediation },
+              })),
+            ],
           },
         },
         automationDetails: { id: evidence.id },
         invocations: [{ executionSuccessful: true, endTimeUtc: evidence.generatedAt }],
-        results: evidence.findings.map((finding) => ({
-          ruleId: finding.ruleId,
-          level: sarifLevel(finding.severity),
-          message: {
-            text: `${finding.description} Manual validation is required before treating this signal as a vulnerability.`,
-          },
-          ...(finding.source
-            ? {
-                locations: [
-                  {
-                    physicalLocation: {
-                      artifactLocation: { uri: finding.source.file.replaceAll('\\', '/') },
-                      region: { startLine: finding.source.line },
+        results: [
+          ...evidence.findings.map((finding) => ({
+            ruleId: finding.ruleId,
+            level: sarifLevel(finding.severity),
+            message: {
+              text: `${finding.description} Manual validation is required before treating this signal as a vulnerability.`,
+            },
+            ...(finding.source
+              ? {
+                  locations: [
+                    {
+                      physicalLocation: {
+                        artifactLocation: { uri: finding.source.file.replaceAll('\\', '/') },
+                        region: { startLine: finding.source.line },
+                      },
                     },
-                  },
-                ],
-              }
-            : {}),
-          properties: {
-            hawkFindingId: finding.id,
-            hawkStatus: finding.status,
-            hawkConfidence: finding.confidence,
-            evidence: finding.evidence.map((item) => item.summary),
-          },
-        })),
+                  ],
+                }
+              : {}),
+            properties: {
+              hawkFindingId: finding.id,
+              hawkStatus: finding.status,
+              hawkConfidence: finding.confidence,
+              evidence: finding.evidence.map((item) => item.summary),
+            },
+          })),
+          ...interactionSignals.map((signal) => ({
+            ruleId: signal.ruleId,
+            level:
+              signal.severity === 'high'
+                ? ('error' as const)
+                : signal.severity === 'medium'
+                  ? ('warning' as const)
+                  : ('note' as const),
+            message: {
+              text: `${signal.description} Captured evidence is a race-condition signal and requires impact validation.`,
+            },
+            properties: {
+              hawkInteractionSignalId: signal.id,
+              hawkConfidence: signal.confidence,
+              pageUrl: signal.pageUrl,
+              targetFingerprint: signal.targetFingerprint,
+              interactionIds: signal.interactionIds,
+              requestIds: signal.requestIds,
+              statuses: signal.statuses,
+              evidence: signal.evidence,
+            },
+          })),
+        ],
       },
     ],
   };

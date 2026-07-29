@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AiSessionSummary } from './aiProtocol.js';
+import type { InteractionChaosReport } from './interactionChaos.js';
 import type { ProofEdgeInput, ProofGraph, ProofNodeInput } from './proofGraph.js';
 import {
   type EvidencePackReport,
@@ -44,6 +45,7 @@ export interface SecurityGraphBuildInput {
   reproductions?: SandboxReproductionResult[];
   protocols?: ProtocolSurfaceInventory;
   deliveries?: SecurityGraphDelivery[];
+  interactionChaos?: InteractionChaosReport;
 }
 
 export interface SecurityGraphDelivery {
@@ -320,6 +322,62 @@ export async function buildUnifiedSecurityGraph(
         attributes: {
           confidence: 0.75,
           provenance: 'hawk-static-audit',
+          verified: false,
+        },
+      });
+    }
+  }
+
+  for (const signal of input.interactionChaos?.signals.slice(0, MAX_INPUT_ITEMS) ?? []) {
+    const signalId = `interaction-signal-${stableHash(signal.id)}`;
+    addNode({
+      id: signalId,
+      kind: 'finding',
+      label: signal.title,
+      attributes: {
+        findingId: signal.id,
+        ruleId: signal.ruleId,
+        severity: signal.severity,
+        status: 'signal',
+        confidence: signal.confidence,
+        pageUrl: signal.pageUrl,
+        ...(signal.targetFingerprint ? { targetFingerprint: signal.targetFingerprint } : {}),
+        provenance: 'hawk-interaction-chaos',
+      },
+    });
+    for (const requestId of signal.requestIds.slice(0, 100)) {
+      const request = input.traffic?.requests.find((candidate) => candidate.id === requestId);
+      if (!request) continue;
+      addEdge({
+        from: requestNodeId(request),
+        to: signalId,
+        relation: 'supports-race-signal',
+        attributes: {
+          confidence: signal.severity === 'high' ? 0.9 : 0.75,
+          provenance: 'hawk-interaction-chaos',
+          verified: false,
+        },
+      });
+    }
+    for (const [index, item] of signal.evidence.slice(0, 20).entries()) {
+      const evidenceId = evidenceNodeId(signal.id, index, item);
+      addNode({
+        id: evidenceId,
+        kind: 'evidence',
+        label: item,
+        attributes: {
+          kind: 'interaction-correlation',
+          findingId: signal.id,
+          provenance: 'hawk-interaction-chaos',
+        },
+      });
+      addEdge({
+        from: evidenceId,
+        to: signalId,
+        relation: 'supports',
+        attributes: {
+          confidence: 0.75,
+          provenance: 'hawk-interaction-chaos',
           verified: false,
         },
       });

@@ -18,6 +18,9 @@ function refresh() {
   api.runtime.sendMessage({ type: "hawk-status" }, (result) => {
     const runtime = result?.runtime || {};
     document.querySelector("#forwarded").textContent = String(runtime.forwarded || 0);
+    document.querySelector("#interactions").textContent = String(
+      runtime.interactionsForwarded || 0,
+    );
     document.querySelector("#dropped").textContent = String(runtime.dropped || 0);
     if (result?.ok) {
       status.textContent = `Connected · ${result.bridge.requestCount || 0} requests in Hawk`;

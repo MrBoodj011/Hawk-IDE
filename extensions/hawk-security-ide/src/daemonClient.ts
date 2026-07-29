@@ -35,6 +35,7 @@ import type {
   IdentityReplayPlan,
   IdentityReplayResult,
   InlineCompletionResponse,
+  InteractionChaosReport,
   ImportedSecurityFindings,
   McpTrustPosture,
   MultiFileEditPredictionDocument,
@@ -408,6 +409,11 @@ export class DaemonClient implements vscode.Disposable {
       if (errorStatus(err) === 404) return undefined;
       throw err;
     }
+  }
+
+  async interactionChaos(workspace: vscode.Uri): Promise<InteractionChaosReport> {
+    const daemon = await this.start(workspace);
+    return await this.request<InteractionChaosReport>(daemon, '/v1/interaction-chaos');
   }
 
   async securityGraph(

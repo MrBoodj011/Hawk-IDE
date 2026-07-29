@@ -9,6 +9,8 @@ capture.
 - Authorization, cookie, API-key, and related credential headers are redacted.
 - Request-body capture is disabled by default and requires a separate opt-in.
 - Session-storage capture is disabled by default and requires a separate opt-in.
+- Structural click/submit capture is disabled by default and requires a separate
+  opt-in. It records no button text, form-field values, or query-string values.
 - Pairing settings stay in the browser extension's local storage.
 - Disabling capture or removing the extension stops processing immediately.
 

@@ -1149,6 +1149,7 @@ export function renderMissionControlHtml(
             <div class="hero-actions">
               <button class="button small secondary" data-action="import-har">Import HAR</button>
               <button class="button small primary" data-action="pair-capture">Pair live capture</button>
+              <button class="button small secondary" data-action="interaction-chaos">Analyze interactions</button>
               <button class="button small secondary" data-action="audit">Audit code</button>
               <button class="button small primary" data-action="autopilot">Run Autopilot</button>
               <button class="button small ghost" data-action="refresh">Refresh</button>
@@ -1176,6 +1177,23 @@ export function renderMissionControlHtml(
               </article>
             </div>
           </div>
+          <article class="card" style="margin-top:16px">
+            <div class="card-head">
+              <div class="card-title">Interaction Chaos <span id="chaos-caption">captured-only / opt-in</span></div>
+              <button class="button small ghost" data-action="interaction-chaos">Analyze captured flow</button>
+            </div>
+            <div class="twin-grid">
+              <div class="twin-stat"><b id="chaos-interactions">0</b><span>interactions</span></div>
+              <div class="twin-stat"><b id="chaos-mutations">0</b><span>mutations</span></div>
+              <div class="twin-stat"><b id="chaos-bursts">0</b><span>rapid bursts</span></div>
+              <div class="twin-stat"><b id="chaos-duplicates">0</b><span>duplicate writes</span></div>
+              <div class="twin-stat"><b id="chaos-high">0</b><span>high signals</span></div>
+              <div class="twin-stat"><b id="chaos-signals">0</b><span>signals</span></div>
+            </div>
+            <div id="interaction-chaos-list" class="list">
+              <div class="empty-state">Enable opt-in interaction capture in the Hawk Browser Companion, then test the UI normally.</div>
+            </div>
+          </article>
           <article class="card" style="margin-top:16px">
             <div class="card-head">
               <div class="card-title">Hawk Attack Twin <span id="twin-caption">waiting for workspace model</span></div>
@@ -1294,6 +1312,7 @@ export function renderMissionControlHtml(
       <div id="command-list" class="command-list">
         ${commandItem('AI', 'Open Hawk AI', 'Start a workspace-aware coding or security task.', 'open-agent', 'Enter')}
         ${commandItem('AP', 'Run Autopilot', 'Correlate source, traffic, findings and proof.', 'autopilot')}
+        ${commandItem('IC', 'Analyze interaction chaos', 'Find rapid clicks, double-submit and duplicate mutation races from captured evidence.', 'interaction-chaos')}
         ${commandItem('SC', 'Run approved scan', 'Execute the passive workspace security workflow.', 'workspace-scan')}
         ${commandItem('IX', 'Rebuild workspace graph', 'Refresh the persistent semantic and security index.', 'index')}
         ${commandItem('MC', 'Plan governed MCP mission', 'Build a policy-bound parallel agent DAG.', 'plan-mission')}
@@ -1445,6 +1464,7 @@ export function renderMissionControlHtml(
       renderRoutes(inventory?.routes || [], traffic, state.securityGraph);
       renderAttackTwin(state.attackTwin, state.protocols);
       renderTraffic(traffic);
+      renderInteractionChaos(state.interactionChaos);
       renderFindings(findings, reproductions);
       renderHealth(state.hawkHealth);
       setText('#fleet-online', state.fleet?.summary?.online ?? 0);
@@ -1554,7 +1574,10 @@ export function renderMissionControlHtml(
       const files = Math.min(100, Math.log10((state.inventory?.sourceFiles ?? 0) + 1) * 28);
       const routes = Math.min(100, (state.inventory?.routes?.length ?? 0) * 5);
       const requests = Math.min(100, (state.traffic?.requests?.length ?? 0) * 10);
-      const signals = Math.min(100, (state.findings?.length ?? 0) * 16);
+      const signals = Math.min(
+        100,
+        ((state.findings?.length ?? 0) + (state.interactionChaos?.summary?.signals ?? 0)) * 16,
+      );
       const proof = Math.min(100, (state.reproductions?.length ?? 0) * 28);
       const raw = [files * .55, files * .7, routes, requests * .8, signals, signals * .7, proof, proof * .85 + 12, proof + 8];
       const points = raw.map((value, index) => {
@@ -1566,6 +1589,59 @@ export function renderMissionControlHtml(
       q('#signal-line').setAttribute('d', line);
       q('#signal-area').setAttribute('d', line + ' L220 50 L0 50 Z');
       setText('#pulse-label', state.traffic?.live ? 'live' : state.connected ? 'local' : 'offline');
+    }
+
+    function renderInteractionChaos(report) {
+      const summary = report?.summary || {};
+      setText('#chaos-interactions', summary.interactions ?? 0);
+      setText('#chaos-mutations', summary.mutationRequests ?? 0);
+      setText('#chaos-bursts', summary.rapidInteractionBursts ?? 0);
+      setText('#chaos-duplicates', summary.duplicateMutationBursts ?? 0);
+      setText('#chaos-high', summary.highSignals ?? 0);
+      setText('#chaos-signals', summary.signals ?? 0);
+      setText(
+        '#chaos-caption',
+        report
+          ? ((summary.signals ?? 0) + ' signal' + ((summary.signals ?? 0) === 1 ? '' : 's') + ' / captured-only')
+          : 'captured-only / opt-in',
+      );
+      const root = q('#interaction-chaos-list');
+      root.replaceChildren();
+      const signals = Array.isArray(report?.signals) ? report.signals.slice(0, 8) : [];
+      if (!signals.length) {
+        root.append(
+          empty(
+            (summary.interactions ?? 0) > 0
+              ? 'No rapid-interaction race signal was observed in the current capture.'
+              : 'Enable opt-in interaction capture in the Hawk Browser Companion, then test the UI normally.',
+          ),
+        );
+        return;
+      }
+      signals.forEach((signal) => {
+        const row = document.createElement('div');
+        row.className = 'list-row';
+        const copy = document.createElement('div');
+        copy.className = 'row-copy';
+        copy.append(
+          textElement('b', signal.title),
+          textElement(
+            'span',
+            (signal.targetFingerprint || signal.pageUrl || 'captured flow') +
+              ' / ' +
+              signal.interactionIds.length +
+              ' interactions / ' +
+              signal.requestIds.length +
+              ' requests',
+          ),
+        );
+        row.append(
+          textElement('span', String(signal.severity || 'signal').toUpperCase(), 'severity ' + signal.severity),
+          copy,
+          textElement('span', signal.confidence || 'signal', 'row-tail'),
+        );
+        root.append(row);
+      });
     }
 
     function renderAttackTwin(twin, protocols) {

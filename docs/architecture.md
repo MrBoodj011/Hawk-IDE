@@ -54,6 +54,9 @@ The current local-first slice provides:
     citations, revalidation state, and explicit revocation.
 20. Verify MCP artifacts through SHA-256 and Ed25519 trust manifests in
     addition to content-level Sentinel inspection.
+21. Correlate opt-in structural click and submit events with sanitized mutation
+    traffic to expose rapid-interaction races, duplicate side effects, retry
+    storms, and inconsistent server outcomes without driving the target.
 
 ## Runtime layout
 

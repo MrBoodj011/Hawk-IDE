@@ -6,6 +6,7 @@ const DEFAULTS = Object.freeze({
   enabled: false,
   scope: "^https?://",
   requestsPerSecond: 50,
+  captureInteractions: false,
   captureRequestBodies: false,
   captureSessionStorage: false,
 });
@@ -15,6 +16,7 @@ let config = { ...DEFAULTS };
 let rateWindowStartedAt = Date.now();
 let rateWindowCount = 0;
 let forwarded = 0;
+let interactionsForwarded = 0;
 let dropped = 0;
 let lastError = "";
 let lastForwardedAt = 0;
@@ -41,6 +43,15 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "hawk-session-snapshot") {
     if (config.captureSessionStorage === true) forward("/snapshot", message.payload);
+    return false;
+  }
+  if (message.type === "hawk-interaction-event") {
+    if (config.captureInteractions !== true) return false;
+    const payload = {
+      ...message.payload,
+      tabId: sender.tab?.id,
+    };
+    forward("/interaction", payload, "interaction");
     return false;
   }
   if (message.type === "hawk-status") {
@@ -134,6 +145,7 @@ function normalizeConfig(input) {
     enabled: input.enabled === true,
     scope: String(input.scope ?? DEFAULTS.scope),
     requestsPerSecond: clampNumber(input.requestsPerSecond, 1, 500, 50),
+    captureInteractions: input.captureInteractions === true,
     captureRequestBodies: input.captureRequestBodies === true,
     captureSessionStorage: input.captureSessionStorage === true,
   };
@@ -174,7 +186,7 @@ function finish(requestId, timeEnd, status, fromCache, error) {
   forward("/ingest", entry);
 }
 
-async function forward(path, payload) {
+async function forward(path, payload, category = "request") {
   if (!shouldCapture(String(payload?.url ?? payload?.initiator ?? ""))) return;
   if (!consumeRateSlot()) {
     dropped += 1;
@@ -193,6 +205,7 @@ async function forward(path, payload) {
     });
     if (!response.ok) throw new Error(`Bridge returned ${response.status}`);
     forwarded += 1;
+    if (category === "interaction") interactionsForwarded += 1;
     lastForwardedAt = Date.now();
     lastError = "";
   } catch (error) {
@@ -221,6 +234,7 @@ function runtimeStatus() {
   return {
     enabled: config.enabled,
     forwarded,
+    interactionsForwarded,
     dropped,
     pending: pending.size,
     lastError,

@@ -92,4 +92,58 @@ describe('CaptureStore Burp bridge', () => {
     expect(body).toContain('truncated');
     expect(body.length).toBeLessThan(70_000);
   });
+
+  it('stores bounded structural interaction metadata without page text or field values', () => {
+    const store = new CaptureStore();
+    const result = store.ingestInteraction({
+      kind: 'click',
+      url: 'https://app.example.com/checkout?token=not-retained-by-fingerprint',
+      tabId: 4,
+      occurredAt: Date.now(),
+      trusted: true,
+      detail: 2,
+      target: {
+        fingerprint: 'html > body > button:nth-of-type(2)',
+        tag: 'BUTTON',
+        role: 'button',
+        inputType: 'submit',
+        disabled: false,
+        value: 'secret value must be ignored',
+        text: 'Pay for customer Alice',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(store.status().interactionCount).toBe(1);
+    expect(store.listInteractions()).toEqual([
+      expect.objectContaining({
+        kind: 'click',
+        tabId: 4,
+        trusted: true,
+        detail: 2,
+        target: {
+          fingerprint: 'html > body > button:nth-of-type(2)',
+          tag: 'button',
+          role: 'button',
+          inputType: 'submit',
+          disabled: false,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(store.listInteractions())).not.toContain('Alice');
+    expect(JSON.stringify(store.listInteractions())).not.toContain('secret value');
+    expect(JSON.stringify(store.listInteractions())).not.toContain('not-retained');
+  });
+
+  it('rejects malformed or non-HTTP interaction events', () => {
+    const store = new CaptureStore();
+    expect(store.ingestInteraction({ kind: 'hover', url: 'https://example.com' }).ok).toBe(false);
+    expect(
+      store.ingestInteraction({
+        kind: 'click',
+        url: 'file:///tmp/test.html',
+        target: { fingerprint: 'button', tag: 'button' },
+      }).ok,
+    ).toBe(false);
+  });
 });

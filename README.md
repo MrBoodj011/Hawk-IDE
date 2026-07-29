@@ -93,6 +93,9 @@ An in-editor engineering room with streaming responses, plans, tool events, task
 - Passive rules for embedded credentials, disabled TLS verification, `eval`, interpolated SQL-looking calls, and risky CORS combinations.
 - Deterministic offline reproduction in Docker with baseline, negative-control, and reproduction gates.
 - Findings triage with source navigation, reproduction, retest, evidence packs, and proof history.
+- Interaction Chaos correlates opt-in structural click/submit events with mutation
+  traffic to flag double-submit, rapid-click races, duplicate listeners, retry
+  storms, status divergence, and 5xx outcomes without generating target traffic.
 - Security Graph linking repositories, files, symbols, routes, requests, identities, findings, patches, tests, runs, and artifacts.
 
 ### Hawk Attack Twin and Autopilot
@@ -154,7 +157,7 @@ The native **Run 3 Docker lanes** action is connected to that scheduling model i
 | **Mission Control** | Operational view of code, routes, traffic, findings, proof, posture, and governed actions. | Index a workspace, inspect the Security Graph, or plan a scan. |
 | **Hawk AI** | Workspace-aware agent with streaming, context selection, plans, tool events, diff review, tests, and task history. | Ask for a bounded change, review the diff, run gates, then Apply or Reject. |
 | **Coding Core** | Hawk Tab, Next Edit, semantic index, search, model evaluation, debugger loop, and AST merge. | Predict an edit, search symbols, or recover a stopped debug task. |
-| **Traffic plane** | HAR import, Browser Companion, Burp Companion, timeline, source correlation, and identity replay. | Pair a local capture, import redacted traffic, or replay an approved request. |
+| **Traffic plane** | HAR import, Browser Companion, Burp Companion, timeline, source correlation, Interaction Chaos, and identity replay. | Pair a local capture, opt into structural interaction capture, or replay an approved request. |
 | **Security workflow** | Passive rules, findings, Docker reproduction, nine verification gates, retest, and evidence builder. | Turn a signal into a reviewable, reproducible evidence pack. |
 | **Smart MCP Brain** | Goals, policies, capability search, DAGs, approvals, memory, Sentinel, A2A, and artifacts. | Plan a mission before any sensitive tool is allowed to execute. |
 | **Worker mesh** | Bounded Docker agents, scheduling, leases, retries, checkpoints, and recovery. | Split a long task across isolated workers and inspect each artifact. |
@@ -415,6 +418,7 @@ The daemon is loopback-only and requires `X-Hawk-Token`. The most important endp
 | `GET` | `/v1/memory/posture` | Read active, stale, and revoked provenance memory counts. |
 | `POST` | `/v1/mcp/trust/inspect` | Verify MCP digests, Ed25519 signatures, capabilities, and trust drift. |
 | `GET` | `/v1/traffic` | Read imported/live traffic metadata. |
+| `GET` | `/v1/interaction-chaos` | Correlate captured structural UI interactions with duplicate mutation traffic. |
 | `POST` | `/v1/traffic/replay/plan` | Plan a governed identity replay. |
 | `POST` | `/v1/traffic/replay/execute` | Execute a second-approved replay. |
 | `POST` | `/v1/findings/:id/reproduce` | Run a bounded offline reproduction. |
@@ -529,6 +533,7 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 - [Parallel Docker orchestration](docs/parallel-orchestration.md)
 - [Sandbox reproduction](docs/sandbox-reproduction.md)
 - [Identity replay](docs/traffic-identity-replay.md)
+- [Interaction Chaos](docs/interaction-chaos.md)
 - [Local observability and debug bundles](docs/observability.md)
 - [Production readiness](docs/release/PRODUCTION_READINESS.md)
 - [Official store publication](docs/release/OFFICIAL_STORE_PUBLICATION.md)

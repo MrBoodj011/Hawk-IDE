@@ -32,6 +32,7 @@
           <label>Maximum requests / second<input id="rate" type="number" min="1" max="500"></label>
           <label class="check"><input id="enabled" type="checkbox"><span><b>Enable capture</b><small>Start after save</small></span></label>
         </div>
+        <label class="check"><input id="interactions" type="checkbox"><span><b>Capture UI interactions</b><small>Records structural click and submit metadata only. No field values or button text.</small></span></label>
         <label class="check warning"><input id="bodies" type="checkbox"><span><b>Capture request bodies</b><small>Off by default because bodies may contain secrets.</small></span></label>
         <label class="check warning"><input id="session" type="checkbox"><span><b>Capture cookies and browser storage</b><small>Highly sensitive. Enable only for an explicitly authorized test profile.</small></span></label>
       </section>

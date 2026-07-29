@@ -19,6 +19,10 @@ All notable changes to this project are documented here. The format is based on
   against a pre-pulled local image, verify output artifact collection, and fail
   on timeout or recovery regressions. The opt-in local command explains when an
   image or daemon is unavailable instead of hiding the skip.
+- **Interaction Chaos** - opt-in structural click/submit capture now correlates
+  normal browser testing with duplicate mutation requests, rapid-submit races,
+  retry storms, status divergence, and 5xx outcomes. Signals flow through
+  Mission Control, Smart MCP, the Security Graph, and portable evidence packs.
 
 - **Local observability and sanitized debug bundles** — every daemon request
   now receives a trace ID; bounded route metrics expose status, memory, and
@@ -55,7 +59,7 @@ All notable changes to this project are documented here. The format is based on
   released tmpfs mount.
 - Release readiness selects the newest completed run per required Hawk workflow,
   so historical failed Actions runs cannot mask a current green build.
-- The local IDE API protocol is now version 12.
+- The local IDE API protocol is now version 13.
 
 ## [0.7.0] - 2026-07-20
 

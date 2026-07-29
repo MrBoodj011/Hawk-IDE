@@ -269,6 +269,7 @@ export interface EvidencePackReport {
   observedRoutes: number;
   trafficRequests: number;
   findings: number;
+  interactionSignals: number;
   artifacts: EvidencePackArtifact[];
   chainVersion?: 1;
   chainRootSha256?: string;
