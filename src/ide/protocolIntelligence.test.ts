@@ -27,7 +27,7 @@ describe('protocol intelligence', () => {
       writeFile(join(root, 'mobile.kt'), '@GET("/v1/profile")\nsuspend fun profile(): User\n'),
     ]);
     const result = await scanProtocolSurfaces(root, new Date('2026-07-21T10:00:00Z'));
-    expect(result.protocolVersion).toBe(13);
+    expect(result.protocolVersion).toBe(14);
     expect(result.summary.byKind).toMatchObject({
       graphql: 2,
       'oauth-oidc': 2,
