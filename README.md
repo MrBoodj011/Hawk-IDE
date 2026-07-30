@@ -96,6 +96,16 @@ An in-editor engineering room with streaming responses, plans, tool events, task
 - Interaction Chaos correlates opt-in structural click/submit events with mutation
   traffic to flag double-submit, rapid-click races, duplicate listeners, retry
   storms, status divergence, and 5xx outcomes without generating target traffic.
+- Behavioral Intelligence derives state machines, workflows, business invariants,
+  controlled race experiments, deterministic replay bundles, client-state and
+  accessibility chaos scenarios, fix-mutation plans, a failure timeline, and a
+  project digital twin from static and captured evidence.
+- Governed lifecycle hooks can deny destructive agent commands, require approval
+  for sensitive tools and paths, and attach review/test/recovery gates without
+  retaining raw tool arguments.
+- A specialist swarm planner scopes business-logic, race, authorization,
+  frontend, API-contract, debug, fix, and independent-verifier agents into a
+  dependency graph. Planning does not start workers.
 - Security Graph linking repositories, files, symbols, routes, requests, identities, findings, patches, tests, runs, and artifacts.
 
 ### Hawk Attack Twin and Autopilot
@@ -419,6 +429,11 @@ The daemon is loopback-only and requires `X-Hawk-Token`. The most important endp
 | `POST` | `/v1/mcp/trust/inspect` | Verify MCP digests, Ed25519 signatures, capabilities, and trust drift. |
 | `GET` | `/v1/traffic` | Read imported/live traffic metadata. |
 | `GET` | `/v1/interaction-chaos` | Correlate captured structural UI interactions with duplicate mutation traffic. |
+| `GET` | `/v1/security/behavioral-lab` | Build the captured-and-static Behavioral Intelligence model. |
+| `POST` | `/v1/security/behavioral/experiment-plan` | Create an exact-hash passive or restricted active experiment plan; no traffic is executed. |
+| `POST` | `/v1/security/hooks/evaluate` | Evaluate deterministic agent lifecycle and tool-use policy. |
+| `POST` | `/v1/security/specialist-swarm/plan` | Plan eight scoped specialist agents without starting workers. |
+| `POST` | `/v1/security/pr/evidence-review` | Gate a bounded PR diff on reproduction, tests, semantic review, independent review, and evidence. |
 | `POST` | `/v1/traffic/replay/plan` | Plan a governed identity replay. |
 | `POST` | `/v1/traffic/replay/execute` | Execute a second-approved replay. |
 | `POST` | `/v1/findings/:id/reproduce` | Run a bounded offline reproduction. |
@@ -438,6 +453,8 @@ The Smart MCP Brain is not a free-form shell. A mission carries a typed goal, ta
 | Hawk AI sessions | Create, stream, pause, resume, inspect, test, apply, reject, or revert a task. |
 | Scan templates | Plan passive workspace, captured-runtime, or release-gate scans. |
 | Traffic tools | Import HAR, pair Browser/Burp, inspect timeline, and plan governed replay. |
+| Behavioral Intelligence | Build state machines, invariants, experiments, replay bundles, mutation plans, failure timelines, and the project digital twin. |
+| Governed hooks and swarm | Enforce pre/post/stop/error policy and plan eight independently scoped specialist roles. |
 | Reproduction tools | Create exact-hash sandbox plans and execute supported deterministic gates. |
 | ProofGraph resources | Read graph nodes, provenance, confidence, run events, and artifacts. |
 | Evidence builder | Export portable reports with SHA-256 manifests. |
@@ -534,6 +551,7 @@ Hawk is intentionally a personal, local-first product: no Hawk account, team/RBA
 - [Sandbox reproduction](docs/sandbox-reproduction.md)
 - [Identity replay](docs/traffic-identity-replay.md)
 - [Interaction Chaos](docs/interaction-chaos.md)
+- [Behavioral Intelligence](docs/behavioral-intelligence.md)
 - [Local observability and debug bundles](docs/observability.md)
 - [Production readiness](docs/release/PRODUCTION_READINESS.md)
 - [Official store publication](docs/release/OFFICIAL_STORE_PUBLICATION.md)

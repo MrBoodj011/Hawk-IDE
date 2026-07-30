@@ -18,12 +18,18 @@ import type {
 import { AiSessionManager } from './aiSessionManager.js';
 import { buildAttackTwin } from './attackTwin.js';
 import { AutonomousSecurityService } from './autonomousSecurity.js';
+import {
+  type BehavioralSecurityReport,
+  analyzeBehavioralSecurity,
+  createBehavioralExperimentPlan,
+} from './behavioralSecurity.js';
 import { runCodingCoreBenchmark } from './codingBenchmark.js';
 import { listDockerAgentProfiles } from './dockerAgentProfiles.js';
 import { DurableStore } from './durableStore.js';
 import { EditPredictionEngine, type EditPredictionFeedback } from './editPredictionEngine.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
+import { type HawkHookInput, evaluateHawkHook } from './governedHooks.js';
 import { GovernedMemory } from './governedMemory.js';
 import { createGovernedMission } from './governedMission.js';
 import { importHawkHealthReport } from './hawkReport.js';
@@ -44,7 +50,11 @@ import { listMcpToolGovernance } from './mcpGovernance.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { HawkObservability } from './observability.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
-import { analyzePullRequestDiff, pullRequestReportToSarif } from './prSecurityAgent.js';
+import {
+  analyzePullRequestDiff,
+  pullRequestReportToSarif,
+  reviewPullRequestEvidence,
+} from './prSecurityAgent.js';
 import { privacySpeedPosture } from './privacySpeed.js';
 import { ProjectLearningLedger } from './projectLearning.js';
 import { ProofGraph } from './proofGraph.js';
@@ -99,6 +109,7 @@ import {
   type SecurityToolRunPlan,
 } from './securityToolRunner.js';
 import { SemanticWorkspaceIndex } from './semanticIndex.js';
+import { planSpecialistSwarm } from './specialistSwarm.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 import {
   importHarTraffic,
@@ -267,6 +278,36 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
           })),
         };
       },
+      behavioralSecurity: (inventory) =>
+        analyzeBehavioralSecurity({
+          inventory,
+          traffic: mergeTrafficInventories(
+            importedTraffic,
+            importLiveTraffic(captureStore.listRequests({ limit: 1_500 }), now()),
+            now(),
+          ),
+          interactions: captureStore.listInteractions(),
+          findings,
+          interactionChaos: (() => {
+            const capturedRequests = captureStore.listRequests({ limit: 5_000 });
+            const liveIds = new Map(
+              capturedRequests.map((entry) => [entry.id, liveTrafficRequestId(entry)]),
+            );
+            const report = analyzeInteractionChaos(
+              captureStore.listInteractions(),
+              capturedRequests,
+              { now: now() },
+            );
+            return {
+              ...report,
+              signals: report.signals.map((signal) => ({
+                ...signal,
+                requestIds: signal.requestIds.map((id) => liveIds.get(id) ?? id),
+              })),
+            };
+          })(),
+          now: now(),
+        }),
       setTraffic: (value) => {
         importedTraffic = value;
       },
@@ -360,6 +401,7 @@ interface RequestContext {
   setFindings(value: SecurityFinding[]): void;
   traffic(): TrafficInventory | null;
   interactionChaos(): InteractionChaosReport;
+  behavioralSecurity(inventory: WorkspaceInventory): BehavioralSecurityReport;
   setTraffic(value: TrafficInventory): void;
   evidencePacks(): EvidencePackReport[];
   addEvidencePack(value: EvidencePackReport): void;
@@ -383,6 +425,21 @@ interface RequestContext {
   mcpTrust: McpTrustPlatform;
   completionLatencies(): number[];
   recordCompletionLatency(latencyMs: number): void;
+}
+
+async function ensureInventory(context: RequestContext): Promise<WorkspaceInventory> {
+  const current = context.inventory();
+  if (current) return current;
+  const scan = await scanWorkspaceRoutes(context.workspaceRoot);
+  const inventory: WorkspaceInventory = {
+    protocolVersion: IDE_PROTOCOL_VERSION,
+    root: context.workspaceRoot,
+    indexedAt: context.now().toISOString(),
+    sourceFiles: scan.sourceFiles,
+    routes: scan.routes,
+  };
+  context.setInventory(inventory);
+  return inventory;
 }
 
 async function handleRequest(
@@ -748,6 +805,107 @@ async function handleRequest(
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/v1/security/behavioral-lab') {
+    try {
+      const inventory = await ensureInventory(context);
+      sendJSON(res, 200, context.behavioralSecurity(inventory));
+    } catch (err) {
+      sendJSON(res, 500, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/behavioral/experiment-plan') {
+    try {
+      const input = parseJSONBody<{
+        objective?: string;
+        mode?: 'passive' | 'authorized-active';
+        allowedHosts?: string[];
+        maxConcurrency?: number;
+        maxRequests?: number;
+      }>(await readBody(req));
+      if (typeof input.objective !== 'string') {
+        throw new Error('behavioral experiment objective is required');
+      }
+      if (
+        input.mode !== undefined &&
+        input.mode !== 'passive' &&
+        input.mode !== 'authorized-active'
+      ) {
+        throw new Error('unsupported behavioral experiment mode');
+      }
+      if (
+        input.allowedHosts !== undefined &&
+        (!Array.isArray(input.allowedHosts) ||
+          input.allowedHosts.length > 100 ||
+          !input.allowedHosts.every((host) => typeof host === 'string' && host.length <= 2_000))
+      ) {
+        throw new Error('behavioral allowedHosts must be a bounded string list');
+      }
+      const inventory = await ensureInventory(context);
+      const report = context.behavioralSecurity(inventory);
+      sendJSON(
+        res,
+        201,
+        createBehavioralExperimentPlan(report, {
+          objective: input.objective,
+          mode: input.mode,
+          allowedHosts: input.allowedHosts,
+          maxConcurrency: input.maxConcurrency,
+          maxRequests: input.maxRequests,
+          now: context.now(),
+        }),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/hooks/evaluate') {
+    try {
+      const input = parseJSONBody<HawkHookInput>(await readBody(req));
+      const events = [
+        'sessionStart',
+        'sessionEnd',
+        'userPromptSubmitted',
+        'preToolUse',
+        'postToolUse',
+        'agentStop',
+        'subagentStop',
+        'errorOccurred',
+      ];
+      if (!events.includes(input.event)) throw new Error('unsupported Hawk hook event');
+      sendJSON(res, 200, evaluateHawkHook(input, context.now()));
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/specialist-swarm/plan') {
+    try {
+      const input = parseJSONBody<{ objective?: string; maxParallel?: number }>(
+        await readBody(req),
+      );
+      if (typeof input.objective !== 'string') throw new Error('swarm objective is required');
+      const inventory = await ensureInventory(context);
+      sendJSON(
+        res,
+        201,
+        planSpecialistSwarm({
+          objective: input.objective,
+          maxParallel: input.maxParallel,
+          report: context.behavioralSecurity(inventory),
+          now: context.now(),
+        }),
+      );
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/v1/security/graph') {
     try {
       let inventory = context.inventory();
@@ -772,6 +930,7 @@ async function handleRequest(
         protocols: context.protocols() ?? undefined,
         deliveries: context.deliveries(),
         interactionChaos: context.interactionChaos(),
+        behavioralSecurity: context.behavioralSecurity(inventory),
       });
       const nodeId = requestURL.searchParams.get('nodeId')?.trim();
       if (!nodeId) {
@@ -830,6 +989,7 @@ async function handleRequest(
         protocols,
         deliveries: context.deliveries(),
         interactionChaos: context.interactionChaos(),
+        behavioralSecurity: context.behavioralSecurity(inventory),
       });
       sendJSON(
         res,
@@ -908,6 +1068,7 @@ async function handleRequest(
             protocols,
             deliveries: context.deliveries(),
             interactionChaos: context.interactionChaos(),
+            behavioralSecurity: context.behavioralSecurity(inventory),
           });
           return buildAttackTwin({
             inventory,
@@ -939,6 +1100,47 @@ async function handleRequest(
       if (typeof input.diff !== 'string') throw new Error('Git diff is required');
       const report = analyzePullRequestDiff(input.diff, context.now());
       sendJSON(res, 200, { report, sarif: pullRequestReportToSarif(report) });
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/security/pr/evidence-review') {
+    try {
+      const input = parseJSONBody<{
+        diff?: string;
+        reproductionPassed?: boolean;
+        testsPassed?: boolean;
+        semanticReviewPassed?: boolean;
+        independentReviewPassed?: boolean;
+        evidenceUris?: string[];
+      }>(await readBody(req));
+      if (typeof input.diff !== 'string') throw new Error('Git diff is required');
+      if (
+        input.evidenceUris !== undefined &&
+        (!Array.isArray(input.evidenceUris) ||
+          input.evidenceUris.length > 100 ||
+          !input.evidenceUris.every((uri) => typeof uri === 'string' && uri.length <= 2_000))
+      ) {
+        throw new Error('evidenceUris must be a bounded string list');
+      }
+      const report = analyzePullRequestDiff(input.diff, context.now());
+      sendJSON(res, 200, {
+        report,
+        evidenceReview: reviewPullRequestEvidence(
+          report,
+          {
+            reproductionPassed: input.reproductionPassed === true,
+            testsPassed: input.testsPassed === true,
+            semanticReviewPassed: input.semanticReviewPassed === true,
+            independentReviewPassed: input.independentReviewPassed === true,
+            evidenceUris: input.evidenceUris ?? [],
+          },
+          context.now(),
+        ),
+        sarif: pullRequestReportToSarif(report),
+      });
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }
@@ -1614,12 +1816,14 @@ async function handleRequest(
   if (req.method === 'POST' && pathname === '/v1/reports/evidence') {
     try {
       const input = parseEvidencePackRequest(await readBody(req));
+      const inventory = await ensureInventory(context);
       const report: EvidencePackReport = await buildEvidencePack({
         workspaceRoot: context.workspaceRoot,
         approved: input.approved,
         traffic: context.traffic(),
         hawkHealth: context.hawkHealth(),
         interactionChaos: context.interactionChaos(),
+        behavioralSecurity: context.behavioralSecurity(inventory),
         now: context.now(),
       });
       context.addEvidencePack(report);

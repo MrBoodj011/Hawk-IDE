@@ -16,6 +16,8 @@ import type {
   AttackTwinResponse,
   AutonomousSecurityPlan,
   AutonomousSecurityRun,
+  BehavioralExperimentPlan,
+  BehavioralSecurityReport,
   CodingCoreBenchmark,
   DaemonDescriptor,
   DaemonHealth,
@@ -32,11 +34,12 @@ import type {
   HawkIntegrationsResponse,
   HawkLearningProfile,
   HawkPrivacySpeedPosture,
+  HawkSpecialistSwarmPlan,
   IdentityReplayPlan,
   IdentityReplayResult,
+  ImportedSecurityFindings,
   InlineCompletionResponse,
   InteractionChaosReport,
-  ImportedSecurityFindings,
   McpTrustPosture,
   MultiFileEditPredictionDocument,
   MultiFileEditPredictionResponse,
@@ -46,12 +49,12 @@ import type {
   SandboxReproductionPlan,
   SandboxReproductionResult,
   SandboxReproductionsResponse,
-  SecurityGraphResponse,
-  SecurityGraphDelivery,
+  SecurityAdapterId,
+  SecurityAdaptersResponse,
   SecurityBenchmarkReport,
   SecurityBenchmarkSample,
-  SecurityAdaptersResponse,
-  SecurityAdapterId,
+  SecurityGraphDelivery,
+  SecurityGraphResponse,
   SecurityTestPlan,
   SecurityTestResult,
   SecurityTestTemplateId,
@@ -414,6 +417,50 @@ export class DaemonClient implements vscode.Disposable {
   async interactionChaos(workspace: vscode.Uri): Promise<InteractionChaosReport> {
     const daemon = await this.start(workspace);
     return await this.request<InteractionChaosReport>(daemon, '/v1/interaction-chaos');
+  }
+
+  async behavioralSecurity(workspace: vscode.Uri): Promise<BehavioralSecurityReport> {
+    const daemon = await this.start(workspace);
+    return await this.request<BehavioralSecurityReport>(daemon, '/v1/security/behavioral-lab');
+  }
+
+  async createBehavioralExperimentPlan(
+    workspace: vscode.Uri,
+    input: {
+      objective: string;
+      mode?: 'passive' | 'authorized-active';
+      allowedHosts?: string[];
+      maxConcurrency?: number;
+      maxRequests?: number;
+    },
+  ): Promise<BehavioralExperimentPlan> {
+    const daemon = await this.start(workspace);
+    return await this.request<BehavioralExperimentPlan>(
+      daemon,
+      '/v1/security/behavioral/experiment-plan',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  async planSpecialistSwarm(
+    workspace: vscode.Uri,
+    objective: string,
+    maxParallel = 4,
+  ): Promise<HawkSpecialistSwarmPlan> {
+    const daemon = await this.start(workspace);
+    return await this.request<HawkSpecialistSwarmPlan>(
+      daemon,
+      '/v1/security/specialist-swarm/plan',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objective, maxParallel }),
+      },
+    );
   }
 
   async securityGraph(

@@ -23,6 +23,20 @@ All notable changes to this project are documented here. The format is based on
   normal browser testing with duplicate mutation requests, rapid-submit races,
   retry storms, status divergence, and 5xx outcomes. Signals flow through
   Mission Control, Smart MCP, the Security Graph, and portable evidence packs.
+- **Behavioral Intelligence** - Hawk now derives state machines, workflows,
+  explicit invariants, controlled race and client-state experiments,
+  deterministic replay bundles, accessibility scenarios, fix-mutation plans,
+  a failure timeline, and a project digital twin from static and captured
+  evidence. The model is available in Mission Control, the daemon, Smart MCP,
+  Security Graph, Markdown/HTML/JSON evidence, and SARIF.
+- **Governed agent hooks and specialist swarm** - deterministic pre/post tool,
+  stop, and failure hooks protect sensitive operations without retaining raw
+  arguments. A new eight-role swarm planner scopes analysis, debugging, fixing,
+  and independent verification without silently starting workers.
+- **Evidence-gated PR review** - Hawk cannot return a passing security review
+  for affected signals until reproduction, tests, semantic review, independent
+  review, and evidence provenance are present. Deterministic blockers cannot be
+  overridden.
 
 - **Local observability and sanitized debug bundles** — every daemon request
   now receives a trace ID; bounded route metrics expose status, memory, and
@@ -59,7 +73,7 @@ All notable changes to this project are documented here. The format is based on
   released tmpfs mount.
 - Release readiness selects the newest completed run per required Hawk workflow,
   so historical failed Actions runs cannot mask a current green build.
-- The local IDE API protocol is now version 13.
+- The local IDE API protocol is now version 14.
 
 ## [0.7.0] - 2026-07-20
 

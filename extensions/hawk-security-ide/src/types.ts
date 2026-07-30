@@ -455,10 +455,7 @@ export interface TrafficInventory {
 
 export interface InteractionChaosSignal {
   id: string;
-  ruleId:
-    | 'hawk.ui.rapid-interaction'
-    | 'hawk.ui.rapid-submit'
-    | 'hawk.ui.duplicate-mutation';
+  ruleId: 'hawk.ui.rapid-interaction' | 'hawk.ui.rapid-submit' | 'hawk.ui.duplicate-mutation';
   severity: 'high' | 'medium' | 'low';
   confidence: 'signal';
   title: string;
@@ -489,6 +486,112 @@ export interface InteractionChaosReport {
     signals: number;
   };
   signals: InteractionChaosSignal[];
+  statement: string;
+}
+
+export interface BehavioralSecuritySignal {
+  id: string;
+  ruleId: string;
+  severity: 'high' | 'medium' | 'low';
+  confidence: 'signal';
+  title: string;
+  description: string;
+  evidence: string[];
+  interactionIds: string[];
+  requestIds: string[];
+  invariantIds: string[];
+}
+
+export interface BehavioralSecurityReport {
+  protocolVersion: number;
+  generatedAt: string;
+  mode: 'captured-and-static';
+  summary: {
+    capabilities: number;
+    states: number;
+    transitions: number;
+    workflows: number;
+    invariants: number;
+    invariantSignals: number;
+    experiments: number;
+    raceExperiments: number;
+    replays: number;
+    accessibilitySignals: number;
+    clientStateExperiments: number;
+    mutationPlans: number;
+    timelineEvents: number;
+    signals: number;
+  };
+  capabilities: Array<{
+    id: string;
+    title: string;
+    status: 'ready';
+    mode: 'captured-only' | 'offline' | 'approval-gated';
+    description: string;
+  }>;
+  invariants: Array<{
+    id: string;
+    title: string;
+    expression: string;
+    category: string;
+    status: 'holding' | 'signal' | 'untested';
+    evidence: string[];
+  }>;
+  experiments: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    target: string;
+    mode: 'captured-only' | 'approval-required';
+    steps: string[];
+    invariantIds: string[];
+    requestIds: string[];
+  }>;
+  signals: BehavioralSecuritySignal[];
+  digitalTwin: {
+    actors: Array<{ id: string; label: string; evidence: string[] }>;
+    assets: Array<{ id: string; label: string; kind: string; evidence: string[] }>;
+    trustBoundaries: Array<{ id: string; label: string; evidence: string[] }>;
+    workflowIds: string[];
+    invariantIds: string[];
+    learningFingerprint: string;
+  };
+  statement: string;
+}
+
+export interface BehavioralExperimentPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  objective: string;
+  mode: 'passive' | 'authorized-active';
+  allowedHosts: string[];
+  maxConcurrency: number;
+  maxRequests: number;
+  networkPolicy: 'captured-only' | 'restricted';
+  experimentIds: string[];
+  invariantIds: string[];
+  requiresApproval: true;
+  approvalHash: string;
+  statement: string;
+}
+
+export interface HawkSpecialistSwarmPlan {
+  protocolVersion: number;
+  id: string;
+  createdAt: string;
+  objective: string;
+  maxParallel: number;
+  nodes: Array<{
+    id: string;
+    role: string;
+    title: string;
+    dependencies: string[];
+    authority: 'read-only' | 'isolated-write' | 'approval-gated-active';
+  }>;
+  requiredFinalGates: string[];
+  planHash: string;
   statement: string;
 }
 
@@ -727,6 +830,7 @@ export interface EvidencePackReport {
   trafficRequests: number;
   findings: number;
   interactionSignals: number;
+  behavioralSignals: number;
   artifacts: EvidencePackArtifact[];
   chainVersion?: 1;
   chainRootSha256?: string;

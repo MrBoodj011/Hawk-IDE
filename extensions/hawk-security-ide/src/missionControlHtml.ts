@@ -1150,6 +1150,7 @@ export function renderMissionControlHtml(
               <button class="button small secondary" data-action="import-har">Import HAR</button>
               <button class="button small primary" data-action="pair-capture">Pair live capture</button>
               <button class="button small secondary" data-action="interaction-chaos">Analyze interactions</button>
+              <button class="button small secondary" data-action="behavioral-lab">Behavioral Lab</button>
               <button class="button small secondary" data-action="audit">Audit code</button>
               <button class="button small primary" data-action="autopilot">Run Autopilot</button>
               <button class="button small ghost" data-action="refresh">Refresh</button>
@@ -1192,6 +1193,33 @@ export function renderMissionControlHtml(
             </div>
             <div id="interaction-chaos-list" class="list">
               <div class="empty-state">Enable opt-in interaction capture in the Hawk Browser Companion, then test the UI normally.</div>
+            </div>
+          </article>
+          <article class="card" style="margin-top:16px">
+            <div class="card-head">
+              <div class="card-title">Behavioral Intelligence <span id="behavior-caption">captured + static / local-first</span></div>
+              <div class="hero-actions">
+                <button class="button small secondary" data-action="behavioral-lab">Analyze model</button>
+                <button class="button small primary" data-action="behavioral-plan">Plan experiment</button>
+                <button class="button small ghost" data-action="specialist-swarm">Plan specialist swarm</button>
+              </div>
+            </div>
+            <div class="twin-grid">
+              <div class="twin-stat"><b id="behavior-states">0</b><span>states</span></div>
+              <div class="twin-stat"><b id="behavior-workflows">0</b><span>workflows</span></div>
+              <div class="twin-stat"><b id="behavior-invariants">0</b><span>invariants</span></div>
+              <div class="twin-stat"><b id="behavior-experiments">0</b><span>experiments</span></div>
+              <div class="twin-stat"><b id="behavior-replays">0</b><span>replay bundles</span></div>
+              <div class="twin-stat"><b id="behavior-signals">0</b><span>signals</span></div>
+            </div>
+            <div id="behavioral-security-list" class="list">
+              <div class="empty-state">Hawk will derive workflows, invariants, race experiments, deterministic replays and mutation tests from local code and captured evidence.</div>
+            </div>
+            <div id="behavioral-capabilities" class="protocol-cloud">
+              <span class="protocol-chip">STATE MACHINE</span>
+              <span class="protocol-chip">INVARIANTS</span>
+              <span class="protocol-chip">RACE LAB</span>
+              <span class="protocol-chip">DIGITAL TWIN</span>
             </div>
           </article>
           <article class="card" style="margin-top:16px">
@@ -1313,6 +1341,9 @@ export function renderMissionControlHtml(
         ${commandItem('AI', 'Open Hawk AI', 'Start a workspace-aware coding or security task.', 'open-agent', 'Enter')}
         ${commandItem('AP', 'Run Autopilot', 'Correlate source, traffic, findings and proof.', 'autopilot')}
         ${commandItem('IC', 'Analyze interaction chaos', 'Find rapid clicks, double-submit and duplicate mutation races from captured evidence.', 'interaction-chaos')}
+        ${commandItem('BI', 'Analyze Behavioral Intelligence', 'Build state machines, invariants, replay bundles and failure timelines.', 'behavioral-lab')}
+        ${commandItem('BP', 'Plan behavioral experiment', 'Create an exact hash-bound passive or authorized-active plan without executing traffic.', 'behavioral-plan')}
+        ${commandItem('SW', 'Plan specialist swarm', 'Plan business-logic, race, auth, frontend, API, debug, fix and verifier agents.', 'specialist-swarm')}
         ${commandItem('SC', 'Run approved scan', 'Execute the passive workspace security workflow.', 'workspace-scan')}
         ${commandItem('IX', 'Rebuild workspace graph', 'Refresh the persistent semantic and security index.', 'index')}
         ${commandItem('MC', 'Plan governed MCP mission', 'Build a policy-bound parallel agent DAG.', 'plan-mission')}
@@ -1465,6 +1496,7 @@ export function renderMissionControlHtml(
       renderAttackTwin(state.attackTwin, state.protocols);
       renderTraffic(traffic);
       renderInteractionChaos(state.interactionChaos);
+      renderBehavioralSecurity(state.behavioralSecurity);
       renderFindings(findings, reproductions);
       renderHealth(state.hawkHealth);
       setText('#fleet-online', state.fleet?.summary?.online ?? 0);
@@ -1641,6 +1673,77 @@ export function renderMissionControlHtml(
           textElement('span', signal.confidence || 'signal', 'row-tail'),
         );
         root.append(row);
+      });
+    }
+
+    function renderBehavioralSecurity(report) {
+      const summary = report?.summary || {};
+      setText('#behavior-states', summary.states ?? 0);
+      setText('#behavior-workflows', summary.workflows ?? 0);
+      setText('#behavior-invariants', summary.invariants ?? 0);
+      setText('#behavior-experiments', summary.experiments ?? 0);
+      setText('#behavior-replays', summary.replays ?? 0);
+      setText('#behavior-signals', summary.signals ?? 0);
+      setText(
+        '#behavior-caption',
+        report
+          ? ((summary.capabilities ?? 0) + ' engines / ' + (summary.timelineEvents ?? 0) + ' timeline events')
+          : 'captured + static / local-first',
+      );
+
+      const root = q('#behavioral-security-list');
+      root.replaceChildren();
+      const signals = Array.isArray(report?.signals) ? report.signals.slice(0, 6) : [];
+      const invariantSignals = Array.isArray(report?.invariants)
+        ? report.invariants.filter((invariant) => invariant.status === 'signal').slice(0, 4)
+        : [];
+      if (!signals.length && !invariantSignals.length) {
+        root.append(
+          empty(
+            report
+              ? 'No behavioral invariant signal is present in the current captured and static evidence.'
+              : 'Run Behavioral Lab to derive project workflows, invariants, experiments and replay bundles.',
+          ),
+        );
+      }
+      signals.forEach((signal) => {
+        const row = document.createElement('div');
+        row.className = 'list-row';
+        row.append(
+          textElement('span', String(signal.severity || 'signal').toUpperCase(), 'severity ' + signal.severity),
+          rowCopy(signal.title, signal.description || 'Behavioral evidence requires review.'),
+          textElement('span', (signal.evidence?.length ?? 0) + ' evidence', 'row-tail'),
+        );
+        root.append(row);
+      });
+      invariantSignals.forEach((invariant) => {
+        const row = document.createElement('div');
+        row.className = 'list-row';
+        row.append(
+          textElement('span', 'INV', 'severity medium'),
+          rowCopy(invariant.title, invariant.expression),
+          textElement('span', invariant.category || 'invariant', 'row-tail'),
+        );
+        root.append(row);
+      });
+
+      const capabilityRoot = q('#behavioral-capabilities');
+      capabilityRoot.replaceChildren();
+      const capabilities = Array.isArray(report?.capabilities) ? report.capabilities : [];
+      if (!capabilities.length) {
+        ['STATE MACHINE', 'INVARIANTS', 'RACE LAB', 'REPLAY', 'MUTATION', 'DIGITAL TWIN'].forEach(
+          (label) => capabilityRoot.append(textElement('span', label, 'protocol-chip')),
+        );
+        return;
+      }
+      capabilities.forEach((capability) => {
+        capabilityRoot.append(
+          textElement(
+            'span',
+            capability.title + ' / ' + String(capability.mode).toUpperCase(),
+            'protocol-chip',
+          ),
+        );
       });
     }
 
@@ -2000,13 +2103,7 @@ function toolCard(index: string, title: string, copy: string): string {
   </div>`;
 }
 
-function commandItem(
-  code: string,
-  title: string,
-  copy: string,
-  action: string,
-  key = '',
-): string {
+function commandItem(code: string, title: string, copy: string, action: string, key = ''): string {
   return `<button class="command-item" data-palette-action="${action}" data-command-label="${title}">
     <span>${code}</span>
     <span><b>${title}</b><small>${copy}</small></span>

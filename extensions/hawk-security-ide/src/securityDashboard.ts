@@ -8,6 +8,7 @@ import { renderMissionControlHtml } from './missionControlHtml';
 import type {
   AttackTwinResponse,
   AutonomousSecurityRun,
+  BehavioralSecurityReport,
   FleetSnapshot,
   GovernedMemoryPosture,
   GovernedMissionProfile,
@@ -30,6 +31,7 @@ interface DashboardState {
   findings: SecurityFinding[];
   traffic?: TrafficInventory;
   interactionChaos?: InteractionChaosReport;
+  behavioralSecurity?: BehavioralSecurityReport;
   hawkHealth?: HawkHealthReport;
   securityGraph?: SecurityGraphResponse;
   protocols?: ProtocolSurfaceInventory;
@@ -125,6 +127,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         findings,
         traffic,
         interactionChaos,
+        behavioralSecurity,
         hawkHealth,
         securityGraph,
         reproductions,
@@ -139,6 +142,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         this.client.findings(workspace),
         this.client.traffic(workspace),
         this.client.interactionChaos(workspace),
+        this.client.behavioralSecurity(workspace),
         this.client.hawkHealth(workspace),
         this.client.securityGraph(workspace),
         this.client.reproductions(workspace),
@@ -158,6 +162,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         findings: findings.findings,
         traffic,
         interactionChaos,
+        behavioralSecurity,
         hawkHealth,
         securityGraph,
         protocols,
@@ -224,6 +229,122 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     } catch (err) {
       vscode.window.showErrorMessage(
         `Hawk could not analyze captured interactions: ${errorMessage(err)}`,
+      );
+    }
+  }
+
+  async analyzeBehavioralSecurity(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    try {
+      const report = await this.client.behavioralSecurity(workspace);
+      const message =
+        `Hawk built ${report.summary.states} states, ${report.summary.invariants} invariants, ` +
+        `${report.summary.experiments} experiments, and ${report.summary.signals} behavioral signal` +
+        `${report.summary.signals === 1 ? '' : 's'}.`;
+      if (report.summary.signals > 0) vscode.window.showWarningMessage(message);
+      else vscode.window.showInformationMessage(message);
+      await this.refresh();
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Hawk could not build Behavioral Intelligence: ${errorMessage(err)}`,
+      );
+    }
+  }
+
+  async planBehavioralMission(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    const objective = await vscode.window.showInputBox({
+      title: 'Plan a Hawk behavioral security mission',
+      prompt:
+        'Describe the workflow, invariant, race, client-state, or accessibility outcome to validate.',
+      placeHolder: 'Validate that one checkout intent creates exactly one durable order',
+      validateInput: (value) => (value.trim() ? undefined : 'A concrete objective is required.'),
+      ignoreFocusOut: true,
+    });
+    if (!objective) return;
+    const mode = await vscode.window.showQuickPick(
+      [
+        {
+          label: 'Passive captured analysis',
+          description: 'zero generated requests',
+          mode: 'passive' as const,
+        },
+        {
+          label: 'Authorized active plan',
+          description: 'restricted hosts and bounded request budget; planning only',
+          mode: 'authorized-active' as const,
+        },
+      ],
+      {
+        title: 'Choose behavioral mission authority',
+        placeHolder: 'Active planning does not execute the experiment.',
+      },
+    );
+    if (!mode) return;
+    let allowedHosts: string[] = [];
+    if (mode.mode === 'authorized-active') {
+      const hosts = await vscode.window.showInputBox({
+        title: 'Declare exact authorized hosts',
+        prompt: 'Comma-separated hosts or HTTPS URLs. Paths are stripped from the plan.',
+        placeHolder: 'app.example.com, api.example.com',
+        validateInput: (value) =>
+          value
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean).length > 0
+            ? undefined
+            : 'At least one exact host is required.',
+        ignoreFocusOut: true,
+      });
+      if (!hosts) return;
+      allowedHosts = hosts
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+    try {
+      const plan = await this.client.createBehavioralExperimentPlan(workspace, {
+        objective,
+        mode: mode.mode,
+        allowedHosts,
+        maxConcurrency: mode.mode === 'authorized-active' ? 2 : 1,
+        maxRequests: mode.mode === 'authorized-active' ? 20 : 0,
+      });
+      await vscode.env.clipboard.writeText(JSON.stringify(plan, null, 2));
+      vscode.window.showInformationMessage(
+        `Hawk planned ${plan.experimentIds.length} behavioral experiments. Exact plan ${plan.approvalHash.slice(0, 16)}... copied; nothing was executed.`,
+      );
+      await this.refresh();
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Hawk could not plan the behavioral mission: ${errorMessage(err)}`,
+      );
+    }
+  }
+
+  async planSpecialistSwarm(): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    const objective = await vscode.window.showInputBox({
+      title: 'Plan the Hawk specialist swarm',
+      prompt:
+        'The plan scopes business logic, race, auth, frontend, API, debug, fix, and verification agents.',
+      placeHolder: 'Reproduce and fix the checkout duplicate-order race',
+      validateInput: (value) => (value.trim() ? undefined : 'A concrete objective is required.'),
+      ignoreFocusOut: true,
+    });
+    if (!objective) return;
+    try {
+      const plan = await this.client.planSpecialistSwarm(workspace, objective, 4);
+      await vscode.env.clipboard.writeText(JSON.stringify(plan, null, 2));
+      vscode.window.showInformationMessage(
+        `Hawk planned ${plan.nodes.length} specialist agents across ${plan.maxParallel} parallel slots. Plan copied; workers were not started.`,
+      );
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Hawk could not plan the specialist swarm: ${errorMessage(err)}`,
       );
     }
   }
@@ -793,6 +914,18 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
       await this.analyzeInteractionChaos();
       return;
     }
+    if (action === 'behavioral-lab') {
+      await this.analyzeBehavioralSecurity();
+      return;
+    }
+    if (action === 'behavioral-plan') {
+      await this.planBehavioralMission();
+      return;
+    }
+    if (action === 'specialist-swarm') {
+      await this.planSpecialistSwarm();
+      return;
+    }
     if (action === 'autopilot') {
       await this.runAutonomousSecurity();
       return;
@@ -989,17 +1122,19 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     const workspace = firstWorkspace();
     if (!workspace) return;
     try {
-      const [traffic, interactionChaos] = await Promise.all([
+      const [traffic, interactionChaos, behavioralSecurity] = await Promise.all([
         this.client.traffic(workspace),
         this.client.interactionChaos(workspace),
+        this.client.behavioralSecurity(workspace),
       ]);
       if (
         JSON.stringify(traffic) === JSON.stringify(this.lastState.traffic) &&
-        JSON.stringify(interactionChaos) === JSON.stringify(this.lastState.interactionChaos)
+        JSON.stringify(interactionChaos) === JSON.stringify(this.lastState.interactionChaos) &&
+        JSON.stringify(behavioralSecurity) === JSON.stringify(this.lastState.behavioralSecurity)
       ) {
         return;
       }
-      this.post({ ...this.lastState, traffic, interactionChaos });
+      this.post({ ...this.lastState, traffic, interactionChaos, behavioralSecurity });
     } catch {
       // A full refresh reports daemon failures. The fast live poll remains
       // silent so a transient restart cannot spam the operator.

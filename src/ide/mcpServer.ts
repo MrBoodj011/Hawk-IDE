@@ -6,10 +6,12 @@ import { z } from 'zod';
 import { AgentFleetRegistry } from './agentFleet.js';
 import { buildAttackTwin } from './attackTwin.js';
 import { AutonomousSecurityService } from './autonomousSecurity.js';
+import { analyzeBehavioralSecurity, createBehavioralExperimentPlan } from './behavioralSecurity.js';
 import { listDockerAgentProfiles, profileAgentInstances } from './dockerAgentProfiles.js';
 import { DockerDesktopController } from './dockerDesktop.js';
 import { DurableMcpTaskStore } from './durableMcpTaskStore.js';
 import { governancePolicyHash, loadGovernancePolicy } from './governancePolicy.js';
+import { evaluateHawkHook } from './governedHooks.js';
 import { importHawkHealthReport } from './hawkReport.js';
 import { listHawkIntegrations } from './integrationHub.js';
 import { analyzeInteractionChaos } from './interactionChaos.js';
@@ -41,6 +43,7 @@ import { GovernedSecurityToolRunner, type SecurityToolRunPlan } from './security
 import { SmartMcpBrain } from './smartBrain.js';
 import { createCoreCapabilityExecutor } from './smartExecutor.js';
 import { registerSmartMcp } from './smartMcp.js';
+import { planSpecialistSwarm } from './specialistSwarm.js';
 import { scanWorkspaceSecurity } from './staticAudit.js';
 
 const SERVER_NAME = 'hawk-ide';
@@ -495,6 +498,187 @@ async function main(): Promise<void> {
               minimumBurst: input.minimum_burst,
             },
           ),
+          null,
+          2,
+        ),
+      ),
+  );
+  mcp.registerTool(
+    'hawk_behavioral_lab_analyze',
+    {
+      title: 'Build the Hawk Behavioral Intelligence model',
+      description:
+        'Build a captured-and-static state machine, invariants, race plans, deterministic replays, accessibility and client-state scenarios, mutation plans, failure timeline, and project digital twin. This tool sends no target traffic.',
+      inputSchema: {
+        routes: z
+          .array(
+            z.object({
+              method: z.string().min(1).max(16),
+              path: z.string().min(1).max(2_000),
+              file: z.string().min(1).max(2_000),
+              line: z.number().int().min(1).max(10_000_000),
+              framework: z
+                .enum(['express', 'fastify', 'next-app', 'next-pages'])
+                .optional()
+                .default('express'),
+            }),
+          )
+          .max(2_000),
+        interactions: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(160),
+              kind: z.enum(['click', 'submit']),
+              url: z.string().url().max(4_096),
+              tab_id: z.number().int().optional(),
+              occurred_at: z.number().int().nonnegative().max(8_640_000_000_000_000),
+              trusted: z.boolean().optional().default(true),
+              detail: z.number().int().min(0).max(10).optional().default(1),
+              target: z.object({
+                fingerprint: z.string().min(1).max(240),
+                tag: z.string().min(1).max(32),
+                role: z.string().max(64).optional(),
+                input_type: z.string().max(32).optional(),
+                disabled: z.boolean().optional().default(false),
+              }),
+            }),
+          )
+          .max(2_000),
+        mutation_requests: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(160),
+              method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']),
+              url: z.string().url().max(4_096),
+              initiator: z.string().url().max(4_096).optional(),
+              tab_id: z.number().int().optional(),
+              status: z.number().int().min(100).max(599).optional(),
+              occurred_at: z.number().int().nonnegative().max(8_640_000_000_000_000),
+            }),
+          )
+          .max(2_000),
+        objective: z.string().min(1).max(1_000).optional(),
+        plan_mode: z.enum(['passive', 'authorized-active']).optional(),
+        allowed_hosts: z.array(z.string().max(2_000)).max(100).optional(),
+        max_concurrency: z.number().int().min(1).max(10).optional(),
+        max_requests: z.number().int().min(0).max(100).optional(),
+      },
+    },
+    async (input) => {
+      const interactions = input.interactions.map((event) => ({
+        id: event.id,
+        kind: event.kind,
+        url: event.url,
+        tabId: event.tab_id,
+        occurredAt: event.occurred_at,
+        receivedAt: event.occurred_at,
+        trusted: event.trusted,
+        detail: event.detail,
+        target: {
+          fingerprint: event.target.fingerprint,
+          tag: event.target.tag,
+          role: event.target.role,
+          inputType: event.target.input_type,
+          disabled: event.target.disabled,
+        },
+      }));
+      const capturedRequests = input.mutation_requests.map((request) => ({
+        id: request.id,
+        source: 'webRequest' as const,
+        method: request.method,
+        url: request.url,
+        initiator: request.initiator,
+        tabId: request.tab_id,
+        status: request.status,
+        timeStart: request.occurred_at,
+        receivedAt: request.occurred_at,
+      }));
+      const interactionChaos = analyzeInteractionChaos(interactions, capturedRequests);
+      const report = analyzeBehavioralSecurity({
+        inventory: {
+          protocolVersion: IDE_PROTOCOL_VERSION,
+          root: 'mcp://explicit-input',
+          indexedAt: new Date().toISOString(),
+          sourceFiles: new Set(input.routes.map((route) => route.file)).size,
+          routes: input.routes,
+        },
+        traffic: {
+          protocolVersion: IDE_PROTOCOL_VERSION,
+          importedAt: new Date().toISOString(),
+          source: 'live',
+          hosts: [...new Set(input.mutation_requests.map((request) => new URL(request.url).host))],
+          requests: input.mutation_requests.map((request) => ({
+            id: request.id,
+            method: request.method,
+            url: request.url,
+            host: new URL(request.url).host,
+            status: request.status,
+            startedAt: new Date(request.occurred_at).toISOString(),
+            source: 'browser',
+            initiator: request.initiator,
+          })),
+          truncated: false,
+          live: true,
+        },
+        interactions,
+        interactionChaos,
+      });
+      const plan = input.objective
+        ? createBehavioralExperimentPlan(report, {
+            objective: input.objective,
+            mode: input.plan_mode,
+            allowedHosts: input.allowed_hosts,
+            maxConcurrency: input.max_concurrency,
+            maxRequests: input.max_requests,
+          })
+        : undefined;
+      return textResult(JSON.stringify({ report, ...(plan ? { plan } : {}) }, null, 2));
+    },
+  );
+  mcp.registerTool(
+    'hawk_agent_hook_evaluate',
+    {
+      title: 'Evaluate a governed Hawk agent hook',
+      description:
+        'Evaluate deterministic lifecycle policy before or after a tool, on agent stop, or on failure. Raw arguments are hashed and not retained in the result.',
+      inputSchema: {
+        event: z.enum([
+          'sessionStart',
+          'sessionEnd',
+          'userPromptSubmitted',
+          'preToolUse',
+          'postToolUse',
+          'agentStop',
+          'subagentStop',
+          'errorOccurred',
+        ]),
+        tool: z.string().max(160).optional(),
+        arguments: z.record(z.unknown()).optional(),
+        approved: z.boolean().optional(),
+        outcome: z.enum(['success', 'failure']).optional(),
+        error: z.string().max(2_000).optional(),
+      },
+    },
+    async (input) => textResult(JSON.stringify(evaluateHawkHook(input), null, 2)),
+  );
+  mcp.registerTool(
+    'hawk_specialist_swarm_plan',
+    {
+      title: 'Plan the Hawk specialist agent swarm',
+      description:
+        'Plan eight scoped specialists for business logic, races, authorization, frontend reliability, API contracts, debugging, fixing, and independent verification. Planning starts no workers.',
+      inputSchema: {
+        objective: z.string().min(1).max(1_000),
+        max_parallel: z.number().int().min(1).max(8).optional(),
+      },
+    },
+    async (input) =>
+      textResult(
+        JSON.stringify(
+          planSpecialistSwarm({
+            objective: input.objective,
+            maxParallel: input.max_parallel,
+          }),
           null,
           2,
         ),

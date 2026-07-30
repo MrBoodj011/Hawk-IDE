@@ -57,6 +57,15 @@ The current local-first slice provides:
 21. Correlate opt-in structural click and submit events with sanitized mutation
     traffic to expose rapid-interaction races, duplicate side effects, retry
     storms, and inconsistent server outcomes without driving the target.
+22. Derive behavioral state machines, workflows, invariants, deterministic
+    replay bundles, bounded experiments, mutation tests, failure timelines, and
+    a stable project digital-twin fingerprint from static and captured evidence.
+23. Enforce deterministic lifecycle hooks around agent tools and plan an
+    eight-role specialist swarm whose independent verifier depends on analysis,
+    debugging, and fix evidence.
+24. Block PR security approval until the diff has reproduction, tests, semantic
+    review, independent review, and evidence provenance. Deterministic blockers
+    cannot be overridden by a narrative review.
 
 ## Runtime layout
 
@@ -77,6 +86,7 @@ Hawk IDE daemon
     +-- MCP Trust Platform
     +-- Authenticated multi-host fleet registry
     +-- Browser and Burp bridge
+    +-- Behavioral Intelligence and governed hook engine
 
 Hawk Smart MCP Brain
     +-- Intent and scope compiler
@@ -87,6 +97,7 @@ Hawk Smart MCP Brain
     +-- ProofGraph and evidence verifier
     +-- Governed memory and MCP Sentinel
     +-- MCP App, Tasks, resources, and prompts
+    +-- Behavioral Lab and specialist swarm planner
 ```
 
 The daemon binds only to a loopback host. Every endpoint requires a
@@ -113,6 +124,7 @@ navigate in both directions:
 ```text
 HTTP request -> route -> source code -> patch -> regression test
 static signal -> sandbox reproduction evidence -> required verification gates
+interaction -> behavioral state -> invariant -> signal -> replay -> fix mutation
 ```
 
 ## Extension and MCP boundary

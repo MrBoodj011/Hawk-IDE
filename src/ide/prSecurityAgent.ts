@@ -22,6 +22,27 @@ export interface PullRequestSecurityReport {
   statement: string;
 }
 
+export interface PullRequestEvidenceGateInput {
+  reproductionPassed: boolean;
+  testsPassed: boolean;
+  semanticReviewPassed: boolean;
+  independentReviewPassed: boolean;
+  evidenceUris: string[];
+}
+
+export interface PullRequestEvidenceReview {
+  schemaVersion: 1;
+  reviewedAt: string;
+  deterministicGate: PullRequestSecurityReport['gate'];
+  finalGate: 'pass' | 'review' | 'block';
+  passedGates: string[];
+  missingGates: string[];
+  evidenceUris: string[];
+  findings: number;
+  reviewHash: string;
+  statement: string;
+}
+
 const RULES: Array<{
   id: string;
   severity: PullRequestSecurityFinding['severity'];
@@ -183,6 +204,68 @@ export function pullRequestReportToSarif(
         })),
       },
     ],
+  };
+}
+
+export function reviewPullRequestEvidence(
+  report: PullRequestSecurityReport,
+  input: PullRequestEvidenceGateInput,
+  now: Date = new Date(),
+): PullRequestEvidenceReview {
+  const evidenceUris = [
+    ...new Set(
+      input.evidenceUris
+        .map((value) => value.trim())
+        .filter((value) => /^(?:hawk|file|https):\/\//.test(value))
+        .map((value) => value.slice(0, 2_000)),
+    ),
+  ].slice(0, 100);
+  const gates = [
+    ['reproduction', input.reproductionPassed],
+    ['tests', input.testsPassed],
+    ['semantic review', input.semanticReviewPassed],
+    ['independent review', input.independentReviewPassed],
+    ['evidence provenance', evidenceUris.length > 0],
+  ] as const;
+  const passedGates = gates.filter(([, passed]) => passed).map(([name]) => name);
+  const missingGates = gates.filter(([, passed]) => !passed).map(([name]) => name);
+  const finalGate: PullRequestEvidenceReview['finalGate'] =
+    report.gate === 'block'
+      ? 'block'
+      : report.findings.length === 0
+        ? input.testsPassed && input.semanticReviewPassed
+          ? 'pass'
+          : 'review'
+        : missingGates.length === 0
+          ? 'pass'
+          : 'review';
+  const reviewedAt = now.toISOString();
+  const reviewHash = createHash('sha256')
+    .update(
+      JSON.stringify({
+        deterministicGate: report.gate,
+        findingIds: report.findings.map((finding) => finding.id).sort(),
+        passedGates,
+        missingGates,
+        evidenceUris,
+        reviewedAt,
+      }),
+    )
+    .digest('hex');
+  return {
+    schemaVersion: 1,
+    reviewedAt,
+    deterministicGate: report.gate,
+    finalGate,
+    passedGates,
+    missingGates,
+    evidenceUris,
+    findings: report.findings.length,
+    reviewHash,
+    statement:
+      finalGate === 'pass'
+        ? 'Hawk evidence gates passed. A human reviewer still controls merge.'
+        : 'Hawk did not promote this PR review to pass because required evidence gates are missing or a deterministic blocking signal remains.',
   };
 }
 

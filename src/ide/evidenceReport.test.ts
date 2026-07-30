@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { analyzeBehavioralSecurity } from './behavioralSecurity.js';
 import { buildEvidencePack } from './evidenceReport.js';
 import { analyzeInteractionChaos } from './interactionChaos.js';
 import type { TrafficInventory } from './protocol.js';
@@ -40,21 +41,22 @@ describe('evidence report builder', () => {
     await expect(buildEvidencePack({ workspaceRoot: root, approved: false })).rejects.toThrow(
       'approval',
     );
+    const capturedInteractions = [0, 100, 180].map((offset, index) => ({
+      id: `interaction-${index}`,
+      kind: 'submit' as const,
+      url: 'https://example.test/users/42',
+      occurredAt: 1_768_734_000_000 + offset,
+      receivedAt: 1_768_734_000_000 + offset,
+      trusted: true,
+      tabId: 5,
+      target: {
+        fingerprint: 'form > button[type="submit"]',
+        tag: 'button',
+        inputType: 'submit',
+      },
+    }));
     const interactionChaos = analyzeInteractionChaos(
-      [0, 100, 180].map((offset, index) => ({
-        id: `interaction-${index}`,
-        kind: 'submit' as const,
-        url: 'https://example.test/users/42',
-        occurredAt: 1_768_734_000_000 + offset,
-        receivedAt: 1_768_734_000_000 + offset,
-        trusted: true,
-        tabId: 5,
-        target: {
-          fingerprint: 'form > button[type="submit"]',
-          tag: 'button',
-          inputType: 'submit',
-        },
-      })),
+      capturedInteractions,
       [0, 120].map((offset, index) => ({
         id: `mutation-${index}`,
         kind: 'fetch' as const,
@@ -71,11 +73,33 @@ describe('evidence report builder', () => {
       })),
       { now: new Date('2026-01-18T10:00:01.000Z') },
     );
+    const behavioralSecurity = analyzeBehavioralSecurity({
+      inventory: {
+        protocolVersion: 13,
+        root,
+        indexedAt: '2026-07-18T10:00:00.000Z',
+        sourceFiles: 1,
+        routes: [
+          {
+            method: 'GET',
+            path: '/users/:id',
+            file: 'server.ts',
+            line: 1,
+            framework: 'express',
+          },
+        ],
+      },
+      traffic,
+      interactions: capturedInteractions,
+      interactionChaos,
+      now: new Date('2026-07-18T10:01:00.000Z'),
+    });
     const report = await buildEvidencePack({
       workspaceRoot: root,
       approved: true,
       traffic,
       interactionChaos,
+      behavioralSecurity,
       now: new Date('2026-07-18T10:01:00.000Z'),
     });
     expect(report).toMatchObject({
@@ -84,6 +108,7 @@ describe('evidence report builder', () => {
       trafficRequests: 1,
       findings: 1,
       interactionSignals: 1,
+      behavioralSignals: expect.any(Number),
       chainVersion: 1,
       chainRootSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       artifacts: expect.arrayContaining([
@@ -103,6 +128,7 @@ describe('evidence report builder', () => {
     expect(markdown).toContain('GET /users/:id');
     expect(markdown).toContain('%5BREDACTED%5D');
     expect(markdown).toContain('hawk.ui.rapid-submit');
+    expect(markdown).toContain('Behavioral Intelligence');
     expect(markdown).not.toContain(root);
     const sarifPath = report.artifacts.find((artifact) => artifact.format === 'sarif')?.path;
     expect(sarifPath).toBeTruthy();
@@ -114,6 +140,7 @@ describe('evidence report builder', () => {
           results: expect.arrayContaining([
             expect.objectContaining({ ruleId: 'dynamic-code-execution' }),
             expect.objectContaining({ ruleId: 'hawk.ui.rapid-submit' }),
+            expect.objectContaining({ ruleId: expect.stringMatching(/^hawk\.behavior\./) }),
           ]),
         },
       ],

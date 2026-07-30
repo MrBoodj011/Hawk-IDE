@@ -39,7 +39,7 @@ describe('startIdeDaemon', () => {
       expect(health.headers.get('cache-control')).toBe('no-store');
       expect(health.headers.get('x-content-type-options')).toBe('nosniff');
       expect(health.headers.get('x-hawk-trace-id')).toMatch(/^trace-/);
-      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 13 });
+      expect(await health.json()).toMatchObject({ ok: true, protocolVersion: 14 });
 
       const metrics = await fetch(`${daemon.url}/v1/diagnostics/metrics`, { headers });
       expect(metrics.status).toBe(200);
@@ -330,6 +330,82 @@ describe('startIdeDaemon', () => {
           }),
         ],
       });
+      const behavioralLab = await fetch(`${daemon.url}/v1/security/behavioral-lab`, {
+        headers,
+      });
+      expect(behavioralLab.status).toBe(200);
+      await expect(behavioralLab.json()).resolves.toMatchObject({
+        mode: 'captured-and-static',
+        summary: {
+          capabilities: 12,
+          states: expect.any(Number),
+          invariants: expect.any(Number),
+          experiments: expect.any(Number),
+          signals: expect.any(Number),
+        },
+        digitalTwin: {
+          learningFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      });
+      const behavioralPlan = await fetch(`${daemon.url}/v1/security/behavioral/experiment-plan`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          objective: 'Validate one checkout intent creates one durable order',
+          mode: 'passive',
+          maxRequests: 0,
+        }),
+      });
+      expect(behavioralPlan.status).toBe(201);
+      await expect(behavioralPlan.json()).resolves.toMatchObject({
+        mode: 'passive',
+        maxRequests: 0,
+        requiresApproval: true,
+        approvalHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const rejectedActivePlan = await fetch(
+        `${daemon.url}/v1/security/behavioral/experiment-plan`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            objective: 'Actively probe checkout',
+            mode: 'authorized-active',
+          }),
+        },
+      );
+      expect(rejectedActivePlan.status).toBe(400);
+      const hook = await fetch(`${daemon.url}/v1/security/hooks/evaluate`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'preToolUse',
+          tool: 'terminal',
+          arguments: { command: 'git reset --hard' },
+        }),
+      });
+      expect(hook.status).toBe(200);
+      await expect(hook.json()).resolves.toMatchObject({
+        decision: 'deny',
+        audit: { inputSha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
+      });
+      const specialistSwarm = await fetch(`${daemon.url}/v1/security/specialist-swarm/plan`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          objective: 'Review and verify the checkout race',
+          maxParallel: 4,
+        }),
+      });
+      expect(specialistSwarm.status).toBe(201);
+      await expect(specialistSwarm.json()).resolves.toMatchObject({
+        maxParallel: 4,
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ role: 'business-logic' }),
+          expect.objectContaining({ role: 'independent-verifier' }),
+        ]),
+        planHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
       const capturedRequestId = liveTrafficBody.requests.find(
         (request) => request.source === 'burp',
       )?.id;
@@ -502,6 +578,7 @@ describe('startIdeDaemon', () => {
       await expect(evidence.json()).resolves.toMatchObject({
         status: 'completed',
         interactionSignals: 1,
+        behavioralSignals: expect.any(Number),
         primaryReportPath: expect.stringMatching(/^\.hawk\/reports\/evidence-.+\/report\.md$/),
         artifacts: expect.arrayContaining([
           expect.objectContaining({
@@ -513,7 +590,7 @@ describe('startIdeDaemon', () => {
       const securityGraph = await fetch(`${daemon.url}/v1/security/graph`, { headers });
       expect(securityGraph.status).toBe(200);
       await expect(securityGraph.json()).resolves.toMatchObject({
-        protocolVersion: 13,
+        protocolVersion: 14,
         summary: {
           routes: 1,
           requests: expect.any(Number),
@@ -528,15 +605,20 @@ describe('startIdeDaemon', () => {
             kind: 'finding',
             attributes: expect.objectContaining({ provenance: 'hawk-interaction-chaos' }),
           }),
+          expect.objectContaining({
+            kind: 'finding',
+            attributes: expect.objectContaining({ provenance: 'hawk-behavioral-intelligence' }),
+          }),
         ]),
         edges: expect.arrayContaining([
           expect.objectContaining({ relation: 'supports-race-signal' }),
+          expect.objectContaining({ relation: 'behavioral-transition' }),
         ]),
       });
       const protocols = await fetch(`${daemon.url}/v1/security/protocols`, { headers });
       expect(protocols.status).toBe(200);
       await expect(protocols.json()).resolves.toMatchObject({
-        protocolVersion: 13,
+        protocolVersion: 14,
         summary: { total: expect.any(Number) },
       });
       const attackTwin = await fetch(`${daemon.url}/v1/security/attack-twin`, { headers });

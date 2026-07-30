@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import type { AgentEvent } from '../agent/events.js';
 import type { Decision, Prompter, Request } from '../permission/permission.js';
 import { type Tool, argString } from '../tools/types.js';
+import { evaluateHawkHook } from './governedHooks.js';
 
 /**
  * Permission and filesystem boundary shared by every isolated AI worker tool.
@@ -117,6 +118,28 @@ export class WorkspaceBoundTool implements Tool {
     signal: AbortSignal,
     prompter: Prompter,
   ): Promise<string> {
+    const preHook = evaluateHawkHook({
+      event: 'preToolUse',
+      tool: this.inner.name(),
+      arguments: args,
+    });
+    if (preHook.decision === 'deny') {
+      throw new Error(`tool blocked by Hawk hook policy: ${preHook.matchedRules.join(', ')}`);
+    }
+    if (preHook.decision === 'require-approval') {
+      const decision = await prompter.ask(
+        {
+          tool: `hawk-hook:${this.inner.name()}`,
+          summary: `Hawk hook approval: ${this.inner.name()}`,
+          detail: preHook.requiredGates.join(', '),
+          noSessionCache: true,
+        },
+        signal,
+      );
+      if (decision === 'deny') {
+        throw new Error(`tool denied by Hawk hook policy: ${preHook.matchedRules.join(', ')}`);
+      }
+    }
     const rawPath = typeof args.path === 'string' && args.path.trim() ? args.path : '.';
     const lexical = resolve(rawPath);
     if (!isInsideWorkspace(this.root, lexical)) {
@@ -136,7 +159,14 @@ export class WorkspaceBoundTool implements Tool {
     if (typeof globPattern === 'string' && unsafeWorkspaceGlob(globPattern)) {
       throw new Error('glob patterns may not escape the isolated Hawk worktree');
     }
-    return await this.inner.run(args, signal, prompter);
+    const result = await this.inner.run(args, signal, prompter);
+    evaluateHawkHook({
+      event: 'postToolUse',
+      tool: this.inner.name(),
+      arguments: args,
+      outcome: 'success',
+    });
+    return result;
   }
 }
 

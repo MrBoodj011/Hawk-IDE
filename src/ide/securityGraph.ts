@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AiSessionSummary } from './aiProtocol.js';
+import type { BehavioralSecurityReport } from './behavioralSecurity.js';
 import type { InteractionChaosReport } from './interactionChaos.js';
 import type { ProofEdgeInput, ProofGraph, ProofNodeInput } from './proofGraph.js';
 import {
@@ -46,6 +47,7 @@ export interface SecurityGraphBuildInput {
   protocols?: ProtocolSurfaceInventory;
   deliveries?: SecurityGraphDelivery[];
   interactionChaos?: InteractionChaosReport;
+  behavioralSecurity?: BehavioralSecurityReport;
 }
 
 export interface SecurityGraphDelivery {
@@ -382,6 +384,95 @@ export async function buildUnifiedSecurityGraph(
         },
       });
     }
+  }
+
+  const behavioral = input.behavioralSecurity;
+  for (const state of behavioral?.states.slice(0, 500) ?? []) {
+    addNode({
+      id: state.id,
+      kind: 'protocol',
+      label: state.label,
+      attributes: {
+        behavioralKind: state.kind,
+        pageUrl: state.pageUrl,
+        observations: state.observations,
+        provenance: 'hawk-behavioral-state-machine',
+      },
+    });
+  }
+  for (const transition of behavioral?.transitions.slice(0, 1_000) ?? []) {
+    addEdge({
+      from: transition.from,
+      to: transition.to,
+      relation: 'behavioral-transition',
+      attributes: {
+        action: transition.action,
+        occurrences: transition.occurrences,
+        provenance: 'hawk-behavioral-state-machine',
+      },
+    });
+  }
+  for (const invariant of behavioral?.invariants.slice(0, 250) ?? []) {
+    addNode({
+      id: invariant.id,
+      kind: 'evidence',
+      label: invariant.title,
+      attributes: {
+        invariantExpression: invariant.expression,
+        category: invariant.category,
+        status: invariant.status,
+        provenance: 'hawk-invariant-engine',
+      },
+    });
+  }
+  for (const signal of behavioral?.signals.slice(0, 500) ?? []) {
+    addNode({
+      id: signal.id,
+      kind: 'finding',
+      label: signal.title,
+      attributes: {
+        findingId: signal.id,
+        ruleId: signal.ruleId,
+        severity: signal.severity,
+        status: 'signal',
+        confidence: signal.confidence,
+        provenance: 'hawk-behavioral-intelligence',
+      },
+    });
+    for (const invariantId of signal.invariantIds.slice(0, 50)) {
+      if (!behavioral?.invariants.some((invariant) => invariant.id === invariantId)) continue;
+      addEdge({
+        from: invariantId,
+        to: signal.id,
+        relation: 'constrains-signal',
+        attributes: {
+          confidence: 0.8,
+          provenance: 'hawk-invariant-engine',
+          verified: false,
+        },
+      });
+    }
+  }
+  for (const boundary of behavioral?.digitalTwin.trustBoundaries.slice(0, 100) ?? []) {
+    addNode({
+      id: boundary.id,
+      kind: 'trust-boundary',
+      label: boundary.label,
+      attributes: {
+        evidence: boundary.evidence.join('; ').slice(0, 2_000),
+        provenance: 'hawk-project-digital-twin',
+      },
+    });
+    addEdge({
+      from: repositoryId,
+      to: boundary.id,
+      relation: 'crosses',
+      attributes: {
+        confidence: 0.7,
+        provenance: 'hawk-project-digital-twin',
+        verified: false,
+      },
+    });
   }
 
   for (const pack of input.evidencePacks?.slice(-20) ?? []) {

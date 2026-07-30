@@ -5,7 +5,7 @@
  * this module instead of coupling UI code to the agent runtime.
  */
 
-export const IDE_PROTOCOL_VERSION = 13;
+export const IDE_PROTOCOL_VERSION = 14;
 
 export type RouteFramework = 'express' | 'fastify' | 'next-app' | 'next-pages';
 
@@ -270,6 +270,7 @@ export interface EvidencePackReport {
   trafficRequests: number;
   findings: number;
   interactionSignals: number;
+  behavioralSignals: number;
   artifacts: EvidencePackArtifact[];
   chainVersion?: 1;
   chainRootSha256?: string;

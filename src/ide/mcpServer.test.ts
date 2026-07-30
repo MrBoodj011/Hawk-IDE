@@ -50,6 +50,9 @@ describe('Hawk Smart MCP server', () => {
       expect(names).toContain('hawk_reproduction_execute');
       expect(names).toContain('hawk_reproductions_list');
       expect(names).toContain('hawk_interaction_chaos_analyze');
+      expect(names).toContain('hawk_behavioral_lab_analyze');
+      expect(names).toContain('hawk_agent_hook_evaluate');
+      expect(names).toContain('hawk_specialist_swarm_plan');
       expect(
         tools.tools.find((tool) => tool.name === 'hawk_capabilities_search')?.outputSchema,
       ).toBeDefined();
@@ -96,6 +99,82 @@ describe('Hawk Smart MCP server', () => {
       });
       expect(interactionChaos.isError).not.toBe(true);
       expect(JSON.stringify(interactionChaos.content)).toContain('hawk.ui.rapid-submit');
+
+      const behavioral = await client.callTool({
+        name: 'hawk_behavioral_lab_analyze',
+        arguments: {
+          routes: [
+            {
+              method: 'POST',
+              path: '/api/orders',
+              file: 'src/orders.ts',
+              line: 10,
+              framework: 'express',
+            },
+          ],
+          interactions: [0, 80, 160].map((offset, index) => ({
+            id: `behavior-click-${index}`,
+            kind: 'click',
+            url: 'https://app.example.test/orders',
+            tab_id: 5,
+            occurred_at: 1_800_000_000_000 + offset,
+            target: {
+              fingerprint: 'html > body > button:nth-of-type(2)',
+              tag: 'button',
+              input_type: 'submit',
+            },
+          })),
+          mutation_requests: [100, 180].map((offset, index) => ({
+            id: `behavior-request-${index}`,
+            method: 'POST',
+            url: 'https://app.example.test/api/orders',
+            tab_id: 5,
+            occurred_at: 1_800_000_000_000 + offset,
+            status: index === 0 ? 201 : 500,
+          })),
+          objective: 'Validate one order per checkout intent',
+          plan_mode: 'passive',
+          max_requests: 0,
+        },
+      });
+      expect(behavioral.isError).not.toBe(true);
+      const behavioralText = behavioral.content
+        .filter((item): item is { type: 'text'; text: string } => item.type === 'text')
+        .map((item) => item.text)
+        .join('\n');
+      expect(behavioralText).toContain('"capabilities": 12');
+      expect(behavioralText).toContain('"approvalHash"');
+
+      const hook = await client.callTool({
+        name: 'hawk_agent_hook_evaluate',
+        arguments: {
+          event: 'preToolUse',
+          tool: 'terminal',
+          arguments: { command: 'git reset --hard' },
+        },
+      });
+      expect(hook.isError).not.toBe(true);
+      expect(
+        hook.content
+          .filter((item): item is { type: 'text'; text: string } => item.type === 'text')
+          .map((item) => item.text)
+          .join('\n'),
+      ).toContain('"decision": "deny"');
+
+      const swarm = await client.callTool({
+        name: 'hawk_specialist_swarm_plan',
+        arguments: {
+          objective: 'Reproduce, fix, and independently verify the checkout race',
+          max_parallel: 4,
+        },
+      });
+      expect(swarm.isError).not.toBe(true);
+      expect(
+        swarm.content
+          .filter((item): item is { type: 'text'; text: string } => item.type === 'text')
+          .map((item) => item.text)
+          .join('\n'),
+      ).toContain('"role": "independent-verifier"');
 
       const planned = await client.callTool({
         name: 'hawk_plan_create',

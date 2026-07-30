@@ -168,6 +168,9 @@ for:
 - `hawk_memory`
 - `hawk_mcp_security_audit`
 - `hawk_interaction_chaos_analyze`
+- `hawk_behavioral_lab_analyze`
+- `hawk_agent_hook_evaluate`
+- `hawk_specialist_swarm_plan`
 - `hawk_patch_tournament`
 - `hawk_eval_lab`
 - `hawk_a2a_bridge`
@@ -177,6 +180,19 @@ for:
 explicit sanitized interaction and request records, correlates rapid UI bursts
 with duplicate mutation traffic, and never drives a browser or sends network
 traffic.
+
+`hawk_behavioral_lab_analyze` accepts explicit routes, structural interaction
+metadata, and sanitized mutation records. It returns the 12-capability
+Behavioral Intelligence model and can optionally produce a passive or
+restricted exact-hash experiment plan. It never executes that plan.
+
+`hawk_agent_hook_evaluate` returns a deterministic allow, deny,
+require-approval, or allow-with-gates decision. Its audit record contains
+argument hashes, not raw arguments.
+
+`hawk_specialist_swarm_plan` creates the dependency graph for business-logic,
+race, authorization, frontend, API-contract, debug, fix, and independent
+verification roles. It starts no Docker workers and grants no new authority.
 
 Resources:
 

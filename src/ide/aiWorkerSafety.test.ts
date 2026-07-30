@@ -77,6 +77,27 @@ describe('isolated AI worker safety boundary', () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it('enforces governed pre-tool hooks for sensitive workspace paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hawk-worker-hook-'));
+    roots.push(root);
+    const secret = join(root, '.env');
+    await writeFile(secret, 'TOKEN=secret');
+    const run = vi.fn(async () => 'should not run');
+    const inner: Tool = {
+      name: () => 'file_read',
+      description: () => 'read',
+      schema: () => ({}),
+      requiresPermission: () => false,
+      run,
+    };
+    const tool = new WorkspaceBoundTool(root, inner);
+
+    await expect(
+      tool.run({ path: secret }, new AbortController().signal, new WorkspacePrompter(root)),
+    ).rejects.toThrow(/hook policy/);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('deletes files but refuses directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'hawk-worker-delete-'));
     roots.push(root);

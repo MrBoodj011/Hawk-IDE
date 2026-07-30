@@ -9,6 +9,31 @@ export interface McpToolGovernance {
 
 const TOOLS: readonly McpToolGovernance[] = [
   {
+    name: 'hawk_behavioral_lab_analyze',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'captured-only',
+    description:
+      'Build state machines, invariants, replay bundles, chaos scenarios, mutation plans, timelines, and the project digital twin.',
+  },
+  {
+    name: 'hawk_agent_hook_evaluate',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'none',
+    description: 'Evaluate deterministic pre/post tool and agent lifecycle policies.',
+  },
+  {
+    name: 'hawk_specialist_swarm_plan',
+    risk: 'low',
+    requiresApproval: false,
+    mutatesState: false,
+    network: 'none',
+    description: 'Plan eight scoped specialist agents without starting workers.',
+  },
+  {
     name: 'hawk_interaction_chaos_analyze',
     risk: 'low',
     requiresApproval: false,
