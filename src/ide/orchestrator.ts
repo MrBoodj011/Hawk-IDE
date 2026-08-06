@@ -851,6 +851,11 @@ export class DockerWorkerRuntime implements WorkerRuntime {
       }
       await this.ensureRestrictedEgress(context);
     }
+    // Workers intentionally run as the unprivileged uid/gid 65532. On Linux,
+    // the host-created artifact directory otherwise belongs to the runner and
+    // is not writable from the bind mount. Grant write/traverse only for the
+    // lifetime of the worker, then restore the private host-side mode below.
+    await chmod(context.outputDirectory, 0o733);
     const workerNetwork = restricted ? egressNetworkNameFor(context.runId) : 'none';
     const args = [
       'run',
@@ -958,14 +963,18 @@ export class DockerWorkerRuntime implements WorkerRuntime {
         });
       };
       child.once('error', (err) => {
-        finish({
-          exitCode: -1,
-          output: '',
-          outputTruncated,
-          timedOut,
-          cancelled: false,
-          error: errorMessage(err),
-        });
+        void chmod(context.outputDirectory, 0o700)
+          .catch(() => undefined)
+          .then(() =>
+            finish({
+              exitCode: -1,
+              output: '',
+              outputTruncated,
+              timedOut,
+              cancelled: false,
+              error: errorMessage(err),
+            }),
+          );
       });
       child.once('close', (code) => {
         void assertNoSymlinkPath(context.outputDirectory, context.workspaceRoot)
@@ -974,6 +983,7 @@ export class DockerWorkerRuntime implements WorkerRuntime {
           .catch((error) => `Hawk rejected worker artifacts: ${errorMessage(error)}`)
           .then(async (artifactError) => {
             await this.removeContainer(containerName);
+            await chmod(context.outputDirectory, 0o700).catch(() => undefined);
             finish({
               exitCode: artifactError ? -1 : (code ?? -1),
               output: '',

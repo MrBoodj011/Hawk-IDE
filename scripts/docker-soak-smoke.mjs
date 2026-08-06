@@ -37,7 +37,18 @@ try {
     })),
   });
   const completed = await waitForTerminal(orchestrator, run.id, 90_000);
-  assert.equal(completed.status, 'succeeded');
+  const diagnostics = JSON.stringify(
+    completed.tasks.map(({ id, status, exitCode, error, output }) => ({
+      id,
+      status,
+      exitCode,
+      error,
+      output,
+    })),
+    null,
+    2,
+  );
+  assert.equal(completed.status, 'succeeded', diagnostics);
   assert.equal(completed.summary.succeeded, 8);
   for (const task of completed.tasks) {
     assert.equal(task.status, 'succeeded', `${task.id} did not succeed`);
