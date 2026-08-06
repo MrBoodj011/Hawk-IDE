@@ -523,6 +523,31 @@ export function registerSmartMcp(
     async ({ run_id }) => structured(await missionControlState(brain, run_id)),
   );
 
+  mcp.registerTool(
+    'hawk_proof_mission_status',
+    {
+      title: 'Inspect Hawk one-click proof missions',
+      description:
+        'Read durable one-click mission stages and the strict proof contract. This never promotes a finding or bypasses an approval gate.',
+      inputSchema: { mission_id: z.string().max(160).optional() },
+      outputSchema: structuredOutput,
+      annotations: passiveAnnotations,
+    },
+    async ({ mission_id }) => {
+      if (mission_id) {
+        const run = await brain.store.readJson('one-click-missions', mission_id);
+        if (!run) return toolError(`Unknown one-click mission: ${mission_id}`);
+        return structured(run);
+      }
+      const runs = await brain.store.listJson<{ startedAt: string }>('one-click-missions');
+      return structured({
+        runs: runs
+          .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+          .slice(0, 20),
+      });
+    },
+  );
+
   registerTaskTool(mcp, brain);
   registerResources(mcp, brain);
   registerPrompts(mcp);
@@ -940,6 +965,7 @@ async function contextSnapshot(workspaceRoot: string, brain: SmartMcpBrain) {
 async function missionControlState(brain: SmartMcpBrain, runId?: string) {
   const graph = await brain.graph.snapshot();
   const runs = brain.runs.list();
+  const proofMissions = await brain.store.listJson<{ startedAt: string }>('one-click-missions');
   return {
     generatedAt: new Date().toISOString(),
     capabilities: brain.capabilities.list().filter((capability) => capability.enabled).length,
@@ -947,6 +973,9 @@ async function missionControlState(brain: SmartMcpBrain, runId?: string) {
     runs,
     graph: { nodes: graph.nodes.length, edges: graph.edges.length, updatedAt: graph.updatedAt },
     events: runId ? await brain.runs.events(runId, 100).catch(() => []) : [],
+    proofMissions: proofMissions
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, 20),
   };
 }
 

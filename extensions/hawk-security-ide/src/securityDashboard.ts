@@ -15,6 +15,7 @@ import type {
   HawkHealthReport,
   InteractionChaosReport,
   McpTrustPosture,
+  OneClickMissionRun,
   ProtocolSurfaceInventory,
   SandboxReproductionResult,
   SecurityFinding,
@@ -40,6 +41,7 @@ interface DashboardState {
   mcpTrust?: McpTrustPosture;
   memory?: GovernedMemoryPosture;
   autopilotRuns: AutonomousSecurityRun[];
+  oneClickMissionRuns: OneClickMissionRun[];
   reproductions: SandboxReproductionResult[];
 }
 
@@ -52,6 +54,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     findings: [],
     reproductions: [],
     autopilotRuns: [],
+    oneClickMissionRuns: [],
   };
   private liveRefresh: NodeJS.Timeout | undefined;
 
@@ -117,6 +120,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         findings: [],
         reproductions: [],
         autopilotRuns: [],
+        oneClickMissionRuns: [],
       });
       return;
     }
@@ -137,6 +141,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         mcpTrust,
         memory,
         autopilot,
+        oneClickMissions,
       ] = await Promise.all([
         this.client.inventory(workspace),
         this.client.findings(workspace),
@@ -152,6 +157,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         this.client.mcpTrustPosture(workspace),
         this.client.memoryPosture(workspace),
         this.client.autonomousSecurityRuns(workspace),
+        this.client.oneClickMissionRuns(workspace),
       ]);
       this.post({
         connected: true,
@@ -172,6 +178,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         memory,
         reproductions: reproductions.reproductions,
         autopilotRuns: autopilot.runs,
+        oneClickMissionRuns: oneClickMissions.runs,
       });
     } catch (err) {
       this.post({
@@ -180,6 +187,7 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
         findings: [],
         reproductions: [],
         autopilotRuns: [],
+        oneClickMissionRuns: [],
       });
     }
   }
@@ -383,6 +391,58 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
       await this.refresh();
     } catch (err) {
       vscode.window.showErrorMessage(`Hawk Autopilot failed: ${errorMessage(err)}`);
+      await this.refresh();
+    }
+  }
+
+  async runOneClickProofMission(initialObjective?: string): Promise<void> {
+    const workspace = requireWorkspace();
+    if (!workspace) return;
+    const objective = await vscode.window.showInputBox({
+      title: 'Launch a Hawk one-click proof mission',
+      prompt:
+        'Hawk will index, audit, correlate, build an Attack Twin and export redacted evidence. Active reproduction and code changes stay approval-gated.',
+      value: initialObjective?.trim() ?? '',
+      placeHolder: 'Prove the authentication risk and prepare a verified remediation path',
+      validateInput: (value) => (value.trim() ? undefined : 'A concrete objective is required.'),
+      ignoreFocusOut: true,
+    });
+    if (!objective) return;
+    const approval = await vscode.window.showWarningMessage(
+      'Start this local one-click proof mission?',
+      {
+        modal: true,
+        detail: [
+          'Automatic: workspace index, protocol map, static audit, Attack Twin, ProofGraph correlation and redacted evidence pack.',
+          'Approval-gated: sandbox reproduction, fix generation, regression tests, semantic review and Apply.',
+          'Every stage and artifact digest is persisted for restart recovery.',
+        ].join('\n'),
+      },
+      'Launch proof mission',
+    );
+    if (approval !== 'Launch proof mission') return;
+    try {
+      const run = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Hawk is running the proof mission',
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: 'Mapping source, protocols, findings and evidence...' });
+          return await this.client.runOneClickMission(workspace, objective, 'review');
+        },
+      );
+      await this.openScanReport(workspace, run.reportPath);
+      const message =
+        run.status === 'awaiting-approval'
+          ? `Hawk preserved ${run.summary.findings} signal${run.summary.findings === 1 ? '' : 's'} and stopped at the reproduction gate. Proof: ${run.proof.passed}/${run.proof.total}.`
+          : `Hawk completed the mission with no signals requiring active proof. ${run.summary.evidenceArtifacts} evidence artifacts were built.`;
+      if (run.status === 'awaiting-approval') vscode.window.showWarningMessage(message);
+      else vscode.window.showInformationMessage(message);
+      await this.refresh();
+    } catch (err) {
+      vscode.window.showErrorMessage(`Hawk proof mission failed: ${errorMessage(err)}`);
       await this.refresh();
     }
   }
@@ -928,6 +988,11 @@ export class SecurityDashboardProvider implements vscode.WebviewViewProvider {
     }
     if (action === 'autopilot') {
       await this.runAutonomousSecurity();
+      return;
+    }
+    if (action === 'one-click-mission') {
+      const objective = (message as Record<string, unknown>).prompt;
+      await this.runOneClickProofMission(typeof objective === 'string' ? objective : undefined);
       return;
     }
     if (action === 'import-har') {

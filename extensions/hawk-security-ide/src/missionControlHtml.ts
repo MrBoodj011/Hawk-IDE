@@ -1021,7 +1021,8 @@ export function renderMissionControlHtml(
             </p>
             <div class="hero-actions">
               <button class="button primary" data-action="open-agent">Open Hawk AI <span>↗</span></button>
-              <button class="button primary" data-action="autopilot">Run Autopilot</button>
+              <button class="button primary" data-action="one-click-mission">Launch Proof Mission</button>
+              <button class="button secondary" data-action="autopilot">Run passive Autopilot</button>
               <button class="button secondary" data-action="workspace-scan">Run approved scan</button>
               <button class="button ghost" data-action="index">Refresh surface</button>
             </div>
@@ -1049,7 +1050,7 @@ export function renderMissionControlHtml(
               <div><b id="focus-proof-count">0</b><span>reproduced</span></div>
               <div><b>0</b><span>silent actions</span></div>
             </div>
-            <button class="focus-action" data-action="autopilot"><span>Start evidence run</span><b>CTRL + ENTER</b></button>
+            <button class="focus-action" data-action="one-click-mission"><span>Start one-click proof run</span><b>CTRL + ENTER</b></button>
           </aside>
         </section>
 
@@ -1313,7 +1314,8 @@ export function renderMissionControlHtml(
               <div class="card-head"><div class="card-title">Runtime trust posture <span>live local control plane</span></div><div class="status-pill">fail closed</div></div>
               <div class="card-body">
                 <div class="list">
-                  <div class="list-row"><span class="row-icon">AUTO</span><span><b class="row-title">Autopilot missions</b><small class="row-sub">Passive stages stop at reproduction gates</small></span><span id="autopilot-runs" class="row-tail">0 runs</span></div>
+                  <div class="list-row"><span class="row-icon">PROOF</span><span><b class="row-title">One-click proof missions</b><small class="row-sub" id="proof-mission-stage">No mission launched</small></span><span id="proof-mission-runs" class="row-tail">0 runs</span></div>
+                  <div class="list-row"><span class="row-icon">AUTO</span><span><b class="row-title">Passive Autopilot</b><small class="row-sub">Discovery stops at reproduction gates</small></span><span id="autopilot-runs" class="row-tail">0 runs</span></div>
                   <div class="list-row"><span class="row-icon">MCP</span><span><b class="row-title">Artifact trust verdicts</b><small class="row-sub">SHA-256, Ed25519 and publisher pinning</small></span><span id="mcp-verdicts" class="row-tail">0 checked</span></div>
                   <div class="list-row"><span class="row-icon">MEM</span><span><b class="row-title">Provenance refresh</b><small class="row-sub">Changed citations leave retrieval immediately</small></span><span id="memory-stale" class="row-tail">0 stale</span></div>
                 </div>
@@ -1339,7 +1341,8 @@ export function renderMissionControlHtml(
       </div>
       <div id="command-list" class="command-list">
         ${commandItem('AI', 'Open Hawk AI', 'Start a workspace-aware coding or security task.', 'open-agent', 'Enter')}
-        ${commandItem('AP', 'Run Autopilot', 'Correlate source, traffic, findings and proof.', 'autopilot')}
+        ${commandItem('PM', 'Launch Proof Mission', 'One click from workspace mapping to approval-gated proof.', 'one-click-mission', 'Enter')}
+        ${commandItem('AP', 'Run passive Autopilot', 'Correlate source, traffic, findings and proof.', 'autopilot')}
         ${commandItem('IC', 'Analyze interaction chaos', 'Find rapid clicks, double-submit and duplicate mutation races from captured evidence.', 'interaction-chaos')}
         ${commandItem('BI', 'Analyze Behavioral Intelligence', 'Build state machines, invariants, replay bundles and failure timelines.', 'behavioral-lab')}
         ${commandItem('BP', 'Plan behavioral experiment', 'Create an exact hash-bound passive or authorized-active plan without executing traffic.', 'behavioral-plan')}
@@ -1506,6 +1509,18 @@ export function renderMissionControlHtml(
       setText(
         '#autopilot-runs',
         (state.autopilotRuns?.length ?? 0) + ((state.autopilotRuns?.length ?? 0) === 1 ? ' run' : ' runs'),
+      );
+      const proofMissions = Array.isArray(state.oneClickMissionRuns) ? state.oneClickMissionRuns : [];
+      const latestProofMission = proofMissions[0];
+      const activeProofStage = latestProofMission?.stages?.find((stage) => stage.status === 'running')
+        || latestProofMission?.stages?.find((stage) => stage.status === 'awaiting-approval')
+        || [...(latestProofMission?.stages || [])].reverse().find((stage) => stage.status === 'completed');
+      setText('#proof-mission-runs', proofMissions.length + (proofMissions.length === 1 ? ' run' : ' runs'));
+      setText(
+        '#proof-mission-stage',
+        latestProofMission
+          ? (activeProofStage?.title || latestProofMission.status) + ' / proof ' + latestProofMission.proof.passed + '/' + latestProofMission.proof.total
+          : 'No mission launched',
       );
       setText('#mcp-verdicts', (state.mcpTrust?.verdicts ?? 0) + ' checked');
       setText('#memory-stale', (state.memory?.stale ?? 0) + ' stale');
