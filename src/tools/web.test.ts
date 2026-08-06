@@ -33,6 +33,29 @@ describe('WebFetchTool', () => {
     expect(out).not.toContain('x()');
   });
 
+  it('removes script and style blocks with whitespace before closing brackets', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            '<main>Safe<script type="text/javascript" >alert(1)</script ><style >secret{}</style >Text</main>',
+          ),
+      ),
+    );
+
+    const out = await new WebFetchTool().run(
+      { url: 'https://example.com/irregular-markup' },
+      new AbortController().signal,
+      prompter,
+    );
+
+    expect(out).toContain('SafeText');
+    expect(out).not.toContain('alert(1)');
+    expect(out).not.toContain('secret{}');
+    expect(out).not.toContain('<script');
+  });
+
   it('explains HackerOne platform DNS failures with a public program URL hint', async () => {
     const cause = Object.assign(new Error('getaddrinfo ENOTFOUND platform.hackerone.com'), {
       code: 'ENOTFOUND',

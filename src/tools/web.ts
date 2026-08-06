@@ -10,11 +10,8 @@ const FETCH_TIMEOUT_MS = 30 * 1000;
 const FETCH_BODY_CAP = 512 * 1024;
 const SEARCH_BODY_CAP = 1024 * 1024;
 const FETCH_TEXT_CAP = 40 * 1024;
-// Cap the raw HTML fed to the regex passes below. stripHTML runs 5 global
-// regexes (some with `[\s\S]*?`) which are vulnerable to catastrophic
-// backtracking on pathological markup; bounding the input keeps the worst case
-// linear-ish. The downstream FETCH_TEXT_CAP (40KB) means text past this point
-// would be discarded anyway.
+// Bound the input processed by the single-pass markup scanner. The downstream
+// FETCH_TEXT_CAP (40KB) means text past this point would be discarded anyway.
 const STRIP_INPUT_CAP = 256 * 1024;
 
 // Small TTL + LRU cache so repeated web_fetch/web_search calls (the model often
@@ -60,21 +57,32 @@ export function clearWebCache(): void {
   resultCache = new Map<string, CacheEntry>();
 }
 
-const TAG_RE = /<[^>]+>/g;
-const SCRIPT_RE = /<script[^>]*>[\s\S]*?<\/script>/gi;
-const STYLE_RE = /<style[^>]*>[\s\S]*?<\/style>/gi;
 const WS_RE = /[ \t]+/g;
 const NL_RE = /\n{3,}/g;
 
 function stripHTML(s: string): string {
   const input = s.length > STRIP_INPUT_CAP ? s.slice(0, STRIP_INPUT_CAP) : s;
-  return input
-    .replace(SCRIPT_RE, '')
-    .replace(STYLE_RE, '')
-    .replace(TAG_RE, '')
-    .replace(WS_RE, ' ')
-    .replace(NL_RE, '\n\n')
-    .trim();
+  let output = '';
+  let suppressedTag: 'script' | 'style' | undefined;
+  let index = 0;
+  while (index < input.length) {
+    if (input[index] !== '<') {
+      if (!suppressedTag) output += input[index];
+      index += 1;
+      continue;
+    }
+    const end = input.indexOf('>', index + 1);
+    if (end < 0) break;
+    const token = input.slice(index + 1, end).trim();
+    const tag = token.match(/^\/?\s*([A-Za-z][A-Za-z0-9:-]*)/)?.[1]?.toLowerCase();
+    const closing = /^\//.test(token);
+    if (tag === 'script' || tag === 'style') {
+      if (closing && suppressedTag === tag) suppressedTag = undefined;
+      else if (!closing && !suppressedTag) suppressedTag = tag;
+    }
+    index = end + 1;
+  }
+  return output.replace(WS_RE, ' ').replace(NL_RE, '\n\n').trim();
 }
 
 export class WebFetchTool implements Tool {

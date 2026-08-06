@@ -75,6 +75,15 @@ All notable changes to this project are documented here. The format is based on
   so historical failed Actions runs cannot mask a current green build.
 - The local IDE API protocol is now version 14.
 
+### Security
+
+- Replaced regex-based HTML stripping with a bounded single-pass parser that
+  removes script, style, and tag content without incomplete sanitization.
+- Windows installers now launch only from fixed Hawk-controlled staging paths
+  after checksum and Authenticode verification, including rollback execution.
+- Daemon error responses now remove stack lines and local filesystem paths
+  before returning bounded messages to clients.
+
 ## [0.7.0] - 2026-07-20
 
 ### Added
