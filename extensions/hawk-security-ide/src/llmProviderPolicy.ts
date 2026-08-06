@@ -24,8 +24,8 @@ export interface HawkLlmProviderOption {
 const PROVIDERS: readonly HawkLlmProviderOption[] = [
   {
     id: 'ollama',
-    label: 'Ollama - local',
-    detail: 'Private local models managed by Hawk; no API key.',
+    label: 'Hawk Local - embedded',
+    detail: 'Private models on Hawk\'s managed runtime; no API key or external install.',
     local: true,
     apiKeyRequired: false,
     defaultBaseUrl: 'http://127.0.0.1:11434',

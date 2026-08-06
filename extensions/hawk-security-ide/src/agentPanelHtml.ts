@@ -1022,7 +1022,7 @@ export function renderAgentPanelHtml(
 
     function friendlyError(copy) {
       if (isLocalModelOffline(copy)) {
-        return 'Local model is offline. Start Ollama or choose another configured model in Hawk Settings.';
+        return 'Hawk Local AI is offline. Open Manage Embedded Local AI or choose another configured model.';
       }
       return copy;
     }

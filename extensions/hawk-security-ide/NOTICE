@@ -6,3 +6,7 @@ Licensed under the Apache License, Version 2.0. See LICENSE for details.
 
 Hawk Security IDE additions are Copyright 2026 MrBoodj011 contributors and
 are distributed under the same Apache License, Version 2.0.
+
+Windows desktop distributions may include the official standalone Ollama
+runtime. Ollama is Copyright (c) Ollama and licensed under the MIT License.
+Its complete license is shipped beside the embedded runtime.

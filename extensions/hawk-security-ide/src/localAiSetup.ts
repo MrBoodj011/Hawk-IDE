@@ -1,16 +1,20 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { access, mkdir, stat, unlink } from 'node:fs/promises';
+import { access, mkdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import { totalmem } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as vscode from 'vscode';
 import type { DaemonClient } from './daemonClient';
 import {
   type LocalAiModelOption,
+  type OllamaRuntimeCandidate,
+  type OllamaRuntimeSource,
   localAiModelOptions,
+  ollamaRuntimeCandidates,
+  ollamaRuntimeEnvironment,
   recommendLocalAiModel,
   validateOllamaReleaseAsset,
 } from './localAiPolicy.js';
@@ -39,6 +43,7 @@ export interface HawkLocalAiStatus {
   installed: boolean;
   running: boolean;
   executable?: string;
+  runtimeSource?: OllamaRuntimeSource;
   models: string[];
   configuredModel: string;
 }
@@ -48,10 +53,13 @@ interface ModelPick extends vscode.QuickPickItem {
   approximateDownloadGb?: number;
 }
 
-/** Secure, user-approved Ollama bootstrap and local model configuration. */
+/** Secure Hawk-managed runtime activation and local model configuration. */
 export class HawkLocalAiSetup implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly statusBar: vscode.StatusBarItem;
+  private maintainingRuntime = false;
+  private lastRuntimeStartAt = 0;
+  private readonly verifiedRuntimePaths = new Set<string>();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -71,6 +79,10 @@ export class HawkLocalAiSetup implements vscode.Disposable {
         await this.showStatus(status);
       }),
     );
+    const runtimeWatch = setInterval(() => void this.maintainConfiguredRuntime(), 30_000);
+    runtimeWatch.unref();
+    this.disposables.push({ dispose: () => clearInterval(runtimeWatch) });
+    void this.maintainConfiguredRuntime();
     void this.refreshStatusBar();
   }
 
@@ -95,8 +107,8 @@ export class HawkLocalAiSetup implements vscode.Disposable {
     await this.context.globalState.update(FIRST_RUN_KEY, true);
     const action = await vscode.window.showInformationMessage(
       status.installed
-        ? 'Ollama is installed. Finish Hawk Local AI by choosing a coding model.'
-        : 'Set up private local AI for Hawk? Ollama runs on this machine and requires no API key.',
+        ? 'Hawk Local AI runtime is ready. Choose a private coding model.'
+        : 'Set up private Hawk Local AI? Hawk manages its own portable runtime and requires no API key.',
       'Set up Hawk Local AI',
       'Not now',
     );
@@ -104,16 +116,16 @@ export class HawkLocalAiSetup implements vscode.Disposable {
   }
 
   async inspect(): Promise<HawkLocalAiStatus> {
-    const executable = findOllamaExecutable();
+    const runtime = findOllamaRuntime(this.context);
     const models = await fetchInstalledModels().catch(() => undefined);
     const configuredModel = vscode.workspace
       .getConfiguration('hawk')
       .get<string>('preferredModel', '')
       .trim();
     return {
-      installed: Boolean(executable) || Boolean(models),
+      installed: Boolean(runtime) || Boolean(models),
       running: Boolean(models),
-      ...(executable ? { executable } : {}),
+      ...(runtime ? { executable: runtime.path, runtimeSource: runtime.source } : {}),
       models: models ?? [],
       configuredModel,
     };
@@ -140,7 +152,7 @@ export class HawkLocalAiSetup implements vscode.Disposable {
       const totalMemoryGb = Math.round(totalmem() / 1024 ** 3);
       if (!status.installed) {
         const approval = await vscode.window.showWarningMessage(
-          `Hawk will download the official Ollama runtime (about 1.4 GB; at least 4 GB installed) and then ${selected.model} (about ${selected.approximateDownloadGb ?? 'several'} GB). This machine reports ${totalMemoryGb} GB RAM.`,
+          `This build does not contain the embedded runtime, so Hawk will provision its own verified portable runtime (about 1.4 GB) and then ${selected.model} (about ${selected.approximateDownloadGb ?? 'several'} GB). Nothing is installed outside Hawk. This machine reports ${totalMemoryGb} GB RAM.`,
           { modal: true },
           'Install local AI',
         );
@@ -162,14 +174,20 @@ export class HawkLocalAiSetup implements vscode.Disposable {
         },
         async (progress, token) => {
           if (!status.installed) {
-            progress.report({ message: 'Preparing verified Ollama installer...' });
-            await this.installOllama(progress, token);
+            progress.report({ message: 'Preparing the Hawk-managed local AI runtime...' });
+            await this.provisionPortableRuntime(progress, token);
           }
           status = await this.ensureOllamaRunning(progress, token);
           if (!status.models.includes(selected.model)) {
-            const executable = status.executable ?? findOllamaExecutable();
-            if (!executable) throw new Error('Ollama installed, but ollama.exe was not found.');
-            await pullModel(executable, selected.model, progress, token);
+            const runtime = findOllamaRuntime(this.context);
+            if (!runtime) throw new Error('Hawk Local AI runtime was not found.');
+            await pullModel(
+              runtime.path,
+              selected.model,
+              this.runtimeEnvironment(),
+              progress,
+              token,
+            );
           }
           progress.report({ message: 'Connecting Hawk to the local model...' });
           await configureHawkForOllama(selected.model);
@@ -191,7 +209,7 @@ export class HawkLocalAiSetup implements vscode.Disposable {
     }
   }
 
-  private async installOllama(
+  private async provisionPortableRuntime(
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     token: vscode.CancellationToken,
   ): Promise<void> {
@@ -207,9 +225,9 @@ export class HawkLocalAiSetup implements vscode.Disposable {
       throw new Error(`GitHub returned HTTP ${releaseResponse.status} for Ollama releases.`);
     }
     const release = (await releaseResponse.json()) as OllamaRelease;
-    const rawAsset = release.assets?.find((asset) => asset.name === 'OllamaSetup.exe');
+    const rawAsset = release.assets?.find((asset) => asset.name === 'ollama-windows-amd64.zip');
     if (!rawAsset?.name || !rawAsset.browser_download_url || typeof rawAsset.size !== 'number') {
-      throw new Error('The latest official Ollama release has no Windows installer.');
+      throw new Error('The latest official Ollama release has no Windows standalone runtime.');
     }
     const asset = validateOllamaReleaseAsset({
       name: rawAsset.name,
@@ -217,57 +235,104 @@ export class HawkLocalAiSetup implements vscode.Disposable {
       browser_download_url: rawAsset.browser_download_url,
       digest: rawAsset.digest,
     });
-    const directory = join(this.context.globalStorageUri.fsPath, 'local-ai', 'downloads');
-    await mkdir(directory, { recursive: true });
-    const installer = join(directory, 'OllamaSetup.exe');
-    if (!(await verifiedCachedFile(installer, asset.size, asset.sha256))) {
-      await unlink(installer).catch(() => undefined);
-      await downloadAsset(asset.downloadUrl, installer, asset.size, progress, token);
-      const actualHash = await sha256File(installer);
+    const localAiRoot = join(this.context.globalStorageUri.fsPath, 'local-ai');
+    const downloadDirectory = join(localAiRoot, 'downloads');
+    const runtimeDirectory = join(localAiRoot, 'runtime');
+    const stagingDirectory = join(localAiRoot, 'runtime-staging');
+    await mkdir(downloadDirectory, { recursive: true });
+    const archive = join(downloadDirectory, 'ollama-windows-amd64.zip');
+    if (!(await verifiedCachedFile(archive, asset.size, asset.sha256))) {
+      await unlink(archive).catch(() => undefined);
+      await downloadAsset(asset.downloadUrl, archive, asset.size, progress, token);
+      const actualHash = await sha256File(archive);
       if (actualHash !== asset.sha256) {
-        await unlink(installer).catch(() => undefined);
-        throw new Error('Ollama installer failed SHA-256 verification.');
+        await unlink(archive).catch(() => undefined);
+        throw new Error('Ollama runtime archive failed SHA-256 verification.');
       }
     }
-    progress.report({ message: 'Verifying Ollama Windows signature...' });
-    await verifyAuthenticode(installer);
     if (token.isCancellationRequested) throw new vscode.CancellationError();
-    progress.report({ message: 'Installing Ollama for this Windows account...' });
-    const code = await waitForProcess(
-      spawn(installer, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-'], {
-        windowsHide: true,
-        stdio: 'ignore',
-      }),
-      token,
-      30 * 60_000,
-    );
-    if (code !== 0) throw new Error(`Ollama installer exited with code ${code}.`);
-    await unlink(installer).catch(() => undefined);
+    progress.report({ message: 'Activating the portable runtime inside Hawk...' });
+    await rm(stagingDirectory, { recursive: true, force: true });
+    await mkdir(stagingDirectory, { recursive: true });
+    await expandArchive(archive, stagingDirectory, token);
+    const executable = join(stagingDirectory, 'ollama.exe');
+    await access(executable).catch(() => {
+      throw new Error('The verified runtime archive did not contain ollama.exe.');
+    });
+    progress.report({ message: 'Verifying the embedded runtime signature...' });
+    await verifyAuthenticode(executable);
+    await rm(runtimeDirectory, { recursive: true, force: true });
+    await rename(stagingDirectory, runtimeDirectory);
+  }
+
+  private runtimeEnvironment(): NodeJS.ProcessEnv {
+    const modelsRoot = process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, 'Hawk', 'models')
+      : join(this.context.globalStorageUri.fsPath, 'local-ai', 'models');
+    return ollamaRuntimeEnvironment(process.env, modelsRoot);
+  }
+
+  private async maintainConfiguredRuntime(): Promise<void> {
+    if (this.maintainingRuntime || process.platform !== 'win32') return;
+    const provider = vscode.workspace.getConfiguration('hawk').get<string>('preferredProvider', '');
+    if (provider !== 'ollama') return;
+    this.maintainingRuntime = true;
+    try {
+      const status = await this.inspect();
+      if (status.running) return;
+      if (Date.now() - this.lastRuntimeStartAt < 60_000) return;
+      const runtime = findOllamaRuntime(this.context);
+      if (!runtime) return;
+      await this.startRuntime(runtime.path);
+    } catch {
+      // Setup and the status bar expose repair details without noisy background errors.
+    } finally {
+      this.maintainingRuntime = false;
+    }
+  }
+
+  private async startRuntime(executable: string): Promise<void> {
+    if (!this.verifiedRuntimePaths.has(executable)) {
+      await verifyAuthenticode(executable);
+      this.verifiedRuntimePaths.add(executable);
+    }
+    const environment = this.runtimeEnvironment();
+    const modelsRoot = environment.OLLAMA_MODELS;
+    if (!modelsRoot) throw new Error('Hawk Local AI model storage is unavailable.');
+    await mkdir(modelsRoot, { recursive: true });
+    const child = spawn(executable, ['serve'], {
+      cwd: dirname(executable),
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore',
+      env: environment,
+    });
+    this.lastRuntimeStartAt = Date.now();
+    child.unref();
+  }
+
+  private async waitUntilRunning(token?: vscode.CancellationToken): Promise<HawkLocalAiStatus> {
+    const deadline = Date.now() + 45_000;
+    while (Date.now() < deadline) {
+      if (token?.isCancellationRequested) throw new vscode.CancellationError();
+      await delay(750);
+      const status = await this.inspect();
+      if (status.running) return status;
+    }
+    throw new Error('Hawk Local AI did not start its private loopback API.');
   }
 
   private async ensureOllamaRunning(
     progress: vscode.Progress<{ message?: string; increment?: number }>,
     token: vscode.CancellationToken,
   ): Promise<HawkLocalAiStatus> {
-    let status = await this.inspect();
+    const status = await this.inspect();
     if (status.running) return status;
-    const executable = status.executable ?? findOllamaExecutable();
-    if (!executable) throw new Error('ollama.exe was not found after installation.');
-    progress.report({ message: 'Starting the local Ollama service...' });
-    const child = spawn(executable, ['serve'], {
-      detached: true,
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-    child.unref();
-    const deadline = Date.now() + 45_000;
-    while (Date.now() < deadline) {
-      if (token.isCancellationRequested) throw new vscode.CancellationError();
-      await delay(750);
-      status = await this.inspect();
-      if (status.running) return status;
-    }
-    throw new Error('Ollama did not start its local API on port 11434.');
+    const runtime = findOllamaRuntime(this.context);
+    if (!runtime) throw new Error('Hawk Local AI runtime was not found.');
+    progress.report({ message: 'Starting the private Hawk Local AI runtime...' });
+    await this.startRuntime(runtime.path);
+    return await this.waitUntilRunning(token);
   }
 
   private async refreshStatusBar(): Promise<void> {
@@ -280,19 +345,19 @@ export class HawkLocalAiSetup implements vscode.Disposable {
     }
     if (status?.installed) {
       this.statusBar.text = '$(cloud-download) Finish Local AI';
-      this.statusBar.tooltip = 'Ollama is installed; choose a local coding model.';
+      this.statusBar.tooltip = 'Hawk Local AI runtime is embedded; choose a coding model.';
       this.statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       return;
     }
     this.statusBar.text = '$(sparkle) Set up Local AI';
-    this.statusBar.tooltip = 'Install verified Ollama and a hardware-sized coding model.';
+    this.statusBar.tooltip = 'Activate Hawk Local AI and choose a hardware-sized coding model.';
     this.statusBar.backgroundColor = undefined;
   }
 
   private async showStatus(status: HawkLocalAiStatus): Promise<void> {
     if (!status.installed) {
       const action = await vscode.window.showInformationMessage(
-        'Hawk Local AI is not installed.',
+        'This Hawk build is missing its managed Local AI runtime.',
         'Set up local AI',
       );
       if (action === 'Set up local AI') await this.setup();
@@ -300,7 +365,7 @@ export class HawkLocalAiSetup implements vscode.Disposable {
     }
     if (!status.running) {
       const action = await vscode.window.showWarningMessage(
-        'Ollama is installed but its local API is offline.',
+        'Hawk Local AI runtime is present but its private API is offline.',
         'Repair local AI',
       );
       if (action === 'Repair local AI') await this.setup();
@@ -340,7 +405,7 @@ async function chooseModel(
     picks.push({
       label: `$(check) ${model}`,
       description: 'already installed',
-      detail: 'Use this local Ollama model without another download.',
+      detail: 'Use this Hawk Local AI model without another download.',
       model,
     });
   }
@@ -371,19 +436,12 @@ async function fetchInstalledModels(): Promise<string[]> {
     .sort((left, right) => left.localeCompare(right));
 }
 
-function findOllamaExecutable(): string | undefined {
-  const candidates = [
-    process.env.LOCALAPPDATA
-      ? join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe')
-      : '',
-    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Ollama', 'ollama.exe') : '',
-    process.env.ProgramFiles ? join(process.env.ProgramFiles, 'Ollama', 'ollama.exe') : '',
-    ...(process.env.PATH ?? '')
-      .split(delimiter)
-      .filter(Boolean)
-      .map((directory) => join(directory, 'ollama.exe')),
-  ];
-  return candidates.find((candidate) => candidate && existsSync(candidate));
+function findOllamaRuntime(context: vscode.ExtensionContext): OllamaRuntimeCandidate | undefined {
+  return ollamaRuntimeCandidates({
+    executablePath: process.execPath,
+    extensionRoot: context.extensionUri.fsPath,
+    globalStorageRoot: context.globalStorageUri.fsPath,
+  }).find((candidate) => existsSync(candidate.path));
 }
 
 async function downloadAsset(
@@ -495,13 +553,16 @@ async function verifyAuthenticode(path: string): Promise<void> {
 async function pullModel(
   executable: string,
   model: string,
+  environment: NodeJS.ProcessEnv,
   progress: vscode.Progress<{ message?: string; increment?: number }>,
   token: vscode.CancellationToken,
 ): Promise<void> {
   progress.report({ message: `Downloading ${model}...` });
   const child = spawn(executable, ['pull', model], {
+    cwd: dirname(executable),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: environment,
   });
   let output = '';
   const onData = (chunk: Buffer) => {
@@ -521,6 +582,36 @@ async function pullModel(
       `Ollama could not pull ${model}${output.trim() ? `: ${output.trim().slice(-500)}` : ''}`,
     );
   }
+}
+
+async function expandArchive(
+  archive: string,
+  destination: string,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const powershell = process.env.SystemRoot
+    ? join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    : 'powershell.exe';
+  const child = spawn(
+    powershell,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force',
+      archive,
+      destination,
+    ],
+    { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] },
+  );
+  let stderr = '';
+  child.stderr?.on('data', (chunk: Buffer) => {
+    stderr = `${stderr}${chunk.toString('utf8')}`.slice(-MAX_OUTPUT_BYTES);
+  });
+  const code = await waitForProcess(child, token, 30 * 60_000);
+  if (code !== 0) throw new Error(stderr.trim() || `Runtime extraction exited with code ${code}.`);
 }
 
 async function captureProcess(command: string, args: string[], timeoutMs: number): Promise<string> {

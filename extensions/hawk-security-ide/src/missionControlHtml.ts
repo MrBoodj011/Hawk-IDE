@@ -1132,7 +1132,7 @@ export function renderMissionControlHtml(
             </div>
             <div class="card-body">
               <div class="tool-grid">
-                ${toolCard('LOCAL/00', 'Verified local AI', 'Hawk installs the official signed Ollama runtime, recommends a hardware-sized coding model and configures the private loopback route.')}
+                ${toolCard('LOCAL/00', 'Embedded local AI', 'Hawk owns a verified portable runtime, private loopback lifecycle, crash recovery and hardware-sized model manager.')}
                 ${toolCard('TAB/01', 'Hawk Tab', 'Private inline completions use prefix, suffix and related workspace symbols with cancellable low-latency requests.')}
                 ${toolCard('INDEX/02', 'Semantic workspace', 'A bounded local symbol-and-code index ranks implementations without sending the repository to an embedding service.')}
                 ${toolCard('EDIT/03', 'Review checkpoints', 'Every multi-file patch stays isolated, hash-bound, checkpointed, testable and reversible before Apply.')}
