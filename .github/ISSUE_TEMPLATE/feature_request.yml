@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose an improvement to Hawk IDE.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the developer or security workflow that needs improvement.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Explain the ideal user flow and expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and privacy
+      description: Note permissions, data handling, sandboxing, and approval requirements.
+    validations:
+      required: true

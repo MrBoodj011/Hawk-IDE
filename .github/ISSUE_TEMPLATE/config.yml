@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/MrBoodj011/Hawk-IDE/security/advisories/new
+    about: Report vulnerabilities privately through GitHub Security Advisories.
+  - name: Responsible use
+    url: https://github.com/MrBoodj011/Hawk-IDE/blob/main/RESPONSIBLE_USE.md
+    about: Review the authorization and responsible-use requirements.
