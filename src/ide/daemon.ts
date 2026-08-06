@@ -2022,7 +2022,13 @@ function closeServer(server: Server): Promise<void> {
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  const message =
+    err instanceof Error ? err.message : typeof err === 'string' ? err : 'request failed';
+  const firstLine = message.split(/\r?\n/, 1)[0] ?? 'request failed';
+  return firstLine
+    .replace(/[A-Za-z]:\\[^\s]+/g, '[local path]')
+    .replace(/\/(?:[^\s/:]+\/){2,}[^\s:]+/g, '[local path]')
+    .slice(0, 500);
 }
 
 function parseScanRequest(body: Buffer): {

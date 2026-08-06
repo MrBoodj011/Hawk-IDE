@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -181,13 +181,18 @@ export class HawkReleaseUpdater implements vscode.Disposable {
             'Install Hawk update',
           );
           if (approval !== 'Install Hawk update') return;
+          const launchInstaller = await stageWindowsInstallerForLaunch(
+            installer,
+            this.context.globalStorageUri.fsPath,
+            expectedPublisher,
+          );
           await this.context.globalState.update(UPDATE_TRANSACTION_KEY, {
             fromVersion: currentVersion,
             toVersion: normalizeReleaseVersion(release.tag_name),
-            installer,
+            installer: launchInstaller,
             startedAt: new Date().toISOString(),
           });
-          const child = spawn(installer, [], {
+          const child = spawn(launchInstaller, [], {
             detached: true,
             stdio: 'ignore',
             windowsHide: false,
@@ -249,7 +254,12 @@ export class HawkReleaseUpdater implements vscode.Disposable {
       'Run rollback installer',
     );
     if (approval !== 'Run rollback installer') return;
-    const child = spawn(selected.candidate.path, [], {
+    const launchInstaller = await stageWindowsInstallerForLaunch(
+      selected.candidate.path,
+      this.context.globalStorageUri.fsPath,
+      expectedPublisher,
+    );
+    const child = spawn(launchInstaller, [], {
       detached: true,
       stdio: 'ignore',
       windowsHide: false,
@@ -353,6 +363,25 @@ async function downloadVerifiedAsset(
       await unlink(target).catch(() => undefined);
       throw error;
     }
+  }
+  return target;
+}
+
+async function stageWindowsInstallerForLaunch(
+  verifiedSource: string,
+  storageRoot: string,
+  expectedPublisher: string,
+): Promise<string> {
+  const directory = join(storageRoot, 'updates', 'approved-launch');
+  await mkdir(directory, { recursive: true });
+  const target = join(directory, 'HawkSetup.exe');
+  await unlink(target).catch(() => undefined);
+  await copyFile(verifiedSource, target);
+  try {
+    await verifyWindowsAuthenticode(target, expectedPublisher);
+  } catch (error) {
+    await unlink(target).catch(() => undefined);
+    throw error;
   }
   return target;
 }

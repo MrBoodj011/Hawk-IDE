@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { access, mkdir, stat, unlink } from 'node:fs/promises';
 import { totalmem } from 'node:os';
-import { basename, delimiter, join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as vscode from 'vscode';
@@ -217,13 +217,9 @@ export class HawkLocalAiSetup implements vscode.Disposable {
       browser_download_url: rawAsset.browser_download_url,
       digest: rawAsset.digest,
     });
-    const directory = join(
-      this.context.globalStorageUri.fsPath,
-      'local-ai',
-      release.tag_name?.replace(/[^0-9A-Za-z._-]/g, '') || 'latest',
-    );
+    const directory = join(this.context.globalStorageUri.fsPath, 'local-ai', 'downloads');
     await mkdir(directory, { recursive: true });
-    const installer = join(directory, basename(asset.name));
+    const installer = join(directory, 'OllamaSetup.exe');
     if (!(await verifiedCachedFile(installer, asset.size, asset.sha256))) {
       await unlink(installer).catch(() => undefined);
       await downloadAsset(asset.downloadUrl, installer, asset.size, progress, token);

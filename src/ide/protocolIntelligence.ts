@@ -151,7 +151,7 @@ export function detectFile(file: string, content: string): ProtocolSurface[] {
       const evidence = lineText(content, line);
       const exposure = classifyExposure(detection.kind, content, line, authSignals);
       output.push({
-        id: `surface-${hash(`${detection.kind}\u0000${file}\u0000${line}\u0000${evidence}`)}`,
+        id: `surface-${evidenceFingerprint(`${detection.kind}\u0000${file}\u0000${line}\u0000${evidence}`)}`,
         kind: detection.kind,
         label: detection.label(match, file).slice(0, 160),
         file,
@@ -230,6 +230,8 @@ function deduplicate(values: ProtocolSurface[]): ProtocolSurface[] {
   });
 }
 
-function hash(value: string): string {
+// This digest deduplicates already-redacted evidence. It is not used for
+// password authentication, credential storage, or security decisions.
+function evidenceFingerprint(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 20);
 }
