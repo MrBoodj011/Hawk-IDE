@@ -49,6 +49,7 @@ import { type InteractionChaosReport, analyzeInteractionChaos } from './interact
 import { listMcpToolGovernance } from './mcpGovernance.js';
 import { McpTrustPlatform } from './mcpTrust.js';
 import { HawkObservability } from './observability.js';
+import { type OneClickMissionOperations, OneClickMissionService } from './oneClickMission.js';
 import { HawkDockerOrchestrator } from './orchestrator.js';
 import {
   analyzePullRequestDiff,
@@ -178,6 +179,8 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
     'security-graph-deliveries',
   );
   const autonomousSecurity = new AutonomousSecurityService(workspaceRoot, durableStore, now);
+  const oneClickMissions = new OneClickMissionService(workspaceRoot, durableStore, now);
+  await oneClickMissions.recoverInterrupted();
   const agentFleet = new AgentFleetRegistry(durableStore, now);
   const governedMemory = new GovernedMemory(durableStore, now);
   const mcpTrust = new McpTrustPlatform(durableStore, now);
@@ -336,6 +339,7 @@ export async function startIdeDaemon(opts: IdeDaemonOptions = {}): Promise<IdeDa
       identityReplay,
       observability,
       autonomousSecurity,
+      oneClickMissions,
       agentFleet,
       governedMemory,
       learning,
@@ -418,6 +422,7 @@ interface RequestContext {
   identityReplay: IdentityReplayService;
   observability: HawkObservability;
   autonomousSecurity: AutonomousSecurityService;
+  oneClickMissions: OneClickMissionService;
   agentFleet: AgentFleetRegistry;
   governedMemory: GovernedMemory;
   learning: ProjectLearningLedger;
@@ -440,6 +445,95 @@ async function ensureInventory(context: RequestContext): Promise<WorkspaceInvent
   };
   context.setInventory(inventory);
   return inventory;
+}
+
+function oneClickOperations(context: RequestContext): OneClickMissionOperations {
+  return {
+    inventory: async () => {
+      const scan = await scanWorkspaceRoutes(context.workspaceRoot);
+      const inventory: WorkspaceInventory = {
+        protocolVersion: IDE_PROTOCOL_VERSION,
+        root: context.workspaceRoot,
+        indexedAt: context.now().toISOString(),
+        sourceFiles: scan.sourceFiles,
+        routes: scan.routes,
+      };
+      context.setInventory(inventory);
+      await context.semanticIndex.build();
+      return inventory;
+    },
+    protocols: async () => {
+      const protocols = await scanProtocolSurfaces(context.workspaceRoot, context.now());
+      context.setProtocols(protocols);
+      return protocols;
+    },
+    audit: async () => {
+      const audit = await scanWorkspaceSecurity(context.workspaceRoot, context.now());
+      context.setFindings(audit.findings);
+      return audit;
+    },
+    attackTwin: async () => {
+      const inventory = context.inventory();
+      const protocols = context.protocols();
+      if (!inventory || !protocols) throw new Error('Mission discovery stages are incomplete');
+      const graph = await buildMissionGraph(context, inventory, protocols);
+      return buildAttackTwin({
+        inventory,
+        protocols,
+        graph,
+        findings: context.findings(),
+        now: context.now(),
+      });
+    },
+    proofCorrelation: async () => {
+      const inventory = context.inventory();
+      const protocols = context.protocols();
+      if (!inventory || !protocols) throw new Error('Mission discovery stages are incomplete');
+      const graph = await buildMissionGraph(context, inventory, protocols);
+      const findings = context.findings().length;
+      return {
+        nodes: graph.summary.nodes,
+        edges: graph.summary.edges,
+        correlated:
+          findings === 0 ||
+          (graph.summary.sourceLinkedFindings >= findings &&
+            graph.summary.evidenceLinkedFindings >= findings),
+      };
+    },
+    evidencePack: async () => {
+      const inventory = await ensureInventory(context);
+      const report = await buildEvidencePack({
+        workspaceRoot: context.workspaceRoot,
+        approved: true,
+        traffic: context.traffic(),
+        hawkHealth: context.hawkHealth(),
+        interactionChaos: context.interactionChaos(),
+        behavioralSecurity: context.behavioralSecurity(inventory),
+        now: context.now(),
+      });
+      context.addEvidencePack(report);
+      return report;
+    },
+  };
+}
+
+async function buildMissionGraph(
+  context: RequestContext,
+  inventory: WorkspaceInventory,
+  protocols: Awaited<ReturnType<typeof scanProtocolSurfaces>>,
+) {
+  return await buildUnifiedSecurityGraph(context.proofGraph, {
+    inventory,
+    findings: context.findings(),
+    traffic: context.traffic(),
+    evidencePacks: context.evidencePacks(),
+    sessions: await context.aiSessions.list(50),
+    reproductions: await context.reproducer.list(100),
+    protocols,
+    deliveries: context.deliveries(),
+    interactionChaos: context.interactionChaos(),
+    behavioralSecurity: context.behavioralSecurity(inventory),
+  });
 }
 
 async function handleRequest(
@@ -1845,6 +1939,74 @@ async function handleRequest(
         now: context.now(),
       });
       sendJSON(res, 200, mission);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/missions/run') {
+    try {
+      const body = parseJSONBody<Record<string, unknown>>(await readBody(req));
+      if (body.approved !== true)
+        throw new Error('operator approval is required to start a one-click mission');
+      const input = parseMissionRequest(Buffer.from(JSON.stringify(body)));
+      const plan = await createGovernedMission({
+        workspaceRoot: context.workspaceRoot,
+        objective: input.objective,
+        profile: input.profile,
+        hosts: input.hosts,
+        now: context.now(),
+      });
+      const run = await context.oneClickMissions.start(plan, oneClickOperations(context));
+      sendJSON(res, 201, run);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/missions/runs') {
+    sendJSON(res, 200, {
+      protocolVersion: IDE_PROTOCOL_VERSION,
+      runs: await context.oneClickMissions.list(),
+    });
+    return;
+  }
+
+  const missionRunMatch = pathname.match(/^\/v1\/missions\/runs\/([^/]+)$/);
+  if (req.method === 'GET' && missionRunMatch?.[1]) {
+    const run = await context.oneClickMissions.get(decodeURIComponent(missionRunMatch[1]));
+    if (!run) sendJSON(res, 404, { ok: false, error: 'one-click mission not found' });
+    else sendJSON(res, 200, run);
+    return;
+  }
+
+  const missionResumeMatch = pathname.match(/^\/v1\/missions\/runs\/([^/]+)\/resume$/);
+  if (req.method === 'POST' && missionResumeMatch?.[1]) {
+    try {
+      const body = parseJSONBody<Record<string, unknown>>(await readBody(req));
+      if (body.approved !== true)
+        throw new Error('operator approval is required to resume a mission');
+      const run = await context.oneClickMissions.resume(
+        decodeURIComponent(missionResumeMatch[1]),
+        oneClickOperations(context),
+      );
+      sendJSON(res, 200, run);
+    } catch (err) {
+      sendJSON(res, 400, { ok: false, error: errorMessage(err) });
+    }
+    return;
+  }
+
+  const missionCancelMatch = pathname.match(/^\/v1\/missions\/runs\/([^/]+)\/cancel$/);
+  if (req.method === 'POST' && missionCancelMatch?.[1]) {
+    try {
+      sendJSON(
+        res,
+        200,
+        await context.oneClickMissions.cancel(decodeURIComponent(missionCancelMatch[1])),
+      );
     } catch (err) {
       sendJSON(res, 400, { ok: false, error: errorMessage(err) });
     }

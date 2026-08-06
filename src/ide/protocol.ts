@@ -542,6 +542,90 @@ export interface AutonomousSecurityRun {
   statement: string;
 }
 
+export type OneClickMissionStageId =
+  | 'inventory'
+  | 'protocols'
+  | 'static-audit'
+  | 'attack-twin'
+  | 'proof-correlation'
+  | 'evidence-pack'
+  | 'reproduction'
+  | 'fix-candidate'
+  | 'regression-tests'
+  | 'semantic-review';
+
+export type OneClickMissionStatus =
+  | 'running'
+  | 'paused'
+  | 'awaiting-approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface OneClickMissionStage {
+  id: OneClickMissionStageId;
+  title: string;
+  status: 'pending' | 'running' | 'completed' | 'awaiting-approval' | 'skipped' | 'failed';
+  execution: 'automatic' | 'approval-gate';
+  summary: string;
+  artifactDigest?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface OneClickProofGate {
+  id:
+    | 'source-correlated'
+    | 'evidence-pack'
+    | 'baseline-fails'
+    | 'reproduced'
+    | 'independent-reproduction'
+    | 'identity-valid'
+    | 'impact-demonstrated'
+    | 'within-scope'
+    | 'safe-side-effects'
+    | 'secrets-redacted'
+    | 'post-fix-tests-pass'
+    | 'semantic-review';
+  title: string;
+  passed: boolean;
+  evidenceUris: string[];
+}
+
+/** Durable end-to-end security mission. High-risk stages always stop at exact approval gates. */
+export interface OneClickMissionRun {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  planHash: string;
+  objective: string;
+  profile: GovernedMissionProfile;
+  status: OneClickMissionStatus;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  recoveredAfterRestart: boolean;
+  stages: OneClickMissionStage[];
+  proof: {
+    verdict: 'no-signals' | 'unverified' | 'verified';
+    passed: number;
+    total: number;
+    gates: OneClickProofGate[];
+  };
+  summary: {
+    sourceFiles: number;
+    protocolSurfaces: number;
+    findings: number;
+    attackPaths: number;
+    graphNodes: number;
+    graphEdges: number;
+    evidenceArtifacts: number;
+  };
+  reportPath: string;
+  statement: string;
+  error?: string;
+}
+
 export interface FleetNodeSnapshot {
   id: string;
   label: string;

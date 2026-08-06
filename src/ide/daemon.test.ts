@@ -692,6 +692,31 @@ describe('startIdeDaemon', () => {
         planHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         reportPath: expect.stringMatching(/^\.hawk\/plans\/plan-.+\.md$/),
       });
+      const proofMission = await fetch(`${daemon.url}/v1/missions/run`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          objective: 'Map this workspace and build a strict proof contract',
+          profile: 'review',
+          hosts: [],
+          approved: true,
+        }),
+      });
+      expect(proofMission.status).toBe(201);
+      await expect(proofMission.json()).resolves.toMatchObject({
+        status: expect.stringMatching(/^(completed|awaiting-approval)$/),
+        proof: { total: 12 },
+        stages: expect.arrayContaining([
+          expect.objectContaining({ id: 'evidence-pack', status: 'completed' }),
+          expect.objectContaining({ id: 'reproduction' }),
+        ]),
+        reportPath: expect.stringMatching(/^\.hawk\/missions\/proof-mission-.+\.md$/),
+      });
+      const proofMissionRuns = await fetch(`${daemon.url}/v1/missions/runs`, { headers });
+      expect(proofMissionRuns.status).toBe(200);
+      await expect(proofMissionRuns.json()).resolves.toMatchObject({
+        runs: [{ proof: { total: 12 } }],
+      });
     } finally {
       await daemon.close();
     }

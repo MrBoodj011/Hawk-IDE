@@ -1019,6 +1019,46 @@ export interface AutonomousSecurityRun {
   statement: string;
 }
 
+export interface OneClickMissionRun {
+  protocolVersion: number;
+  id: string;
+  planId: string;
+  planHash: string;
+  objective: string;
+  profile: GovernedMissionProfile;
+  status: 'running' | 'paused' | 'awaiting-approval' | 'completed' | 'failed' | 'cancelled';
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  recoveredAfterRestart: boolean;
+  stages: Array<{
+    id: string;
+    title: string;
+    status: 'pending' | 'running' | 'completed' | 'awaiting-approval' | 'skipped' | 'failed';
+    execution: 'automatic' | 'approval-gate';
+    summary: string;
+    artifactDigest?: string;
+  }>;
+  proof: {
+    verdict: 'no-signals' | 'unverified' | 'verified';
+    passed: number;
+    total: number;
+    gates: Array<{ id: string; title: string; passed: boolean; evidenceUris: string[] }>;
+  };
+  summary: {
+    sourceFiles: number;
+    protocolSurfaces: number;
+    findings: number;
+    attackPaths: number;
+    graphNodes: number;
+    graphEdges: number;
+    evidenceArtifacts: number;
+  };
+  reportPath: string;
+  statement: string;
+  error?: string;
+}
+
 export interface FleetSnapshot {
   protocolVersion: number;
   generatedAt: string;

@@ -41,6 +41,7 @@ import type {
   InlineCompletionResponse,
   InteractionChaosReport,
   McpTrustPosture,
+  OneClickMissionRun,
   MultiFileEditPredictionDocument,
   MultiFileEditPredictionResponse,
   ObservabilitySnapshot,
@@ -539,6 +540,27 @@ export class DaemonClient implements vscode.Disposable {
   ): Promise<{ protocolVersion: number; runs: AutonomousSecurityRun[] }> {
     const daemon = await this.start(workspace);
     return await this.request(daemon, '/v1/security/autopilot/runs');
+  }
+
+  async runOneClickMission(
+    workspace: vscode.Uri,
+    objective: string,
+    profile: GovernedMissionProfile = 'review',
+    hosts: string[] = [],
+  ): Promise<OneClickMissionRun> {
+    const daemon = await this.start(workspace);
+    return await this.request<OneClickMissionRun>(daemon, '/v1/missions/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objective, profile, hosts, approved: true }),
+    });
+  }
+
+  async oneClickMissionRuns(
+    workspace: vscode.Uri,
+  ): Promise<{ protocolVersion: number; runs: OneClickMissionRun[] }> {
+    const daemon = await this.start(workspace);
+    return await this.request(daemon, '/v1/missions/runs');
   }
 
   async fleet(workspace: vscode.Uri): Promise<FleetSnapshot> {
