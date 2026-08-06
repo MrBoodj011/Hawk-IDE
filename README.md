@@ -239,9 +239,9 @@ curl -H "X-Hawk-Token: <token>" http://127.0.0.1:<port>/v1/health
 curl -X POST -H "X-Hawk-Token: <token>" http://127.0.0.1:<port>/v1/workspace/index
 ```
 
-### Optional local AI
+### Integrated local AI
 
-Use **Hawk: Set Up Local AI with Ollama** from the command palette. The wizard verifies the official installer digest and Windows signer, recommends a model for available RAM, asks for approval before download, and configures the loopback provider.
+Windows releases include Hawk's verified portable Ollama runtime. Hawk starts and repairs it privately on loopback, keeps models under `%LOCALAPPDATA%\Hawk\models`, recommends a model for available RAM, and provides cancellable model downloads from **Hawk: Manage Local AI**. Nothing is installed as a separate application or added to `PATH`. Development builds without the embedded payload can provision the same standalone runtime inside Hawk's private extension storage.
 
 For hosted BYOK models, run **Hawk: Configure AI Provider and API Key**. Hawk
 stores the key in the operating system's encrypted extension secret vault,

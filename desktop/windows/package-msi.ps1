@@ -10,6 +10,9 @@ $source = (Resolve-Path -LiteralPath $SourceDir).Path
 if ($source -notmatch 'VSCode-win32-x64$') {
   throw "Refusing to package an unexpected directory: $source"
 }
+if (!(Test-Path -LiteralPath (Join-Path $source 'resources\hawk-local-ai\ollama\ollama.exe'))) {
+  throw 'The portable source is missing the embedded Hawk Local AI runtime. Run prepare-embedded-ollama.ps1 first.'
+}
 
 $wixRoots = @(
   $WixBin,

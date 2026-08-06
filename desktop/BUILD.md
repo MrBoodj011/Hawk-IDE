@@ -66,13 +66,13 @@ from the private GitHub release feed on a Windows runner and validates the
 checksum, PE header, and Authenticode chain. It never launches the installer;
 Hawk itself asks for explicit approval before starting an update.
 
-The NSIS EXE includes a selected **Hawk Local AI runtime (Ollama)** component.
-It does not embed the roughly gigabyte-scale third-party runtime. Instead, the
-installer runs `desktop/windows/install-ollama.ps1`, which downloads only the
-latest official `ollama/ollama` Windows release, verifies its published
-SHA-256 digest and Authenticode signer, and performs the per-user installation.
-The coding model is chosen later inside Hawk so its additional disk usage is
-never accepted implicitly.
+Windows releases embed the official standalone Ollama runtime directly inside
+Hawk. The release job runs `desktop/windows/prepare-embedded-ollama.ps1`, accepts
+only the official Windows AMD64 archive, verifies its published SHA-256 digest
+and the extracted executable's Authenticode signer, then places it under
+`resources/hawk-local-ai/ollama`. The Hawk installer never launches another
+installer. Coding models are chosen and downloaded later inside Hawk so their
+additional disk usage is never accepted implicitly.
 
 For a personal Windows build outside GitHub Actions, the checked-in packaging
 scripts accept portable tool directories and do not require a machine-wide
@@ -81,6 +81,7 @@ installation:
 ```powershell
 $env:HAWK_NSIS_BIN = 'C:\tools\nsis'
 $env:HAWK_WIX_BIN = 'C:\tools\wix314'
+.\desktop\windows\prepare-embedded-ollama.ps1 -PortableDir C:\build\VSCode-win32-x64
 .\desktop\windows\package-installer.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.7.0 -Output artifacts\HawkSetup-windows-x64-0.7.0.exe
 .\desktop\windows\package-msi.ps1 -SourceDir C:\build\VSCode-win32-x64 -Version 0.7.0 -Output artifacts\Hawk-windows-x64-0.7.0.msi
 ```

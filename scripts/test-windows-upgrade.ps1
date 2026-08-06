@@ -41,7 +41,7 @@ function Assert-Signed {
 
 function Invoke-HawkInstaller {
   param([Parameter(Mandatory = $true)][string]$Path)
-  $process = Start-Process -FilePath $Path -ArgumentList '/S', '/NOLOCALAI' -Wait -PassThru -WindowStyle Hidden
+  $process = Start-Process -FilePath $Path -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
   if ($process.ExitCode -ne 0) {
     throw "Hawk installer returned exit code $($process.ExitCode): $Path"
   }

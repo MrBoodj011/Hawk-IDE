@@ -57,12 +57,13 @@ resumes the PR step after an AI patch is applied. GitHub authentication uses
 VS Code's built-in session or encrypted local SecretStorage, and final merge
 approval remains human-controlled.
 
-**Hawk: Set Up Local AI with Ollama** discovers an existing local runtime or
-downloads the latest official Windows release. Hawk requires the GitHub
-release SHA-256 digest and a valid Ollama Authenticode signer before launch,
-then offers a RAM-sized coding model with its approximate download size.
-Model installation remains explicitly approved and the selected provider is
-configured on `http://127.0.0.1:11434`.
+**Hawk: Manage Embedded Local AI** uses the portable runtime included in Hawk's
+Windows package, launches it only on private loopback, recovers it after a
+crash, and keeps models under Hawk's own local storage. Development builds can
+provision the same standalone runtime without installing another application;
+Hawk requires the official GitHub SHA-256 digest and a valid Authenticode
+signer before launch. The RAM-sized model picker shows download size before
+approval and configures the selected provider on `http://127.0.0.1:11434`.
 
 **Hawk: Configure AI Provider and API Key** supports Ollama, LM Studio,
 OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Kimi, and custom

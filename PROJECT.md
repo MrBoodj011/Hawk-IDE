@@ -101,17 +101,19 @@ and an evidence-confidence-labelled recommendation.
 
 ## Hawk Local AI
 
-The Windows EXE installer offers the official Ollama runtime as a selected
-component without embedding its large binary into Hawk. The bootstrap resolves
-the latest `ollama/ollama` GitHub release, accepts only `OllamaSetup.exe` from
-the official release path, requires its published SHA-256 digest, validates the
-download size, and requires a valid Ollama Authenticode signer.
+Windows releases embed the official standalone Ollama runtime inside Hawk.
+The release build accepts only `ollama-windows-amd64.zip` from the official
+`ollama/ollama` GitHub release path, requires its published SHA-256 digest,
+validates the archive size, verifies the extracted executable's Authenticode
+signer, and ships the Ollama MIT license beside the runtime. Hawk never launches
+another installer or adds the runtime to the user's `PATH`.
 
-On first run, Hawk detects the loopback API and installed models. If a model is
-still needed, the native picker recommends a Qwen coding model from system RAM,
-shows the approximate model size, and waits for explicit approval. Hawk then
-pulls the model with visible progress, configures the provider and base URL,
-and restarts the workspace daemon.
+On first run, Hawk starts and repairs its private loopback runtime, stores
+models under `%LOCALAPPDATA%\Hawk\models`, and detects installed models. If a
+model is still needed, the native picker recommends a Qwen coding model from
+system RAM, shows the approximate model size, and waits for explicit approval.
+Hawk then pulls the model with cancellable progress, configures the provider
+and base URL, and restarts the workspace daemon.
 
 ## Governed security workflows
 

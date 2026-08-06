@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   localAiModelOptions,
+  ollamaRuntimeCandidates,
+  ollamaRuntimeEnvironment,
   recommendLocalAiModel,
   validateOllamaReleaseAsset,
 } from '../../extensions/hawk-security-ide/src/localAiPolicy.js';
@@ -14,34 +16,70 @@ describe('Hawk local AI policy', () => {
     expect(localAiModelOptions()).toHaveLength(4);
   });
 
-  it('accepts only a digested installer from the official Ollama release path', () => {
+  it('accepts only a digested standalone runtime from the official Ollama release path', () => {
     expect(
       validateOllamaReleaseAsset({
-        name: 'OllamaSetup.exe',
+        name: 'ollama-windows-amd64.zip',
         size: 1_426_451_968,
         browser_download_url:
-          'https://github.com/ollama/ollama/releases/download/v0.32.1/OllamaSetup.exe',
+          'https://github.com/ollama/ollama/releases/download/v0.32.1/ollama-windows-amd64.zip',
         digest: `sha256:${'a'.repeat(64)}`,
       }),
     ).toMatchObject({
-      name: 'OllamaSetup.exe',
+      name: 'ollama-windows-amd64.zip',
       sha256: 'a'.repeat(64),
     });
     expect(() =>
       validateOllamaReleaseAsset({
-        name: 'OllamaSetup.exe',
+        name: 'ollama-windows-amd64.zip',
         size: 1_426_451_968,
-        browser_download_url: 'https://example.com/OllamaSetup.exe',
+        browser_download_url: 'https://example.com/ollama-windows-amd64.zip',
         digest: `sha256:${'a'.repeat(64)}`,
       }),
     ).toThrow(/official GitHub/);
     expect(() =>
       validateOllamaReleaseAsset({
-        name: 'OllamaSetup.exe',
+        name: 'ollama-windows-amd64.zip',
         size: 1_426_451_968,
         browser_download_url:
-          'https://github.com/ollama/ollama/releases/download/v0.32.1/OllamaSetup.exe',
+          'https://github.com/ollama/ollama/releases/download/v0.32.1/ollama-windows-amd64.zip',
       }),
     ).toThrow(/SHA-256/);
+  });
+
+  it('prefers the Hawk-embedded runtime and isolates model storage', () => {
+    const candidates = ollamaRuntimeCandidates({
+      executablePath: 'C:\\Program Files\\Hawk\\Hawk.exe',
+      extensionRoot: 'C:\\Program Files\\Hawk\\resources\\app\\extensions\\hawk-security-ide',
+      globalStorageRoot: 'C:\\Users\\demo\\AppData\\Roaming\\Hawk',
+      environment: {
+        LOCALAPPDATA: 'C:\\Users\\demo\\AppData\\Local',
+        ProgramFiles: 'C:\\Program Files',
+        PATH: 'C:\\Tools',
+      },
+    });
+    expect(candidates[0]).toEqual({
+      path: 'C:\\Program Files\\Hawk\\resources\\hawk-local-ai\\ollama\\ollama.exe',
+      source: 'embedded',
+    });
+    expect(candidates.map((candidate) => candidate.source)).toEqual([
+      'embedded',
+      'embedded',
+      'managed',
+      'external',
+      'external',
+      'external',
+      'external',
+    ]);
+    expect(
+      ollamaRuntimeEnvironment(
+        { PATH: 'C:\\Windows' },
+        'C:\\Users\\demo\\AppData\\Local\\Hawk\\models',
+      ),
+    ).toMatchObject({
+      OLLAMA_HOST: '127.0.0.1:11434',
+      OLLAMA_MODELS: 'C:\\Users\\demo\\AppData\\Local\\Hawk\\models',
+      OLLAMA_NOHISTORY: '1',
+    });
   });
 });

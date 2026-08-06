@@ -115,7 +115,7 @@
           {
             "id": "hawk.launch.local-ai",
             "title": "Connect the coding core",
-            "description": "Install a verified local Ollama runtime or connect your own provider from OS-backed secret storage.\n[Configure Hawk AI](command:hawk.configureLLMProvider)"
+            "description": "Activate Hawk's embedded private AI runtime or connect your own provider from OS-backed secret storage.\n[Manage Hawk AI](command:hawk.setupLocalAI)"
           },
           {
             "id": "hawk.launch.index",
@@ -271,7 +271,7 @@
       },
       {
         "command": "hawk.setupLocalAI",
-        "title": "Hawk: Set Up Local AI with Ollama"
+        "title": "Hawk: Manage Embedded Local AI"
       },
       {
         "command": "hawk.showLocalAIStatus",
@@ -351,7 +351,7 @@
         "hawk.localAI.offerSetupOnFirstRun": {
           "type": "boolean",
           "default": true,
-          "description": "Offer the verified Ollama and local coding model setup when Hawk has no configured provider."
+          "description": "Offer Hawk's embedded private runtime and local coding model setup when no provider is configured."
         },
         "hawk.openMissionControlOnStartup": {
           "type": "boolean",
@@ -425,17 +425,17 @@
         "hawk.index.embeddings.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Add optional local Ollama embeddings to Hawk's persistent AST/type index. Source remains on this machine."
+          "description": "Add optional Hawk Local embeddings to the persistent AST/type index. Source remains on this machine."
         },
         "hawk.index.embeddings.model": {
           "type": "string",
           "default": "embeddinggemma",
-          "description": "Local Ollama embedding model used by Hawk hybrid search."
+          "description": "Hawk Local embedding model used by hybrid search."
         },
         "hawk.index.embeddings.baseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:11434",
-          "description": "Loopback-only Ollama URL for optional Hawk embeddings."
+          "description": "Loopback-only Hawk Local AI URL for optional embeddings."
         },
         "hawk.debug.autoFix.maxAttempts": {
           "type": "number",

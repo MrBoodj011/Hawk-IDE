@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Embedded Hawk Local AI for Windows** - release builds now bundle the
+  official standalone Ollama runtime after release digest and Authenticode
+  verification. Hawk owns loopback startup, crash recovery, private model
+  storage, model selection, and cancellable downloads without launching a
+  second installer or adding anything to `PATH`.
 - **Enforced coverage gate** - V8 coverage is collected in CI with checked-in
   statement, branch, function, and line thresholds; the HTML report is uploaded
   as a build artifact for review.

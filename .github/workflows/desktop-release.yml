@@ -372,6 +372,9 @@ jobs:
           $artifacts = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
           New-Item -ItemType Directory -Force $artifacts | Out-Null
           $portable = Join-Path $env:RUNNER_TEMP "VSCode-win32-${{ matrix.arch }}"
+          & "$env:GITHUB_WORKSPACE\desktop\windows\prepare-embedded-ollama.ps1" `
+            -PortableDir $portable `
+            -CacheDir (Join-Path $env:RUNNER_TEMP 'hawk-ollama-cache')
           Compress-Archive -Path "$portable\*" `
             -DestinationPath "$artifacts\Hawk-windows-${{ matrix.arch }}-$env:HAWK_VERSION-portable.zip" `
             -CompressionLevel Optimal
